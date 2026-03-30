@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 背景色 - 冷调浅灰，科技感 */
+    --background: #F3F5F8;
+
+    /* 侧边栏/卡片 */
+    --card: #FFFFFF;
+    --card-foreground: #111827;
+
+    --popover: #FFFFFF;
+    --popover-foreground: #111827;
+
+    /* 文字 */
+    --foreground: #111827;
+    --muted-foreground: #6B7280;
+
+    /* 主色 - 科技蓝 */
+    --primary: #2563EB;
+    --primary-foreground: #FFFFFF;
+
+    /* 次级 - 冷调灰 */
+    --secondary: #EBEEF3;
+    --secondary-foreground: #111827;
+
+    /* 静音 */
+    --muted: #EBEEF3;
+
+    /* 强调 - 浅蓝底 */
+    --accent: #EDF1FF;
+    --accent-foreground: #111827;
+
+    /* 危险 */
+    --destructive: #EF4444;
+    --destructive-foreground: #FFFFFF;
+
+    /* 边框 - 冷调 */
+    --border: #DEE2EA;
+    --input: #DEE2EA;
+    --ring: #2563EB;
+
+    /* 圆角 */
+    --radius: 0.75rem;
+
+    /* 状态颜色 */
+    --status-connected: #10B981;
+    --status-disconnected: #EF4444;
+
+    /* 快捷操作按钮背景 */
+    --action-bg: #EBEEF3;
+
+    /* 发送按钮 */
+    --send-btn: #2563EB;
+  }
+
+  .dark {
+    /* 深蓝黑底 - 科技感 */
+    --background: #0C0E16;
+    --card: #151823;
+    --card-foreground: #E2E5EB;
+    --popover: #151823;
+    --popover-foreground: #E2E5EB;
+    --foreground: #E2E5EB;
+    --muted-foreground: #6B7280;
+
+    /* 主色 - 亮蓝 */
+    --primary: #3B82F6;
+    --primary-foreground: #FFFFFF;
+
+    --secondary: #1C1F2C;
+    --secondary-foreground: #E2E5EB;
+    --muted: #1C1F2C;
+
+    /* 强调 - 深蓝底 */
+    --accent: #1A2035;
+    --accent-foreground: #E2E5EB;
+
+    --destructive: #F87171;
+    --destructive-foreground: #FFFFFF;
+
+    /* 边框 - 蓝调暗线 */
+    --border: #232838;
+    --input: #232838;
+    --ring: #3B82F6;
+
+    --status-connected: #34D399;
+    --status-disconnected: #F87171;
+    --action-bg: #1C1F2C;
+    --send-btn: #3B82F6;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* 点状背景模式 */
+.dot-pattern {
+  background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+  background-size: 18px 18px;
+  background-color: var(--card);
+}
+
+/* macOS 标题栏拖拽区域 */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.streaming-breathing-dot {
+  --breathing-dot-color: #2563EB;
+  --breathing-dot-glow: rgba(37, 99, 235, 0.25);
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border-radius: 9999px;
+  background: var(--breathing-dot-color);
+  box-shadow: 0 0 0 0 var(--breathing-dot-glow);
+  animation: breathing-dot 1.4s ease-in-out infinite;
+}
+
+.dark .streaming-breathing-dot {
+  --breathing-dot-color: #60A5FA;
+  --breathing-dot-glow: rgba(96, 165, 250, 0.22);
+}
+
+@keyframes breathing-dot {
+  0% {
+    transform: scale(0.88);
+    opacity: 0.72;
+    box-shadow: 0 0 0 0 var(--breathing-dot-glow);
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+    box-shadow: 0 0 0 8px rgba(0, 0, 0, 0);
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0.78;
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+}
