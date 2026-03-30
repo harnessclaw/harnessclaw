@@ -1,0 +1,630 @@
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { join } from 'path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, chmodSync, rmSync } from 'fs'
+import { homedir } from 'os'
+import { spawn, ChildProcess } from 'child_process'
+import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { emmaClient } from './emma'
+import {
+  getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
+  deleteSession as dbDeleteSession, insertMessage, updateMessageContent,
+  getMessages, insertToolActivity
+} from './db'
+
+const EMMA_DIR = join(homedir(), '.emma')
+const NANOBOT_CONFIG_PATH = join(EMMA_DIR, 'config.json')
+const APP_CONFIG_PATH = join(homedir(), '.icuclaw.json')
+const EMMA_LAUNCHED_FLAG = join(EMMA_DIR, '.launched')
+const NANOBOT_BIN = join(EMMA_DIR, 'bin', 'nanobot')
+const CLAWHUB_BIN = join(EMMA_DIR, 'bin', 'clawhub')
+const CLAWHUB_WORKDIR = join(EMMA_DIR, 'workspace')
+const SKILLS_DIR = join(EMMA_DIR, 'workspace', 'skills')
+
+let nanobotProcess: ChildProcess | null = null
+
+function ensureDir(dir: string): void {
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+}
+
+function readJsonConfig(path: string, fallback: Record<string, unknown> = {}): Record<string, unknown> {
+  try {
+    if (!existsSync(path)) return fallback
+    const raw = readFileSync(path, 'utf-8')
+    return JSON.parse(raw)
+  } catch (err) {
+    return { ...fallback, _error: String(err) }
+  }
+}
+
+function saveJsonConfig(path: string, data: unknown): { ok: boolean; error?: string } {
+  try {
+    ensureDir(join(path, '..'))
+    writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8')
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
+
+function getClawhubWrapper(): string {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v bunx >/dev/null 2>&1; then
+  exec bunx --bun clawhub@latest "$@"
+fi
+
+if command -v npx >/dev/null 2>&1; then
+  exec npx --yes clawhub@latest "$@"
+fi
+
+echo "clawhub requires bunx or npx in PATH" >&2
+exit 127
+`
+}
+
+function installClawhubBinary(): { ok: boolean; path: string; error?: string } {
+  try {
+    const binDir = join(EMMA_DIR, 'bin')
+    ensureDir(binDir)
+    writeFileSync(CLAWHUB_BIN, getClawhubWrapper(), 'utf-8')
+    chmodSync(CLAWHUB_BIN, 0o755)
+    return { ok: true, path: CLAWHUB_BIN }
+  } catch (err) {
+    return { ok: false, path: CLAWHUB_BIN, error: String(err) }
+  }
+}
+
+function getClawhubStatus(): { installed: boolean; path: string } {
+  return {
+    installed: existsSync(CLAWHUB_BIN),
+    path: CLAWHUB_BIN,
+  }
+}
+
+function runClawhub(
+  args: string[],
+  options?: { timeoutMs?: number; cwd?: string }
+): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }> {
+  return new Promise((resolve) => {
+    if (!existsSync(CLAWHUB_BIN)) {
+      resolve({ ok: false, stdout: '', stderr: `clawhub not found: ${CLAWHUB_BIN}`, code: null })
+      return
+    }
+
+    const timeoutMs = options?.timeoutMs ?? 30000
+    ensureDir(CLAWHUB_WORKDIR)
+    const finalArgs = ['--workdir', CLAWHUB_WORKDIR, ...args]
+    const commandLine = [CLAWHUB_BIN, ...finalArgs].join(' ')
+    console.log('[ClawHub] Run:', commandLine, options?.cwd ? `(cwd: ${options.cwd})` : '')
+
+    const child = spawn(CLAWHUB_BIN, finalArgs, {
+      env: { ...process.env, HOME: homedir() },
+      cwd: options?.cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      child.kill('SIGTERM')
+      resolve({ ok: false, stdout, stderr: stderr || `Timed out after ${timeoutMs}ms`, code: null })
+    }, timeoutMs)
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+    child.on('error', (err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({ ok: false, stdout, stderr: String(err), code: null })
+    })
+    child.on('close', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({ ok: code === 0, stdout, stderr, code })
+    })
+  })
+}
+
+function startNanobot(): void {
+  if (nanobotProcess) return
+  if (!existsSync(NANOBOT_BIN)) {
+    console.warn('[Nanobot] Binary not found:', NANOBOT_BIN)
+    return
+  }
+  console.log('[Nanobot] Starting gateway...')
+  nanobotProcess = spawn(NANOBOT_BIN, ['gateway', '--config', NANOBOT_CONFIG_PATH], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: false,
+  })
+  nanobotProcess.stdout?.on('data', (data) => {
+    process.stdout.write(`[Nanobot] ${data}`)
+  })
+  nanobotProcess.stderr?.on('data', (data) => {
+    process.stderr.write(`[Nanobot] ${data}`)
+  })
+  nanobotProcess.on('error', (err) => {
+    console.error('[Nanobot] Failed to start:', err)
+    nanobotProcess = null
+  })
+  nanobotProcess.on('exit', (code) => {
+    console.log('[Nanobot] Exited with code:', code)
+    nanobotProcess = null
+  })
+}
+
+function stopNanobot(): void {
+  if (!nanobotProcess) return
+  console.log('[Nanobot] Stopping gateway...')
+  nanobotProcess.kill('SIGTERM')
+  nanobotProcess = null
+}
+
+function createWindow(): void {
+  const mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 1024,
+    minHeight: 768,
+    show: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 16 },
+    backgroundColor: '#F5F5F7',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    }
+  })
+
+  mainWindow.on('ready-to-show', () => {
+    mainWindow.show()
+  })
+
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+app.whenReady().then(() => {
+  electronApp.setAppUserModelId('com.openclaw.nanny')
+
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
+
+  // First-launch detection
+  ipcMain.handle('app:isFirstLaunch', () => {
+    return !existsSync(EMMA_LAUNCHED_FLAG)
+  })
+
+  ipcMain.handle('app:markLaunched', () => {
+    try {
+      if (!existsSync(EMMA_DIR)) {
+        mkdirSync(EMMA_DIR, { recursive: true })
+      }
+      writeFileSync(EMMA_LAUNCHED_FLAG, new Date().toISOString(), 'utf-8')
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  // Config file read/write
+  ipcMain.handle('config:read', () => {
+    return readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} })
+  })
+
+  ipcMain.handle('config:save', (_, data: unknown) => {
+    ensureDir(EMMA_DIR)
+    return saveJsonConfig(NANOBOT_CONFIG_PATH, data)
+  })
+
+  ipcMain.handle('app-config:read', () => {
+    return readJsonConfig(APP_CONFIG_PATH, {})
+  })
+
+  ipcMain.handle('app-config:save', (_, data: unknown) => {
+    return saveJsonConfig(APP_CONFIG_PATH, data)
+  })
+
+  ipcMain.handle('clawhub:getStatus', () => {
+    return getClawhubStatus()
+  })
+
+  ipcMain.handle('clawhub:install', () => {
+    return installClawhubBinary()
+  })
+
+  ipcMain.handle('clawhub:verifyToken', async (_, token: string) => {
+    const trimmed = token.trim()
+    if (!trimmed) {
+      return { ok: false, stdout: '', stderr: 'Token is required', code: null }
+    }
+    const status = getClawhubStatus()
+    if (!status.installed) {
+      const install = installClawhubBinary()
+      if (!install.ok) {
+        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+      }
+    }
+    return runClawhub(['login', '--token', trimmed])
+  })
+
+  ipcMain.handle('clawhub:explore', async () => {
+    const status = getClawhubStatus()
+    if (!status.installed) {
+      const install = installClawhubBinary()
+      if (!install.ok) {
+        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+      }
+    }
+    return runClawhub(['explore'])
+  })
+
+  ipcMain.handle('clawhub:search', async (_, query: string) => {
+    const trimmed = query.trim()
+    if (!trimmed) {
+      return { ok: false, stdout: '', stderr: 'Query is required', code: null }
+    }
+    const status = getClawhubStatus()
+    if (!status.installed) {
+      const install = installClawhubBinary()
+      if (!install.ok) {
+        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+      }
+    }
+    return runClawhub(['search', trimmed])
+  })
+
+  ipcMain.handle('clawhub:installSkill', async (_, slug: string) => {
+    const trimmed = slug.trim()
+    if (!trimmed) {
+      return { ok: false, stdout: '', stderr: 'Skill slug is required', code: null }
+    }
+    const status = getClawhubStatus()
+    if (!status.installed) {
+      const install = installClawhubBinary()
+      if (!install.ok) {
+        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+      }
+    }
+    ensureDir(SKILLS_DIR)
+    return runClawhub(['install', trimmed], { cwd: SKILLS_DIR, timeoutMs: 120000 })
+  })
+
+  // Skills reader
+  ipcMain.handle('skills:list', () => {
+    try {
+      if (!existsSync(SKILLS_DIR)) return []
+      const dirs = readdirSync(SKILLS_DIR).filter((name) => {
+        const full = join(SKILLS_DIR, name)
+        return statSync(full).isDirectory() && existsSync(join(full, 'SKILL.md'))
+      })
+      return dirs.map((dirName) => {
+        const md = readFileSync(join(SKILLS_DIR, dirName, 'SKILL.md'), 'utf-8')
+        // Parse YAML frontmatter
+        const match = md.match(/^---\n([\s\S]*?)\n---/)
+        const meta: Record<string, string> = {}
+        if (match) {
+          match[1].split('\n').forEach((line) => {
+            const idx = line.indexOf(':')
+            if (idx > 0) {
+              meta[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+            }
+          })
+        }
+        // Check for references and templates dirs
+        const hasRefs = existsSync(join(SKILLS_DIR, dirName, 'references'))
+        const hasTemplates = existsSync(join(SKILLS_DIR, dirName, 'templates'))
+        return {
+          id: dirName,
+          name: meta.name || dirName,
+          description: meta.description || '',
+          allowedTools: meta['allowed-tools'] || '',
+          hasReferences: hasRefs,
+          hasTemplates: hasTemplates,
+        }
+      })
+    } catch (err) {
+      console.error('[Skills] Failed to list:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('skills:read', (_, id: string) => {
+    try {
+      const filePath = join(SKILLS_DIR, id, 'SKILL.md')
+      if (!existsSync(filePath)) return ''
+      return readFileSync(filePath, 'utf-8')
+    } catch (err) {
+      console.error('[Skills] Failed to read:', err)
+      return ''
+    }
+  })
+
+  ipcMain.handle('skills:delete', (_, id: string) => {
+    try {
+      const trimmed = id.trim()
+      if (!trimmed || trimmed.includes('..') || trimmed.includes('/')) {
+        return { ok: false, error: 'Invalid skill id' }
+      }
+      const skillDir = join(SKILLS_DIR, trimmed)
+      if (!existsSync(skillDir)) {
+        return { ok: false, error: 'Skill not found' }
+      }
+      rmSync(skillDir, { recursive: true, force: true })
+      console.log('[Skills] Deleted:', trimmed)
+      return { ok: true }
+    } catch (err) {
+      console.error('[Skills] Failed to delete:', err)
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  // Start nanobot gateway, then connect Emma (auto-retries until gateway is ready)
+  startNanobot()
+  getDb() // Initialize DB on startup
+  emmaClient.connect()
+
+  emmaClient.on('statusChange', (status) => {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send('emma:status', status)
+    })
+  })
+
+  // DB IPC handlers
+  ipcMain.handle('db:listSessions', () => {
+    try {
+      return dbListSessions()
+    } catch (err) {
+      console.error('[DB] listSessions error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('db:getMessages', (_, sessionId: string) => {
+    try {
+      return getMessages(sessionId)
+    } catch (err) {
+      console.error('[DB] getMessages error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
+    try {
+      dbDeleteSession(sessionId)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  // Track pending assistant message IDs per session for DB writes
+  const pendingDbAssistantIds: Record<string, string> = {}
+  const pendingDbSegments: Record<string, { segments: Array<{ text: string; ts: number }>; lastToolTs: number }> = {}
+
+  emmaClient.on('event', (event) => {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send('emma:event', event)
+    })
+
+    // Write to DB based on event type
+    const type = event.type as string
+    const sid = event.session_id as string | undefined
+    try {
+      switch (type) {
+        case 'connected': {
+          // Don't auto-create session in DB — session is created when user sends first message
+          break
+        }
+        case 'turn_start': {
+          if (sid) {
+            const now = Date.now()
+            const id = `ast-${now}`
+            pendingDbAssistantIds[sid] = id
+            pendingDbSegments[sid] = { segments: [], lastToolTs: 0 }
+            insertMessage({ id, sessionId: sid, role: 'assistant', content: '', contentSegments: [], createdAt: now })
+          }
+          break
+        }
+        case 'tool_hint': {
+          if (sid) {
+            const aid = pendingDbAssistantIds[sid]
+            if (aid) {
+              insertToolActivity(aid, { type: 'hint', content: (event.content as string) || '' })
+              const state = pendingDbSegments[sid]
+              if (state) state.lastToolTs = Date.now()
+            }
+          }
+          break
+        }
+        case 'tool_call': {
+          if (sid) {
+            const aid = pendingDbAssistantIds[sid]
+            if (aid) {
+              insertToolActivity(aid, {
+                type: 'call',
+                name: event.name as string,
+                content: JSON.stringify(event.arguments, null, 2),
+                callId: event.call_id as string,
+              })
+              const state = pendingDbSegments[sid]
+              if (state) state.lastToolTs = Date.now()
+            }
+          }
+          break
+        }
+        case 'tool_result': {
+          if (sid) {
+            const aid = pendingDbAssistantIds[sid]
+            if (aid) {
+              insertToolActivity(aid, {
+                type: 'result',
+                name: event.name as string,
+                content: (event.content as string) || '',
+                callId: event.call_id as string,
+                isError: event.is_error as boolean,
+              })
+              const state = pendingDbSegments[sid]
+              if (state) state.lastToolTs = Date.now()
+            }
+          }
+          break
+        }
+        case 'text_delta': {
+          if (sid) {
+            let aid = pendingDbAssistantIds[sid]
+            const chunk = event.content as string
+            const now = Date.now()
+            if (!aid) {
+              // No turn_start received — auto-create assistant message in DB
+              aid = `ast-${now}`
+              pendingDbAssistantIds[sid] = aid
+              const initialSegments = chunk ? [{ text: chunk, ts: now }] : []
+              pendingDbSegments[sid] = { segments: initialSegments, lastToolTs: 0 }
+              insertMessage({
+                id: aid,
+                sessionId: sid,
+                role: 'assistant',
+                content: chunk || '',
+                contentSegments: initialSegments,
+                createdAt: now
+              })
+            } else if (chunk) {
+              const state = pendingDbSegments[sid] || { segments: [], lastToolTs: 0 }
+              const segments = [...state.segments]
+              const lastSeg = segments[segments.length - 1]
+              if (lastSeg && state.lastToolTs <= lastSeg.ts) {
+                segments[segments.length - 1] = { text: lastSeg.text + chunk, ts: lastSeg.ts }
+              } else {
+                segments.push({ text: chunk, ts: now })
+              }
+              pendingDbSegments[sid] = { ...state, segments }
+              updateMessageContent(aid, chunk, segments)
+            }
+          }
+          break
+        }
+        case 'response_end': {
+          if (sid) {
+            const aid = pendingDbAssistantIds[sid]
+            if (aid) {
+              const toolsUsed = event.tools_used as string[] | undefined
+              const usage = event.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined
+              // Content already accumulated via text_delta; just update metadata
+              updateMessageContent(aid, '', pendingDbSegments[sid]?.segments, toolsUsed, usage)
+              delete pendingDbAssistantIds[sid]
+              delete pendingDbSegments[sid]
+            }
+          }
+          break
+        }
+      }
+    } catch (err) {
+      console.error('[DB] Event write error:', type, err)
+    }
+  })
+
+  ipcMain.handle('emma:connect', () => {
+    emmaClient.connect()
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:disconnect', () => {
+    emmaClient.disconnect()
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:send', (_, content: string, sessionId?: string) => {
+    emmaClient.send(content, sessionId)
+    // Write user message to DB
+    if (sessionId) {
+      try {
+        upsertSession(sessionId)
+        const msgId = `usr-${Date.now()}`
+        insertMessage({ id: msgId, sessionId, role: 'user', content, createdAt: Date.now() })
+        // Use first user message as session title
+        const msgs = getMessages(sessionId)
+        const userMsgs = msgs.filter((m) => m.role === 'user')
+        if (userMsgs.length === 1) {
+          const title = content.trim().replace(/\n/g, ' ')
+          const truncated = title.length > 50 ? title.slice(0, 50) + '...' : title
+          updateSessionTitle(sessionId, truncated)
+        }
+      } catch (err) {
+        console.error('[DB] Send write error:', err)
+      }
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:command', (_, cmd: string, sessionId?: string) => {
+    emmaClient.command(cmd, sessionId)
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:stop', (_, sessionId?: string) => {
+    emmaClient.stop(sessionId)
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:subscribe', (_, sessionId: string) => {
+    emmaClient.subscribe(sessionId)
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:unsubscribe', (_, sessionId: string) => {
+    emmaClient.unsubscribe(sessionId)
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:listSessions', () => {
+    emmaClient.listSessions()
+    return { ok: true }
+  })
+
+  ipcMain.handle('emma:status', () => {
+    return emmaClient.getStatus()
+  })
+
+  createWindow()
+
+  app.on('activate', function () {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})
+
+app.on('will-quit', () => {
+  emmaClient.disconnect()
+  stopNanobot()
+  closeDb()
+})
