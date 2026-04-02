@@ -83,7 +83,7 @@ export function WelcomeModal() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-foreground/5 mb-4">
             <span className="text-3xl" aria-hidden="true">🤖</span>
           </div>
-          <h2 id="welcome-title" className="text-xl font-semibold text-foreground">欢迎使用 Emma</h2>
+          <h2 id="welcome-title" className="text-xl font-semibold text-foreground">欢迎使用 Harnessclaw</h2>
           <p className="text-sm text-muted-foreground mt-1.5">
             您的本地 AI 助手，安全、高效、可控
           </p>

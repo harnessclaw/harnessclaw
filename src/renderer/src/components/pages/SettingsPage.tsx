@@ -469,8 +469,8 @@ function ClawHubSection() {
       <SectionHeader icon={Wrench} title="ClawHub" subtitle="CLI 安装与 Token 验证" />
 
       <GroupCard title="CLI">
-        <SettingRow label="命令路径" description="ClawHub 命令安装在 ~/.emma/bin/clawhub">
-          <TextInput value={binaryStatus?.path || '~/.emma/bin/clawhub'} onChange={() => undefined} className="w-64" mono disabled />
+        <SettingRow label="命令路径" description="ClawHub 命令安装在 ~/.harnessclaw/bin/clawhub">
+          <TextInput value={binaryStatus?.path || '~/.harnessclaw/bin/clawhub'} onChange={() => undefined} className="w-64" mono disabled />
         </SettingRow>
         <SettingRow label="安装状态" description="点击下载/更新会写入启动脚本，并在运行时调用最新 clawhub">
           <div className="flex items-center gap-2">
@@ -909,10 +909,10 @@ const CHANNEL_DISPLAY: Record<string, { name: string; icon: string; color: strin
   telegram:  { name: 'Telegram', icon: 'T', color: '#26A5E4' },
   wecom:     { name: '企业微信', icon: '企', color: '#07C160' },
   whatsapp:  { name: 'WhatsApp', icon: 'W', color: '#25D366' },
-  emma:      { name: 'Emma', icon: 'E', color: '#F59E0B' },
+  harnessclaw:      { name: 'Harnessclaw', icon: 'H', color: '#F59E0B' },
 }
 
-const CHANNEL_KEYS = ['dingtalk', 'discord', 'email', 'emma', 'feishu', 'mochat', 'qq', 'slack', 'telegram', 'wecom', 'whatsapp']
+const CHANNEL_KEYS = ['dingtalk', 'discord', 'email', 'harnessclaw', 'feishu', 'mochat', 'qq', 'slack', 'telegram', 'wecom', 'whatsapp']
 
 // Channel field labels (simplified Chinese)
 const FIELD_LABELS: Record<string, string> = {

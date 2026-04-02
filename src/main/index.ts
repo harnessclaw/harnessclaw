@@ -4,21 +4,21 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSy
 import { homedir } from 'os'
 import { spawn, ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { emmaClient } from './emma'
+import { harnessclawClient } from './harnessclaw'
 import {
   getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent,
   getMessages, insertToolActivity
 } from './db'
 
-const EMMA_DIR = join(homedir(), '.emma')
-const NANOBOT_CONFIG_PATH = join(EMMA_DIR, 'config.json')
+const HARNESSCLAW_DIR = join(homedir(), '.harnessclaw')
+const NANOBOT_CONFIG_PATH = join(HARNESSCLAW_DIR, 'config.json')
 const APP_CONFIG_PATH = join(homedir(), '.icuclaw.json')
-const EMMA_LAUNCHED_FLAG = join(EMMA_DIR, '.launched')
-const NANOBOT_BIN = join(EMMA_DIR, 'bin', 'nanobot')
-const CLAWHUB_BIN = join(EMMA_DIR, 'bin', 'clawhub')
-const CLAWHUB_WORKDIR = join(EMMA_DIR, 'workspace')
-const SKILLS_DIR = join(EMMA_DIR, 'workspace', 'skills')
+const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
+const NANOBOT_BIN = join(HARNESSCLAW_DIR, 'bin', 'nanobot')
+const CLAWHUB_BIN = join(HARNESSCLAW_DIR, 'bin', 'clawhub')
+const CLAWHUB_WORKDIR = join(HARNESSCLAW_DIR, 'workspace')
+const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
 
 let nanobotProcess: ChildProcess | null = null
 
@@ -67,7 +67,7 @@ exit 127
 
 function installClawhubBinary(): { ok: boolean; path: string; error?: string } {
   try {
-    const binDir = join(EMMA_DIR, 'bin')
+    const binDir = join(HARNESSCLAW_DIR, 'bin')
     ensureDir(binDir)
     writeFileSync(CLAWHUB_BIN, getClawhubWrapper(), 'utf-8')
     chmodSync(CLAWHUB_BIN, 0o755)
@@ -216,15 +216,15 @@ app.whenReady().then(() => {
 
   // First-launch detection
   ipcMain.handle('app:isFirstLaunch', () => {
-    return !existsSync(EMMA_LAUNCHED_FLAG)
+    return !existsSync(HARNESSCLAW_LAUNCHED_FLAG)
   })
 
   ipcMain.handle('app:markLaunched', () => {
     try {
-      if (!existsSync(EMMA_DIR)) {
-        mkdirSync(EMMA_DIR, { recursive: true })
+      if (!existsSync(HARNESSCLAW_DIR)) {
+        mkdirSync(HARNESSCLAW_DIR, { recursive: true })
       }
-      writeFileSync(EMMA_LAUNCHED_FLAG, new Date().toISOString(), 'utf-8')
+      writeFileSync(HARNESSCLAW_LAUNCHED_FLAG, new Date().toISOString(), 'utf-8')
       return { ok: true }
     } catch (err) {
       return { ok: false, error: String(err) }
@@ -237,7 +237,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('config:save', (_, data: unknown) => {
-    ensureDir(EMMA_DIR)
+    ensureDir(HARNESSCLAW_DIR)
     return saveJsonConfig(NANOBOT_CONFIG_PATH, data)
   })
 
@@ -383,14 +383,14 @@ app.whenReady().then(() => {
     }
   })
 
-  // Start nanobot gateway, then connect Emma (auto-retries until gateway is ready)
+  // Start nanobot gateway, then connect Harnessclaw (auto-retries until gateway is ready)
   startNanobot()
   getDb() // Initialize DB on startup
-  emmaClient.connect()
+  harnessclawClient.connect()
 
-  emmaClient.on('statusChange', (status) => {
+  harnessclawClient.on('statusChange', (status) => {
     BrowserWindow.getAllWindows().forEach((win) => {
-      win.webContents.send('emma:status', status)
+      win.webContents.send('harnessclaw:status', status)
     })
   })
 
@@ -426,9 +426,9 @@ app.whenReady().then(() => {
   const pendingDbAssistantIds: Record<string, string> = {}
   const pendingDbSegments: Record<string, { segments: Array<{ text: string; ts: number }>; lastToolTs: number }> = {}
 
-  emmaClient.on('event', (event) => {
+  harnessclawClient.on('event', (event) => {
     BrowserWindow.getAllWindows().forEach((win) => {
-      win.webContents.send('emma:event', event)
+      win.webContents.send('harnessclaw:event', event)
     })
 
     // Write to DB based on event type
@@ -548,18 +548,18 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('emma:connect', () => {
-    emmaClient.connect()
+  ipcMain.handle('harnessclaw:connect', () => {
+    harnessclawClient.connect()
     return { ok: true }
   })
 
-  ipcMain.handle('emma:disconnect', () => {
-    emmaClient.disconnect()
+  ipcMain.handle('harnessclaw:disconnect', () => {
+    harnessclawClient.disconnect()
     return { ok: true }
   })
 
-  ipcMain.handle('emma:send', (_, content: string, sessionId?: string) => {
-    emmaClient.send(content, sessionId)
+  ipcMain.handle('harnessclaw:send', (_, content: string, sessionId?: string) => {
+    harnessclawClient.send(content, sessionId)
     // Write user message to DB
     if (sessionId) {
       try {
@@ -581,33 +581,33 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
-  ipcMain.handle('emma:command', (_, cmd: string, sessionId?: string) => {
-    emmaClient.command(cmd, sessionId)
+  ipcMain.handle('harnessclaw:command', (_, cmd: string, sessionId?: string) => {
+    harnessclawClient.command(cmd, sessionId)
     return { ok: true }
   })
 
-  ipcMain.handle('emma:stop', (_, sessionId?: string) => {
-    emmaClient.stop(sessionId)
+  ipcMain.handle('harnessclaw:stop', (_, sessionId?: string) => {
+    harnessclawClient.stop(sessionId)
     return { ok: true }
   })
 
-  ipcMain.handle('emma:subscribe', (_, sessionId: string) => {
-    emmaClient.subscribe(sessionId)
+  ipcMain.handle('harnessclaw:subscribe', (_, sessionId: string) => {
+    harnessclawClient.subscribe(sessionId)
     return { ok: true }
   })
 
-  ipcMain.handle('emma:unsubscribe', (_, sessionId: string) => {
-    emmaClient.unsubscribe(sessionId)
+  ipcMain.handle('harnessclaw:unsubscribe', (_, sessionId: string) => {
+    harnessclawClient.unsubscribe(sessionId)
     return { ok: true }
   })
 
-  ipcMain.handle('emma:listSessions', () => {
-    emmaClient.listSessions()
+  ipcMain.handle('harnessclaw:listSessions', () => {
+    harnessclawClient.listSessions()
     return { ok: true }
   })
 
-  ipcMain.handle('emma:status', () => {
-    return emmaClient.getStatus()
+  ipcMain.handle('harnessclaw:status', () => {
+    return harnessclawClient.getStatus()
   })
 
   createWindow()
@@ -624,7 +624,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
-  emmaClient.disconnect()
+  harnessclawClient.disconnect()
   stopNanobot()
   closeDb()
 })

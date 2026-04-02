@@ -28,25 +28,25 @@ const clawhubAPI = {
   installSkill: (slug: string) => ipcRenderer.invoke('clawhub:installSkill', slug),
 }
 
-const emmaAPI = {
-  connect: () => ipcRenderer.invoke('emma:connect'),
-  disconnect: () => ipcRenderer.invoke('emma:disconnect'),
-  send: (content: string, sessionId?: string) => ipcRenderer.invoke('emma:send', content, sessionId),
-  command: (cmd: string, sessionId?: string) => ipcRenderer.invoke('emma:command', cmd, sessionId),
-  stop: (sessionId?: string) => ipcRenderer.invoke('emma:stop', sessionId),
-  subscribe: (sessionId: string) => ipcRenderer.invoke('emma:subscribe', sessionId),
-  unsubscribe: (sessionId: string) => ipcRenderer.invoke('emma:unsubscribe', sessionId),
-  listSessions: () => ipcRenderer.invoke('emma:listSessions'),
-  getStatus: () => ipcRenderer.invoke('emma:status'),
+const harnessclawAPI = {
+  connect: () => ipcRenderer.invoke('harnessclaw:connect'),
+  disconnect: () => ipcRenderer.invoke('harnessclaw:disconnect'),
+  send: (content: string, sessionId?: string) => ipcRenderer.invoke('harnessclaw:send', content, sessionId),
+  command: (cmd: string, sessionId?: string) => ipcRenderer.invoke('harnessclaw:command', cmd, sessionId),
+  stop: (sessionId?: string) => ipcRenderer.invoke('harnessclaw:stop', sessionId),
+  subscribe: (sessionId: string) => ipcRenderer.invoke('harnessclaw:subscribe', sessionId),
+  unsubscribe: (sessionId: string) => ipcRenderer.invoke('harnessclaw:unsubscribe', sessionId),
+  listSessions: () => ipcRenderer.invoke('harnessclaw:listSessions'),
+  getStatus: () => ipcRenderer.invoke('harnessclaw:status'),
   onStatus: (callback: (status: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, status: string): void => callback(status)
-    ipcRenderer.on('emma:status', handler)
-    return () => ipcRenderer.removeListener('emma:status', handler)
+    ipcRenderer.on('harnessclaw:status', handler)
+    return () => ipcRenderer.removeListener('harnessclaw:status', handler)
   },
   onEvent: (callback: (event: Record<string, unknown>) => void) => {
     const handler = (_: Electron.IpcRendererEvent, event: Record<string, unknown>): void => callback(event)
-    ipcRenderer.on('emma:event', handler)
-    return () => ipcRenderer.removeListener('emma:event', handler)
+    ipcRenderer.on('harnessclaw:event', handler)
+    return () => ipcRenderer.removeListener('harnessclaw:event', handler)
   },
 }
 
@@ -71,7 +71,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('nanobotConfig', configAPI)
     contextBridge.exposeInMainWorld('appConfig', appConfigAPI)
     contextBridge.exposeInMainWorld('clawhub', clawhubAPI)
-    contextBridge.exposeInMainWorld('emma', emmaAPI)
+    contextBridge.exposeInMainWorld('harnessclaw', harnessclawAPI)
     contextBridge.exposeInMainWorld('skills', skillsAPI)
     contextBridge.exposeInMainWorld('db', dbAPI)
   } catch (error) {
@@ -93,7 +93,7 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.clawhub = clawhubAPI
   // @ts-ignore (define in dts)
-  window.emma = emmaAPI
+  window.harnessclaw = harnessclawAPI
   // @ts-ignore (define in dts)
   window.skills = skillsAPI
   // @ts-ignore (define in dts)

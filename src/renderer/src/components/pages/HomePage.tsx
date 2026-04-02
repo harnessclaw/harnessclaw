@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Image, BookOpen, Pencil, HelpCircle, Send, Puzzle } from 'lucide-react'
-import { useEmmaStatus } from '../../hooks/useEmmaStatus'
+import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -9,7 +9,7 @@ export function HomePage() {
   const [input, setInput] = useState('')
   const navigate = useNavigate()
   const maxLength = 2000
-  const emmaStatus = useEmmaStatus()
+  const harnessclawStatus = useHarnessclawStatus()
   const shortcutHint = useMemo(() => isMac ? '⌘ + Enter 发送' : 'Ctrl + Enter 发送', [])
 
   const handleSend = () => {
@@ -91,7 +91,7 @@ export function HomePage() {
           </div>
           <div className="border border-dashed border-border rounded-xl p-8 text-center">
             <p className="text-sm text-muted-foreground">
-              {emmaStatus === 'connected' ? '暂无推荐技能' : '连接 Emma 后显示推荐技能'}
+              {harnessclawStatus === 'connected' ? '暂无推荐技能' : '连接 Harnessclaw 后显示推荐技能'}
             </p>
           </div>
         </section>
