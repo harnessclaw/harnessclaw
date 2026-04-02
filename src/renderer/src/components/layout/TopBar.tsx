@@ -1,4 +1,4 @@
-import { useEmmaStatus } from '../../hooks/useEmmaStatus'
+import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 
 function StatusPill({ status }: { status: 'connected' | 'disconnected' | 'connecting' }) {
   if (status === 'connected') {
@@ -28,15 +28,15 @@ function StatusPill({ status }: { status: 'connected' | 'disconnected' | 'connec
 }
 
 export function TopBar() {
-  const emmaStatus = useEmmaStatus()
+  const harnessclawStatus = useHarnessclawStatus()
 
   return (
     <div className="titlebar-drag h-[52px] flex items-end pb-2 px-4 border-b border-border bg-transparent flex-shrink-0">
       {/* Left: name + status */}
       <div className="titlebar-no-drag flex items-center gap-2">
         <span className="text-base" aria-hidden="true">🤖</span>
-        <span className="text-base font-semibold text-foreground">Emma</span>
-        <StatusPill status={emmaStatus} />
+        <span className="text-base font-semibold text-foreground">Harnessclaw</span>
+        <StatusPill status={harnessclawStatus} />
       </div>
 
       {/* Spacer */}

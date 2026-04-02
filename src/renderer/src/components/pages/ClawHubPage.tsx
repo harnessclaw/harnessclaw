@@ -137,7 +137,7 @@ export function ClawHubPage() {
         <div className="flex items-center justify-between mb-6 gap-4">
           <div>
             <h1 className="text-xl font-semibold text-foreground">ClawHub</h1>
-            <p className="text-sm text-muted-foreground mt-1">浏览、搜索并安装技能到 `~/.emma/workspace/skills`</p>
+            <p className="text-sm text-muted-foreground mt-1">浏览、搜索并安装技能到 `~/.harnessclaw/workspace/skills`</p>
           </div>
         </div>
 

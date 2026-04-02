@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type MessageRole = 'user' | 'assistant' | 'system'
-type EmmaStatus = 'disconnected' | 'connecting' | 'connected'
+type HarnessclawStatus = 'disconnected' | 'connecting' | 'connected'
 
 interface ToolActivity {
   type: 'hint' | 'call' | 'result'
@@ -56,7 +56,7 @@ export function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState('')
   const [input, setInput] = useState(location.state?.initialMessage || '')
   const [showSidebar, setShowSidebar] = useState(true)
-  const [emmaStatus, setEmmaStatus] = useState<EmmaStatus>('disconnected')
+  const [harnessclawStatus, setHarnessclawStatus] = useState<HarnessclawStatus>('disconnected')
   const [clientId, setClientId] = useState('')
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -92,7 +92,7 @@ export function ChatPage() {
       currentThinking: '',
       messages: [...prev.messages, { id: `usr-${Date.now()}`, role: 'user', content: text, timestamp: Date.now() }],
     }))
-    window.emma.send(text, sid)
+    window.harnessclaw.send(text, sid)
   }, [updateSession])
 
   const activeSession = getSession(activeSessionId)
@@ -172,18 +172,18 @@ export function ChatPage() {
     })
   }, [])
 
-  // Sync Emma status on mount
+  // Sync Harnessclaw status on mount
   useEffect(() => {
-    const offStatus = window.emma.onStatus((s) => {
-      setEmmaStatus(s as EmmaStatus)
+    const offStatus = window.harnessclaw.onStatus((s) => {
+      setHarnessclawStatus(s as HarnessclawStatus)
     })
 
-    const offEvent = window.emma.onEvent((event) => {
-      handleEmmaEvent(event)
+    const offEvent = window.harnessclaw.onEvent((event) => {
+      handleHarnessclawEvent(event)
     })
 
-    window.emma.getStatus().then((s) => {
-      setEmmaStatus(s.status as EmmaStatus)
+    window.harnessclaw.getStatus().then((s) => {
+      setHarnessclawStatus(s.status as HarnessclawStatus)
       if (s.clientId) setClientId(s.clientId)
       // Don't auto-set activeSessionId — user should pick or create a session
       if (s.status === 'connected' && pendingInitialMessage.current && s.sessionId) {
@@ -192,7 +192,7 @@ export function ChatPage() {
     })
 
     // Request session list
-    window.emma.listSessions()
+    window.harnessclaw.listSessions()
 
     return () => {
       offStatus()
@@ -200,8 +200,8 @@ export function ChatPage() {
     }
   }, [])
 
-  // Handle Emma events — route by session_id
-  const handleEmmaEvent = useCallback((event: Record<string, unknown>) => {
+  // Handle Harnessclaw events — route by session_id
+  const handleHarnessclawEvent = useCallback((event: Record<string, unknown>) => {
     const type = event.type as string
     const eventSessionId = event.session_id as string | undefined
     console.log('[ChatPage] event:', type, 'session_id:', eventSessionId, 'activeRef:', activeSessionIdRef.current)
@@ -210,9 +210,9 @@ export function ChatPage() {
       case 'connected': {
         const cid = event.client_id as string
         setClientId(cid)
-        setEmmaStatus('connected')
+        setHarnessclawStatus('connected')
         // Don't auto-set activeSessionId — user creates/selects sessions manually
-        window.emma.listSessions()
+        window.harnessclaw.listSessions()
         // Auto-send pending initial message if exists (from route state)
         if (pendingInitialMessage.current) {
           const sid = event.session_id as string
@@ -225,7 +225,7 @@ export function ChatPage() {
         // When server confirms subscription, migrate temp session id to real one
         const sid = eventSessionId!
         const currentActive = activeSessionIdRef.current
-        if (currentActive && currentActive.startsWith('emma:new-') && sid !== currentActive) {
+        if (currentActive && currentActive.startsWith('harnessclaw:new-') && sid !== currentActive) {
           setSessionMap((prev) => {
             const tempState = prev[currentActive]
             if (!tempState) return prev
@@ -449,13 +449,13 @@ export function ChatPage() {
         break
 
       default:
-        console.log('[Emma event]', type, JSON.stringify(event))
+        console.log('[Harnessclaw event]', type, JSON.stringify(event))
     }
   }, [sendInitialMessage, updateSession])
 
   const handleSend = () => {
     console.log('[ChatPage] handleSend activeSessionId:', activeSessionId, 'input:', input.slice(0, 20))
-    if (!input.trim() || activeSession.isProcessing || emmaStatus !== 'connected' || !activeSessionId) return
+    if (!input.trim() || activeSession.isProcessing || harnessclawStatus !== 'connected' || !activeSessionId) return
 
     updateSession(activeSessionId, (prev) => ({
       ...prev,
@@ -463,7 +463,7 @@ export function ChatPage() {
       currentThinking: '',
       messages: [...prev.messages, { id: `usr-${Date.now()}`, role: 'user', content: input, timestamp: Date.now() }],
     }))
-    window.emma.send(input, activeSessionId)
+    window.harnessclaw.send(input, activeSessionId)
     setInput('')
   }
 
@@ -475,12 +475,12 @@ export function ChatPage() {
 
   // New session: send /new command to create a fresh session via the default session
   const handleNewSession = () => {
-    if (emmaStatus !== 'connected') return
+    if (harnessclawStatus !== 'connected') return
     // Generate a unique session id
-    const newId = `emma:new-${Date.now().toString(36)}`
+    const newId = `harnessclaw:new-${Date.now().toString(36)}`
     console.log('[ChatPage] handleNewSession newId:', newId)
     // Subscribe + send /new to that session — server creates it
-    window.emma.command('/new', newId)
+    window.harnessclaw.command('/new', newId)
     // Init local state and switch
     setSessionMap((prev) => ({
       ...prev,
@@ -488,12 +488,12 @@ export function ChatPage() {
     }))
     setActiveSessionId(newId)
     // Refresh session list
-    setTimeout(() => window.emma.listSessions(), 500)
+    setTimeout(() => window.harnessclaw.listSessions(), 500)
   }
 
   const handleSwitchSession = (key: string) => {
     if (key === activeSessionId) return
-    window.emma.subscribe(key)
+    window.harnessclaw.subscribe(key)
     window.db.getMessages(key).then((rows) => {
       if (rows.length > 0) {
         setSessionMap((prev) => ({
@@ -513,8 +513,8 @@ export function ChatPage() {
   }
 
   const handleReconnect = () => {
-    window.emma.disconnect().then(() => {
-      setTimeout(() => window.emma.connect(), 300)
+    window.harnessclaw.disconnect().then(() => {
+      setTimeout(() => window.harnessclaw.connect(), 300)
     })
   }
 
@@ -535,7 +535,7 @@ export function ChatPage() {
   const handleStop = () => {
     if (!activeSessionId) return
     // Send stop command per API protocol: { type: "stop", session_id: "..." }
-    window.emma.stop(activeSessionId)
+    window.harnessclaw.stop(activeSessionId)
   }
 
   const handleClearHistory = () => {
@@ -557,7 +557,7 @@ export function ChatPage() {
           <div className="p-3 border-b border-border">
             <button
               onClick={handleNewSession}
-              disabled={emmaStatus !== 'connected'}
+              disabled={harnessclawStatus !== 'connected'}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-[#1A1A1A] text-white hover:bg-[#333333] disabled:opacity-50 transition-colors"
             >
               <Plus size={14} />
@@ -620,7 +620,7 @@ export function ChatPage() {
               {showSidebar ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
             </button>
             <span className="text-base">🤖</span>
-            <span className="text-sm font-medium">Emma</span>
+            <span className="text-sm font-medium">Harnessclaw</span>
             {activeSessionId && <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[200px]">{activeSessionId}</span>}
           </div>
           {activeSessionId && (
@@ -638,7 +638,7 @@ export function ChatPage() {
             <p className="text-sm mb-1">请选择一个会话或新建会话开始对话</p>
             <button
               onClick={handleNewSession}
-              disabled={emmaStatus !== 'connected'}
+              disabled={harnessclawStatus !== 'connected'}
               className="mt-3 flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-[#1A1A1A] text-white hover:bg-[#333333] disabled:opacity-50 transition-colors"
             >
               <Plus size={14} />
@@ -682,11 +682,11 @@ export function ChatPage() {
 
             {/* Input area */}
             <div className="p-4 border-t border-border">
-              {emmaStatus !== 'connected' && (
+              {harnessclawStatus !== 'connected' && (
                 <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
                   <AlertCircle size={14} className="text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
                   <span className="text-xs text-yellow-700 dark:text-yellow-300">
-                    未连接到 Emma，请确保 nanobot 已启动
+                    未连接到 Harnessclaw，请确保 nanobot 已启动
                   </span>
                   <button onClick={handleReconnect} className="text-xs font-medium text-yellow-700 dark:text-yellow-300 hover:underline flex-shrink-0">
                     重试
@@ -699,8 +699,8 @@ export function ChatPage() {
                     value={input}
                     onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
                     onKeyDown={handleKeyDown}
-                    disabled={activeSession.isProcessing || emmaStatus !== 'connected'}
-                    placeholder={emmaStatus === 'connected' ? '+ 有问题，尽管问' : '等待连接 Emma...'}
+                    disabled={activeSession.isProcessing || harnessclawStatus !== 'connected'}
+                    placeholder={harnessclawStatus === 'connected' ? '+ 有问题，尽管问' : '等待连接 Harnessclaw...'}
                     className="w-full bg-transparent resize-none outline-none text-sm text-foreground placeholder:text-muted-foreground min-h-[60px] max-h-[150px] disabled:opacity-50"
                     rows={2}
                   />
@@ -719,7 +719,7 @@ export function ChatPage() {
                       ) : (
                         <button
                           onClick={handleSend}
-                          disabled={!input.trim() || emmaStatus !== 'connected'}
+                          disabled={!input.trim() || harnessclawStatus !== 'connected'}
                           className="w-7 h-7 rounded-lg bg-[#555555] disabled:bg-[#C4C4C4] flex items-center justify-center transition-colors hover:bg-[#444444]"
                         >
                           <Send size={13} className="text-white" />

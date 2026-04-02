@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 
-interface EmmaConfig {
+interface HarnessclawConfig {
   enabled: boolean
   host: string
   port: number
@@ -12,11 +12,11 @@ interface EmmaConfig {
   allowFrom: string[]
 }
 
-type EmmaStatus = 'disconnected' | 'connecting' | 'connected'
+type HarnessclawStatus = 'disconnected' | 'connecting' | 'connected'
 
-export class EmmaClient extends EventEmitter {
+export class HarnessclawClient extends EventEmitter {
   private ws: WebSocket | null = null
-  private status: EmmaStatus = 'disconnected'
+  private status: HarnessclawStatus = 'disconnected'
   private clientId = ''
   private defaultSessionId = ''
   private subscriptions: string[] = []
@@ -41,18 +41,18 @@ export class EmmaClient extends EventEmitter {
 
     const cfg = this.readConfig()
     if (!cfg) {
-      this.emit('event', { type: 'error', content: 'Emma channel not found in config' })
+      this.emit('event', { type: 'error', content: 'Harnessclaw channel not found in config' })
       return
     }
 
     const url = `ws://${cfg.host}:${cfg.port}`
-    console.log(`[Emma] Connecting to ${url} (attempt ${this.retryCount + 1})`)
+    console.log(`[Harnessclaw] Connecting to ${url} (attempt ${this.retryCount + 1})`)
     this.setStatus('connecting')
 
     this.ws = new WebSocket(url)
 
     this.ws.on('open', () => {
-      console.log('[Emma] WebSocket opened')
+      console.log('[Harnessclaw] WebSocket opened')
       this.retryCount = 0
       if (cfg.token) {
         this.ws?.send(JSON.stringify({ type: 'auth', token: cfg.token }))
@@ -62,20 +62,20 @@ export class EmmaClient extends EventEmitter {
     this.ws.on('message', (data) => {
       try {
         const raw = data.toString()
-        console.log('[Emma] ← recv:', raw)
+        console.log('[Harnessclaw] ← recv:', raw)
         const msg = JSON.parse(raw)
         this.handleMessage(msg)
       } catch (e) {
-        console.error('[Emma] Failed to parse message:', e)
+        console.error('[Harnessclaw] Failed to parse message:', e)
       }
     })
 
     this.ws.on('error', (err) => {
-      console.error('[Emma] WebSocket error:', err.message)
+      console.error('[Harnessclaw] WebSocket error:', err.message)
     })
 
     this.ws.on('close', (code, reason) => {
-      console.log('[Emma] WebSocket closed:', code, reason.toString())
+      console.log('[Harnessclaw] WebSocket closed:', code, reason.toString())
       this.ws = null
       this.clientId = ''
       this.defaultSessionId = ''
@@ -88,12 +88,12 @@ export class EmmaClient extends EventEmitter {
   private scheduleRetry(): void {
     if (!this.shouldReconnect) return
     if (this.retryCount >= this.maxRetries) {
-      console.warn('[Emma] Max retries reached, giving up')
+      console.warn('[Harnessclaw] Max retries reached, giving up')
       return
     }
     // Backoff: 1s, 1s, 2s, 2s, 3s... capped at 5s
     const delay = Math.min(Math.floor(this.retryCount / 2) + 1, 5) * 1000
-    console.log(`[Emma] Retry in ${delay}ms...`)
+    console.log(`[Harnessclaw] Retry in ${delay}ms...`)
     this.retryTimer = setTimeout(() => {
       this.retryCount++
       this.attemptConnect()
@@ -108,7 +108,7 @@ export class EmmaClient extends EventEmitter {
       this.defaultSessionId = msg.session_id as string
       this.subscriptions = [this.defaultSessionId]
       this.setStatus('connected')
-      console.log('[Emma] Connected, client_id:', this.clientId, 'session_id:', this.defaultSessionId)
+      console.log('[Harnessclaw] Connected, client_id:', this.clientId, 'session_id:', this.defaultSessionId)
     }
 
     if (type === 'subscribed') {
@@ -125,12 +125,12 @@ export class EmmaClient extends EventEmitter {
 
   send(content: string, sessionId?: string): void {
     if (!this.ws || this.status !== 'connected') {
-      this.emit('event', { type: 'error', content: 'Not connected to Emma' })
+      this.emit('event', { type: 'error', content: 'Not connected to Harnessclaw' })
       return
     }
     const payload: Record<string, string> = { type: 'message', content }
     if (sessionId) payload.session_id = sessionId
-    console.log('[Emma] → send:', JSON.stringify(payload))
+    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
     this.ws.send(JSON.stringify(payload))
   }
 
@@ -138,7 +138,7 @@ export class EmmaClient extends EventEmitter {
     if (!this.ws || this.status !== 'connected') return
     const payload: Record<string, string> = { type: 'command', command: cmd }
     if (sessionId) payload.session_id = sessionId
-    console.log('[Emma] → send:', JSON.stringify(payload))
+    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
     this.ws.send(JSON.stringify(payload))
   }
 
@@ -146,7 +146,7 @@ export class EmmaClient extends EventEmitter {
     if (!this.ws || this.status !== 'connected') return
     const payload: Record<string, string> = { type: 'stop' }
     if (sessionId) payload.session_id = sessionId
-    console.log('[Emma] → send:', JSON.stringify(payload))
+    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
     this.ws.send(JSON.stringify(payload))
   }
 
@@ -181,7 +181,7 @@ export class EmmaClient extends EventEmitter {
     this.setStatus('disconnected')
   }
 
-  getStatus(): { status: EmmaStatus; clientId: string; sessionId: string; subscriptions: string[] } {
+  getStatus(): { status: HarnessclawStatus; clientId: string; sessionId: string; subscriptions: string[] } {
     return {
       status: this.status,
       clientId: this.clientId,
@@ -190,24 +190,24 @@ export class EmmaClient extends EventEmitter {
     }
   }
 
-  private setStatus(status: EmmaStatus): void {
+  private setStatus(status: HarnessclawStatus): void {
     this.status = status
     this.emit('statusChange', status)
   }
 
-  private readConfig(): EmmaConfig | null {
+  private readConfig(): HarnessclawConfig | null {
     try {
-      const cfgPath = join(homedir(), '.nanobot', 'config.json')
+      const cfgPath = join(homedir(), '.harnessclaw', 'config.json')
       if (!existsSync(cfgPath)) return null
       const raw = JSON.parse(readFileSync(cfgPath, 'utf-8'))
-      const emma = raw?.channels?.emma
-      if (!emma) return null
+      const harnessclaw = raw?.channels?.harnessclaw
+      if (!harnessclaw) return null
       return {
-        enabled: emma.enabled ?? false,
-        host: emma.host ?? '127.0.0.1',
-        port: emma.port ?? 18765,
-        token: emma.token ?? '',
-        allowFrom: emma.allowFrom ?? ['*'],
+        enabled: harnessclaw.enabled ?? false,
+        host: harnessclaw.host ?? '127.0.0.1',
+        port: harnessclaw.port ?? 18765,
+        token: harnessclaw.token ?? '',
+        allowFrom: harnessclaw.allowFrom ?? ['*'],
       }
     } catch {
       return null
@@ -215,4 +215,4 @@ export class EmmaClient extends EventEmitter {
   }
 }
 
-export const emmaClient = new EmmaClient()
+export const harnessclawClient = new HarnessclawClient()
