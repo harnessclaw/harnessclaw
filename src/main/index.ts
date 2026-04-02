@@ -1,8 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, chmodSync, rmSync } from 'fs'
 import { homedir } from 'os'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
 import {
@@ -12,19 +12,93 @@ import {
 } from './db'
 
 const HARNESSCLAW_DIR = join(homedir(), '.harnessclaw')
-const NANOBOT_CONFIG_PATH = join(HARNESSCLAW_DIR, 'config.json')
+const NANOBOT_HOME = join(homedir(), '.nanobot')
+const NANOBOT_CONFIG_PATH = join(NANOBOT_HOME, 'config.json')
 const APP_CONFIG_PATH = join(homedir(), '.icuclaw.json')
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
-const NANOBOT_BIN = join(HARNESSCLAW_DIR, 'bin', 'nanobot')
-const CLAWHUB_BIN = join(HARNESSCLAW_DIR, 'bin', 'clawhub')
-const CLAWHUB_WORKDIR = join(HARNESSCLAW_DIR, 'workspace')
-const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
+const BIN_DIR = join(HARNESSCLAW_DIR, 'bin')
+const CLAWHUB_BIN = join(BIN_DIR, process.platform === 'win32' ? 'clawhub.cmd' : 'clawhub')
+const DEFAULT_WORKSPACE = '~/.nanobot/workspace'
+
+interface LaunchSpec {
+  command: string
+  args: string[]
+  cwd?: string
+  source: string
+}
 
 let nanobotProcess: ChildProcess | null = null
+let safeConsoleInstalled = false
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function expandHomePath(value: string): string {
+  if (value === '~') return homedir()
+  if (value.startsWith('~/') || value.startsWith('~\\')) {
+    return join(homedir(), value.slice(2))
+  }
+  return value
+}
+
+function buildChildEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: homedir(),
+    USERPROFILE: homedir(),
+    NANOBOT_HOME,
+  }
+}
+
+function isBrokenPipeError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error as { code?: string }).code === 'EPIPE'
+}
+
+function installSafeConsole(): void {
+  if (safeConsoleInstalled) return
+  safeConsoleInstalled = true
+
+  const methods = ['log', 'info', 'warn', 'error'] as const
+  for (const method of methods) {
+    const original = console[method].bind(console) as (...args: unknown[]) => void
+    Object.defineProperty(console, method, {
+      value: (...args: unknown[]) => {
+        try {
+          original(...args)
+        } catch (error) {
+          if (!isBrokenPipeError(error)) {
+            throw error
+          }
+        }
+      },
+      configurable: true,
+      writable: true,
+    })
+  }
+
+  // Electron GUI launches can lose stdout/stderr handles, especially on Windows.
+  process.stdout?.on('error', () => undefined)
+  process.stderr?.on('error', () => undefined)
+}
+
+function safeWrite(stream: NodeJS.WriteStream | undefined | null, chunk: string): void {
+  if (!stream?.writable) return
+  try {
+    stream.write(chunk)
+  } catch (error) {
+    if (!isBrokenPipeError(error)) {
+      throw error
+    }
   }
 }
 
@@ -40,7 +114,7 @@ function readJsonConfig(path: string, fallback: Record<string, unknown> = {}): R
 
 function saveJsonConfig(path: string, data: unknown): { ok: boolean; error?: string } {
   try {
-    ensureDir(join(path, '..'))
+    ensureDir(dirname(path))
     writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8')
     return { ok: true }
   } catch (err) {
@@ -48,7 +122,104 @@ function saveJsonConfig(path: string, data: unknown): { ok: boolean; error?: str
   }
 }
 
+function getDefaultWorkspace(): string {
+  return DEFAULT_WORKSPACE
+}
+
+function normalizeNanobotConfig(raw: unknown): Record<string, unknown> {
+  const source = asRecord(raw)
+  const { _error: _ignored, ...config } = source
+  const providers = asRecord(config.providers)
+  const agents = asRecord(config.agents)
+  const defaults = asRecord(agents.defaults)
+  const channels = asRecord(config.channels)
+  const harnessclaw = asRecord(channels.harnessclaw)
+  const parsedPort = typeof harnessclaw.port === 'number'
+    ? harnessclaw.port
+    : typeof harnessclaw.port === 'string'
+      ? Number.parseInt(harnessclaw.port, 10)
+      : Number.NaN
+  const allowFrom = Array.isArray(harnessclaw.allowFrom)
+    ? harnessclaw.allowFrom.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : ['*']
+
+  return {
+    ...config,
+    providers,
+    agents: {
+      ...agents,
+      defaults: {
+        ...defaults,
+        workspace: typeof defaults.workspace === 'string' && defaults.workspace.trim()
+          ? defaults.workspace
+          : getDefaultWorkspace(),
+      },
+    },
+    channels: {
+      ...channels,
+      harnessclaw: {
+        ...harnessclaw,
+        enabled: true,
+        host: typeof harnessclaw.host === 'string' && harnessclaw.host.trim()
+          ? harnessclaw.host
+          : '127.0.0.1',
+        port: Number.isFinite(parsedPort) ? parsedPort : 18765,
+        token: typeof harnessclaw.token === 'string' ? harnessclaw.token : '',
+        allowFrom: allowFrom.length > 0 ? allowFrom : ['*'],
+      },
+    },
+  }
+}
+
+function ensureNanobotConfig(): Record<string, unknown> {
+  const current = readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} })
+  const normalized = normalizeNanobotConfig(current)
+  ensureDir(NANOBOT_HOME)
+  ensureDir(getWorkspaceDir(normalized))
+  ensureDir(getSkillsDir(normalized))
+
+  if (!existsSync(NANOBOT_CONFIG_PATH) || JSON.stringify(current) !== JSON.stringify(normalized)) {
+    const saved = saveJsonConfig(NANOBOT_CONFIG_PATH, normalized)
+    if (!saved.ok) {
+      console.warn('[Nanobot] Failed to persist config:', saved.error)
+    }
+  }
+
+  return normalized
+}
+
+function getWorkspaceDir(config?: Record<string, unknown>): string {
+  const normalized = config ? normalizeNanobotConfig(config) : normalizeNanobotConfig(readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} }))
+  const defaults = asRecord(asRecord(asRecord(normalized).agents).defaults)
+  const workspace = typeof defaults.workspace === 'string' && defaults.workspace.trim()
+    ? defaults.workspace
+    : getDefaultWorkspace()
+  return expandHomePath(workspace)
+}
+
+function getSkillsDir(config?: Record<string, unknown>): string {
+  return join(getWorkspaceDir(config), 'skills')
+}
+
 function getClawhubWrapper(): string {
+  if (process.platform === 'win32') {
+    return `@echo off
+setlocal
+where bunx >nul 2>nul
+if %errorlevel% equ 0 (
+  call bunx --bun clawhub@latest %*
+  exit /b %errorlevel%
+)
+where npx >nul 2>nul
+if %errorlevel% equ 0 (
+  call npx --yes clawhub@latest %*
+  exit /b %errorlevel%
+)
+echo clawhub requires bunx or npx in PATH 1>&2
+exit /b 127
+`
+  }
+
   return `#!/usr/bin/env bash
 set -euo pipefail
 
@@ -67,10 +238,11 @@ exit 127
 
 function installClawhubBinary(): { ok: boolean; path: string; error?: string } {
   try {
-    const binDir = join(HARNESSCLAW_DIR, 'bin')
-    ensureDir(binDir)
+    ensureDir(BIN_DIR)
     writeFileSync(CLAWHUB_BIN, getClawhubWrapper(), 'utf-8')
-    chmodSync(CLAWHUB_BIN, 0o755)
+    if (process.platform !== 'win32') {
+      chmodSync(CLAWHUB_BIN, 0o755)
+    }
     return { ok: true, path: CLAWHUB_BIN }
   } catch (err) {
     return { ok: false, path: CLAWHUB_BIN, error: String(err) }
@@ -84,6 +256,159 @@ function getClawhubStatus(): { installed: boolean; path: string } {
   }
 }
 
+function requiresShell(command: string): boolean {
+  return process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)
+}
+
+function getCommandCandidates(...values: Array<string | undefined>): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const value of values) {
+    if (!value) continue
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    const key = process.platform === 'win32' ? trimmed.toLowerCase() : trimmed
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(trimmed)
+  }
+
+  return result
+}
+
+function findCommandInPath(command: string): string | null {
+  const locator = process.platform === 'win32' ? 'where.exe' : 'which'
+  const result = spawnSync(locator, [command], {
+    encoding: 'utf-8',
+    windowsHide: process.platform === 'win32',
+  })
+  if (result.status !== 0) return null
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || null
+}
+
+function getPythonPrefixArgs(command: string): string[] {
+  const base = command.split(/[\\/]/).pop() || command
+  return /^py(?:\.exe)?$/i.test(base) ? ['-3'] : []
+}
+
+function canImportNanobot(command: string, cwd?: string): boolean {
+  const result = spawnSync(command, [...getPythonPrefixArgs(command), '-c', 'import nanobot'], {
+    cwd,
+    env: buildChildEnv(),
+    stdio: 'ignore',
+    windowsHide: process.platform === 'win32',
+  })
+  return result.status === 0
+}
+
+function getNanobotRepoCandidates(): string[] {
+  const appPath = app.getAppPath()
+  const candidates = [
+    process.env.ICUCLAW_NANOBOT_SRC,
+    join(appPath, '..', 'nanobot'),
+    join(appPath, '..', 'nanobot-feat-stream'),
+    join(appPath, '..', '..', 'nanobot'),
+    join(appPath, '..', '..', 'nanobot-feat-stream'),
+    join(process.cwd(), '..', 'nanobot'),
+    join(process.cwd(), '..', 'nanobot-feat-stream'),
+    join(process.cwd(), 'nanobot'),
+    join(process.cwd(), 'nanobot-feat-stream'),
+  ]
+
+  const seen = new Set<string>()
+  const repos: string[] = []
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const key = process.platform === 'win32' ? candidate.toLowerCase() : candidate
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    try {
+      if (!existsSync(candidate) || !statSync(candidate).isDirectory()) {
+        continue
+      }
+      if (!existsSync(join(candidate, 'nanobot'))) {
+        continue
+      }
+      repos.push(candidate)
+    } catch {
+      continue
+    }
+  }
+
+  return repos
+}
+
+function getNanobotLaunchSpec(): LaunchSpec | null {
+  const explicitBin = process.env.ICUCLAW_NANOBOT_BIN
+  if (explicitBin && existsSync(explicitBin)) {
+    return { command: explicitBin, args: [], source: 'ICUCLAW_NANOBOT_BIN' }
+  }
+
+  const repoCandidates = getNanobotRepoCandidates()
+  for (const repo of repoCandidates) {
+    const repoPython = process.platform === 'win32'
+      ? join(repo, '.venv', 'Scripts', 'python.exe')
+      : join(repo, '.venv', 'bin', 'python')
+    if (existsSync(repoPython) && canImportNanobot(repoPython, repo)) {
+      return {
+        command: repoPython,
+        args: [...getPythonPrefixArgs(repoPython), '-m', 'nanobot'],
+        cwd: repo,
+        source: `repo venv: ${repo}`,
+      }
+    }
+  }
+
+  const pythonCandidates = getCommandCandidates(process.env.ICUCLAW_PYTHON, 'py', 'python', 'python3')
+  for (const repo of repoCandidates) {
+    for (const python of pythonCandidates) {
+      if (canImportNanobot(python, repo)) {
+        return {
+          command: python,
+          args: [...getPythonPrefixArgs(python), '-m', 'nanobot'],
+          cwd: repo,
+          source: `${python} @ ${repo}`,
+        }
+      }
+    }
+  }
+
+  const bundledCandidates = getCommandCandidates(
+    join(BIN_DIR, process.platform === 'win32' ? 'nanobot.cmd' : 'nanobot'),
+    join(BIN_DIR, process.platform === 'win32' ? 'nanobot.exe' : 'nanobot'),
+  )
+  for (const candidate of bundledCandidates) {
+    if (existsSync(candidate)) {
+      return { command: candidate, args: [], source: `bundled: ${candidate}` }
+    }
+  }
+
+  for (const binary of process.platform === 'win32' ? ['nanobot.exe', 'nanobot.cmd', 'nanobot'] : ['nanobot']) {
+    const resolved = findCommandInPath(binary)
+    if (resolved) {
+      return { command: resolved, args: [], source: `PATH: ${binary}` }
+    }
+  }
+
+  for (const python of pythonCandidates) {
+    if (canImportNanobot(python)) {
+      return {
+        command: python,
+        args: [...getPythonPrefixArgs(python), '-m', 'nanobot'],
+        source: `${python} from PATH`,
+      }
+    }
+  }
+
+  return null
+}
+
 function runClawhub(
   args: string[],
   options?: { timeoutMs?: number; cwd?: string }
@@ -94,16 +419,20 @@ function runClawhub(
       return
     }
 
+    const config = ensureNanobotConfig()
     const timeoutMs = options?.timeoutMs ?? 30000
-    ensureDir(CLAWHUB_WORKDIR)
-    const finalArgs = ['--workdir', CLAWHUB_WORKDIR, ...args]
-    const commandLine = [CLAWHUB_BIN, ...finalArgs].join(' ')
-    console.log('[ClawHub] Run:', commandLine, options?.cwd ? `(cwd: ${options.cwd})` : '')
+    const workspaceDir = getWorkspaceDir(config)
+    ensureDir(workspaceDir)
+
+    const finalArgs = ['--workdir', workspaceDir, ...args]
+    console.log('[ClawHub] Run:', [CLAWHUB_BIN, ...finalArgs].join(' '), options?.cwd ? `(cwd: ${options.cwd})` : '')
 
     const child = spawn(CLAWHUB_BIN, finalArgs, {
-      env: { ...process.env, HOME: homedir() },
+      env: buildChildEnv(),
       cwd: options?.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: process.platform === 'win32',
+      shell: requiresShell(CLAWHUB_BIN),
     })
 
     let stdout = ''
@@ -113,7 +442,7 @@ function runClawhub(
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      child.kill('SIGTERM')
+      child.kill()
       resolve({ ok: false, stdout, stderr: stderr || `Timed out after ${timeoutMs}ms`, code: null })
     }, timeoutMs)
 
@@ -140,20 +469,32 @@ function runClawhub(
 
 function startNanobot(): void {
   if (nanobotProcess) return
-  if (!existsSync(NANOBOT_BIN)) {
-    console.warn('[Nanobot] Binary not found:', NANOBOT_BIN)
+
+  const config = ensureNanobotConfig()
+  const launch = getNanobotLaunchSpec()
+  if (!launch) {
+    console.warn('[Nanobot] No launch target found. Checked repo source, bundled binaries and PATH.')
     return
   }
-  console.log('[Nanobot] Starting gateway...')
-  nanobotProcess = spawn(NANOBOT_BIN, ['gateway', '--config', NANOBOT_CONFIG_PATH], {
+
+  console.log('[Nanobot] Starting gateway via', launch.source)
+  nanobotProcess = spawn(launch.command, [...launch.args, 'gateway', '--config', NANOBOT_CONFIG_PATH], {
+    cwd: launch.cwd,
+    env: buildChildEnv(),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
+    windowsHide: process.platform === 'win32',
+    shell: requiresShell(launch.command),
   })
+
+  ensureDir(getWorkspaceDir(config))
+  ensureDir(getSkillsDir(config))
+
   nanobotProcess.stdout?.on('data', (data) => {
-    process.stdout.write(`[Nanobot] ${data}`)
+    safeWrite(process.stdout, `[Nanobot] ${String(data)}`)
   })
   nanobotProcess.stderr?.on('data', (data) => {
-    process.stderr.write(`[Nanobot] ${data}`)
+    safeWrite(process.stderr, `[Nanobot] ${String(data)}`)
   })
   nanobotProcess.on('error', (err) => {
     console.error('[Nanobot] Failed to start:', err)
@@ -168,10 +509,11 @@ function startNanobot(): void {
 function stopNanobot(): void {
   if (!nanobotProcess) return
   console.log('[Nanobot] Stopping gateway...')
-  nanobotProcess.kill('SIGTERM')
+  nanobotProcess.kill()
   nanobotProcess = null
 }
 
+installSafeConsole()
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -233,14 +575,18 @@ app.whenReady().then(() => {
 
   // Config file read/write
   ipcMain.handle('config:read', () => {
-    return readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} })
+    return ensureNanobotConfig()
   })
 
   ipcMain.handle('config:save', (_, data: unknown) => {
-    ensureDir(HARNESSCLAW_DIR)
-    return saveJsonConfig(NANOBOT_CONFIG_PATH, data)
+    const normalized = normalizeNanobotConfig(data)
+    const result = saveJsonConfig(NANOBOT_CONFIG_PATH, normalized)
+    if (result.ok) {
+      ensureDir(getWorkspaceDir(normalized))
+      ensureDir(getSkillsDir(normalized))
+    }
+    return result
   })
-
   ipcMain.handle('app-config:read', () => {
     return readJsonConfig(APP_CONFIG_PATH, {})
   })
@@ -310,20 +656,21 @@ app.whenReady().then(() => {
         return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
       }
     }
-    ensureDir(SKILLS_DIR)
-    return runClawhub(['install', trimmed], { cwd: SKILLS_DIR, timeoutMs: 120000 })
+    const skillsDir = getSkillsDir()
+    ensureDir(skillsDir)
+    return runClawhub(['install', trimmed], { cwd: skillsDir, timeoutMs: 120000 })
   })
-
   // Skills reader
   ipcMain.handle('skills:list', () => {
     try {
-      if (!existsSync(SKILLS_DIR)) return []
-      const dirs = readdirSync(SKILLS_DIR).filter((name) => {
-        const full = join(SKILLS_DIR, name)
+      const skillsDir = getSkillsDir()
+      if (!existsSync(skillsDir)) return []
+      const dirs = readdirSync(skillsDir).filter((name) => {
+        const full = join(skillsDir, name)
         return statSync(full).isDirectory() && existsSync(join(full, 'SKILL.md'))
       })
       return dirs.map((dirName) => {
-        const md = readFileSync(join(SKILLS_DIR, dirName, 'SKILL.md'), 'utf-8')
+        const md = readFileSync(join(skillsDir, dirName, 'SKILL.md'), 'utf-8')
         // Parse YAML frontmatter
         const match = md.match(/^---\n([\s\S]*?)\n---/)
         const meta: Record<string, string> = {}
@@ -335,9 +682,8 @@ app.whenReady().then(() => {
             }
           })
         }
-        // Check for references and templates dirs
-        const hasRefs = existsSync(join(SKILLS_DIR, dirName, 'references'))
-        const hasTemplates = existsSync(join(SKILLS_DIR, dirName, 'templates'))
+        const hasRefs = existsSync(join(skillsDir, dirName, 'references'))
+        const hasTemplates = existsSync(join(skillsDir, dirName, 'templates'))
         return {
           id: dirName,
           name: meta.name || dirName,
@@ -352,10 +698,9 @@ app.whenReady().then(() => {
       return []
     }
   })
-
   ipcMain.handle('skills:read', (_, id: string) => {
     try {
-      const filePath = join(SKILLS_DIR, id, 'SKILL.md')
+      const filePath = join(getSkillsDir(), id, 'SKILL.md')
       if (!existsSync(filePath)) return ''
       return readFileSync(filePath, 'utf-8')
     } catch (err) {
@@ -370,7 +715,7 @@ app.whenReady().then(() => {
       if (!trimmed || trimmed.includes('..') || trimmed.includes('/')) {
         return { ok: false, error: 'Invalid skill id' }
       }
-      const skillDir = join(SKILLS_DIR, trimmed)
+      const skillDir = join(getSkillsDir(), trimmed)
       if (!existsSync(skillDir)) {
         return { ok: false, error: 'Skill not found' }
       }
@@ -628,3 +973,4 @@ app.on('will-quit', () => {
   stopNanobot()
   closeDb()
 })
+
