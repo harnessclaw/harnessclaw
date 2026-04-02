@@ -1,4 +1,4 @@
-# Dependencies
+﻿# Dependencies
 node_modules/
 
 # Build output
@@ -34,9 +34,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Local package manager artifacts
+package-lock.json
+
 # Test artifacts
 test_report.json
 *.py
 
 # Claude Code
 .claude
+
+# Local docs
+WINDOWS_CHANGES.md

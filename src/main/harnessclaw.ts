@@ -14,6 +14,21 @@ interface HarnessclawConfig {
 
 type HarnessclawStatus = 'disconnected' | 'connecting' | 'connected'
 
+const NANOBOT_CONFIG_PATH = join(homedir(), '.nanobot', 'config.json')
+const DEFAULT_HARNESSCLAW_CONFIG: HarnessclawConfig = {
+  enabled: true,
+  host: '127.0.0.1',
+  port: 18765,
+  token: '',
+  allowFrom: ['*'],
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
 export class HarnessclawClient extends EventEmitter {
   private ws: WebSocket | null = null
   private status: HarnessclawStatus = 'disconnected'
@@ -22,12 +37,15 @@ export class HarnessclawClient extends EventEmitter {
   private subscriptions: string[] = []
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private retryCount = 0
-  private maxRetries = 20
   private shouldReconnect = false
 
   connect(): void {
     if (this.status === 'connected') return
     this.shouldReconnect = true
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
+    }
     this.retryCount = 0
     this.attemptConnect()
   }
@@ -40,11 +58,6 @@ export class HarnessclawClient extends EventEmitter {
     }
 
     const cfg = this.readConfig()
-    if (!cfg) {
-      this.emit('event', { type: 'error', content: 'Harnessclaw channel not found in config' })
-      return
-    }
-
     const url = `ws://${cfg.host}:${cfg.port}`
     console.log(`[Harnessclaw] Connecting to ${url} (attempt ${this.retryCount + 1})`)
     this.setStatus('connecting')
@@ -87,14 +100,14 @@ export class HarnessclawClient extends EventEmitter {
 
   private scheduleRetry(): void {
     if (!this.shouldReconnect) return
-    if (this.retryCount >= this.maxRetries) {
-      console.warn('[Harnessclaw] Max retries reached, giving up')
-      return
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer)
     }
-    // Backoff: 1s, 1s, 2s, 2s, 3s... capped at 5s
+    // Gateway startup can lag behind Electron on every platform, so retries stay open-ended.
     const delay = Math.min(Math.floor(this.retryCount / 2) + 1, 5) * 1000
     console.log(`[Harnessclaw] Retry in ${delay}ms...`)
     this.retryTimer = setTimeout(() => {
+      this.retryTimer = null
       this.retryCount++
       this.attemptConnect()
     }, delay)
@@ -123,51 +136,54 @@ export class HarnessclawClient extends EventEmitter {
     this.emit('event', msg)
   }
 
-  send(content: string, sessionId?: string): void {
+  private sendJson(payload: Record<string, string>): void {
     if (!this.ws || this.status !== 'connected') {
       this.emit('event', { type: 'error', content: 'Not connected to Harnessclaw' })
       return
     }
+
+    const raw = JSON.stringify(payload)
+    console.log('[Harnessclaw] → send:', raw)
+    try {
+      this.ws.send(raw)
+    } catch (err) {
+      console.error('[Harnessclaw] Send failed:', err)
+      this.emit('event', { type: 'error', content: `Harnessclaw send failed: ${String(err)}` })
+    }
+  }
+
+  send(content: string, sessionId?: string): void {
     const payload: Record<string, string> = { type: 'message', content }
     if (sessionId) payload.session_id = sessionId
-    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
-    this.ws.send(JSON.stringify(payload))
+    this.sendJson(payload)
   }
 
   command(cmd: string, sessionId?: string): void {
-    if (!this.ws || this.status !== 'connected') return
     const payload: Record<string, string> = { type: 'command', command: cmd }
     if (sessionId) payload.session_id = sessionId
-    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
-    this.ws.send(JSON.stringify(payload))
+    this.sendJson(payload)
   }
 
   stop(sessionId?: string): void {
-    if (!this.ws || this.status !== 'connected') return
     const payload: Record<string, string> = { type: 'stop' }
     if (sessionId) payload.session_id = sessionId
-    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
-    this.ws.send(JSON.stringify(payload))
+    this.sendJson(payload)
   }
 
   subscribe(sessionId: string): void {
-    if (!this.ws || this.status !== 'connected') return
-    this.ws.send(JSON.stringify({ type: 'subscribe', session_id: sessionId }))
+    this.sendJson({ type: 'subscribe', session_id: sessionId })
   }
 
   unsubscribe(sessionId: string): void {
-    if (!this.ws || this.status !== 'connected') return
-    this.ws.send(JSON.stringify({ type: 'unsubscribe', session_id: sessionId }))
+    this.sendJson({ type: 'unsubscribe', session_id: sessionId })
   }
 
   listSessions(): void {
-    if (!this.ws || this.status !== 'connected') return
-    this.ws.send(JSON.stringify({ type: 'list_sessions' }))
+    this.sendJson({ type: 'list_sessions' })
   }
 
   ping(): void {
-    if (!this.ws || this.status !== 'connected') return
-    this.ws.send(JSON.stringify({ type: 'ping' }))
+    this.sendJson({ type: 'ping' })
   }
 
   disconnect(): void {
@@ -195,22 +211,25 @@ export class HarnessclawClient extends EventEmitter {
     this.emit('statusChange', status)
   }
 
-  private readConfig(): HarnessclawConfig | null {
+  private readConfig(): HarnessclawConfig {
     try {
-      const cfgPath = join(homedir(), '.harnessclaw', 'config.json')
-      if (!existsSync(cfgPath)) return null
-      const raw = JSON.parse(readFileSync(cfgPath, 'utf-8'))
-      const harnessclaw = raw?.channels?.harnessclaw
-      if (!harnessclaw) return null
+      if (!existsSync(NANOBOT_CONFIG_PATH)) return DEFAULT_HARNESSCLAW_CONFIG
+      const raw = asRecord(JSON.parse(readFileSync(NANOBOT_CONFIG_PATH, 'utf-8')))
+      const harnessclaw = asRecord(asRecord(raw.channels).harnessclaw)
+      const allowFrom = Array.isArray(harnessclaw.allowFrom)
+        ? harnessclaw.allowFrom.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : DEFAULT_HARNESSCLAW_CONFIG.allowFrom
       return {
-        enabled: harnessclaw.enabled ?? false,
-        host: harnessclaw.host ?? '127.0.0.1',
-        port: harnessclaw.port ?? 18765,
-        token: harnessclaw.token ?? '',
-        allowFrom: harnessclaw.allowFrom ?? ['*'],
+        enabled: typeof harnessclaw.enabled === 'boolean' ? harnessclaw.enabled : DEFAULT_HARNESSCLAW_CONFIG.enabled,
+        host: typeof harnessclaw.host === 'string' && harnessclaw.host.trim()
+          ? harnessclaw.host
+          : DEFAULT_HARNESSCLAW_CONFIG.host,
+        port: typeof harnessclaw.port === 'number' ? harnessclaw.port : DEFAULT_HARNESSCLAW_CONFIG.port,
+        token: typeof harnessclaw.token === 'string' ? harnessclaw.token : DEFAULT_HARNESSCLAW_CONFIG.token,
+        allowFrom: allowFrom.length > 0 ? allowFrom : DEFAULT_HARNESSCLAW_CONFIG.allowFrom,
       }
     } catch {
-      return null
+      return DEFAULT_HARNESSCLAW_CONFIG
     }
   }
 }
