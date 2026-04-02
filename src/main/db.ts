@@ -3,8 +3,8 @@ import { mkdirSync, existsSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
-const DB_DIR = join(homedir(), '.emma', 'db')
-const DB_PATH = join(DB_DIR, 'emma.db')
+const DB_DIR = join(homedir(), '.harnessclaw', 'db')
+const DB_PATH = join(DB_DIR, 'harnessclaw.db')
 
 let db: Database.Database | null = null
 

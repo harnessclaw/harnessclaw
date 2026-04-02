@@ -19,7 +19,7 @@ interface ClawHubAPI {
   installSkill: (slug: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
 }
 
-interface EmmaAPI {
+interface HarnessclawAPI {
   connect: () => Promise<{ ok: boolean }>
   disconnect: () => Promise<{ ok: boolean }>
   send: (content: string, sessionId?: string) => Promise<{ ok: boolean }>
@@ -96,7 +96,7 @@ declare global {
     nanobotConfig: ConfigAPI
     appConfig: ConfigAPI
     clawhub: ClawHubAPI
-    emma: EmmaAPI
+    harnessclaw: HarnessclawAPI
     skills: SkillsAPI
     db: DbAPI
   }
