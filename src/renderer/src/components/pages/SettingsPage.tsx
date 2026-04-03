@@ -9,6 +9,11 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppConfig, useNanobotConfig } from '@/hooks/useNanobotConfig'
+import {
+  defaultClawhubBinaryDisplayPath,
+  defaultDbDisplayPath,
+  defaultWorkspaceDisplayPath,
+} from '@/lib/runtimePaths'
 
 // ─── Primitives ────────────────────────────────────────────────────────────
 
@@ -469,8 +474,8 @@ function ClawHubSection() {
       <SectionHeader icon={Wrench} title="ClawHub" subtitle="CLI 安装与 Token 验证" />
 
       <GroupCard title="CLI">
-        <SettingRow label="命令路径" description="ClawHub 命令安装在 ~/.harnessclaw/bin/clawhub">
-          <TextInput value={binaryStatus?.path || '~/.harnessclaw/bin/clawhub'} onChange={() => undefined} className="w-64" mono disabled />
+        <SettingRow label="命令路径" description={`ClawHub 命令安装在 ${defaultClawhubBinaryDisplayPath}`}>
+          <TextInput value={binaryStatus?.path || defaultClawhubBinaryDisplayPath} onChange={() => undefined} className="w-64" mono disabled />
         </SettingRow>
         <SettingRow label="安装状态" description="点击下载/更新会写入启动脚本，并在运行时调用最新 clawhub">
           <div className="flex items-center gap-2">
@@ -544,7 +549,7 @@ function AgentSection() {
 
   const agents = (config?.agents || {}) as { defaults?: Record<string, unknown> }
   const defaults = agents.defaults || {}
-  const workspace = (defaults.workspace as string) ?? '~/.nanobot/workspace'
+  const workspace = (defaults.workspace as string) ?? defaultWorkspaceDisplayPath
   const model = (defaults.model as string) ?? ''
   const provider = (defaults.provider as string) ?? 'auto'
   const maxTokens = (defaults.maxTokens as number) ?? 8192
@@ -632,7 +637,7 @@ interface ProviderConfig {
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   custom: 'Custom',
-  azureOpenai: 'Azure OpenAI',
+  azure_openai: 'Azure OpenAI',
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
@@ -650,9 +655,9 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   volcengine: '火山引擎',
   volcengineCodingPlan: '火山 Coding',
   byteplus: 'BytePlus',
-  byteplusCodingPlan: 'BytePlus Coding',
-  openaiCodex: 'OpenAI Codex',
-  githubCopilot: 'GitHub Copilot',
+  byteplus_coding_plan: 'BytePlus Coding',
+  openai_codex: 'OpenAI Codex',
+  github_copilot: 'GitHub Copilot',
 }
 
 const PROVIDER_DEFAULT_BASES: Record<string, string> = {
@@ -1339,7 +1344,7 @@ function UISection() {
 function StorageSection() {
   const { config, loading, updateConfig } = useAppConfig()
   const storage = (config?.storage || {}) as { dbPath?: string }
-  const dbPath = storage.dbPath || '~/.clawdbot/data/local.db'
+  const dbPath = storage.dbPath || defaultDbDisplayPath
   const [clearState, setClearState] = useState<'idle' | 'clearing' | 'done'>('idle')
   const exportRef = useRef<HTMLAnchorElement>(null)
 

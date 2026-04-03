@@ -400,6 +400,56 @@ export function ChatPage() {
         break
       }
 
+      case 'response': {
+        const sid = eventSessionId!
+        let aid = pendingAssistantIds.current[sid]
+        const content = (event.content as string) || ''
+        const now = Date.now()
+
+        pendingAssistantIds.current[sid] = null
+
+        updateSession(sid, (prev) => {
+          if (!aid) {
+            aid = `ast-${now}`
+            return {
+              ...prev,
+              isProcessing: false,
+              currentThinking: '',
+              messages: [...prev.messages, {
+                id: aid,
+                role: 'assistant' as MessageRole,
+                content,
+                timestamp: now,
+                isStreaming: false,
+                tools: [],
+                contentSegments: content ? [{ text: content, ts: now }] : [],
+                toolsUsed: event.tools_used as string[] | undefined,
+                usage: event.usage as Message['usage'],
+              }],
+            }
+          }
+
+          return {
+            ...prev,
+            isProcessing: false,
+            currentThinking: '',
+            messages: prev.messages.map((m) =>
+              m.id === aid
+                ? {
+                    ...m,
+                    content: content || m.content,
+                    contentSegments: content ? [{ text: content, ts: now }] : (m.contentSegments || []),
+                    isStreaming: false,
+                    toolsUsed: event.tools_used as string[] | undefined,
+                    usage: event.usage as Message['usage'],
+                  }
+                : m
+            ),
+          }
+        })
+        break
+      }
+
       case 'sessions': {
         // Server may use event.data or event.sessions; item may use key/session_id/id
         const raw = (event.data || event.sessions) as unknown[]

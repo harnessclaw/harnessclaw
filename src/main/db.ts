@@ -1,10 +1,6 @@
 import Database from 'better-sqlite3'
 import { mkdirSync, existsSync } from 'fs'
-import { join } from 'path'
-import { homedir } from 'os'
-
-const DB_DIR = join(homedir(), '.harnessclaw', 'db')
-const DB_PATH = join(DB_DIR, 'harnessclaw.db')
+import { DB_DIR, DB_PATH } from './runtime-paths'
 
 let db: Database.Database | null = null
 
