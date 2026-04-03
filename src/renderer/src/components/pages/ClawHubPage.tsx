@@ -3,12 +3,36 @@ import { useNavigate } from 'react-router-dom'
 import { Download, Loader2, Search, Settings, Check, AlertCircle } from 'lucide-react'
 import { useAppConfig } from '@/hooks/useNanobotConfig'
 import { cn } from '@/lib/utils'
+import { defaultSkillsDisplayPath } from '@/lib/runtimePaths'
 
 interface SkillItem {
   slug: string
   title: string
   description: string
   meta: string[]
+}
+
+function getClawhubError(stderr: string, stdout: string): string {
+  const combined = [stderr, stdout]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join('\n')
+
+  if (!combined) return ''
+
+  const lines = combined
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const meaningful = lines.filter((line) => !/^-\s+/.test(line))
+  const text = meaningful.join('\n') || combined
+
+  if (/rate limit exceeded/i.test(text)) return text
+  if (/^error:/im.test(text)) return text
+  if (/[✖✕✗]/.test(text)) return text
+
+  return ''
 }
 
 function parseClawhubOutput(raw: string): SkillItem[] {
@@ -56,10 +80,11 @@ export function ClawHubPage() {
     setStatus('loading')
     setError('')
     const res = await window.clawhub.explore()
-    if (!res.ok) {
+    const clawhubError = getClawhubError(res.stderr || '', res.stdout || '')
+    if (!res.ok || clawhubError) {
       setStatus('error')
       setItems([])
-      setError((res.stderr || res.stdout || 'ClawHub explore failed').trim())
+      setError((clawhubError || res.stderr || res.stdout || 'ClawHub explore failed').trim())
       return
     }
     setItems(parseClawhubOutput(res.stdout))
@@ -74,10 +99,11 @@ export function ClawHubPage() {
     setStatus('loading')
     setError('')
     const res = await window.clawhub.search(query)
-    if (!res.ok) {
+    const clawhubError = getClawhubError(res.stderr || '', res.stdout || '')
+    if (!res.ok || clawhubError) {
       setStatus('error')
       setItems([])
-      setError((res.stderr || res.stdout || 'ClawHub search failed').trim())
+      setError((clawhubError || res.stderr || res.stdout || 'ClawHub search failed').trim())
       return
     }
     setItems(parseClawhubOutput(res.stdout))
@@ -98,10 +124,10 @@ export function ClawHubPage() {
   }
 
   useEffect(() => {
-    if (!loading && token) {
+    if (!loading) {
       void loadExplore()
     }
-  }, [loading, token])
+  }, [loading])
 
   const emptyText = useMemo(() => {
     if (status === 'loading') return '正在加载...'
@@ -113,7 +139,7 @@ export function ClawHubPage() {
     return <div className="flex items-center justify-center h-full"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
   }
 
-  if (!token) {
+  if (false && !token) {
     return (
       <div className="h-full flex items-center justify-center px-6">
         <div className="max-w-md w-full rounded-2xl border border-border bg-card p-6 shadow-sm text-center">
@@ -137,7 +163,7 @@ export function ClawHubPage() {
         <div className="flex items-center justify-between mb-6 gap-4">
           <div>
             <h1 className="text-xl font-semibold text-foreground">ClawHub</h1>
-            <p className="text-sm text-muted-foreground mt-1">浏览、搜索并安装技能到 `~/.harnessclaw/workspace/skills`</p>
+            <p className="text-sm text-muted-foreground mt-1">浏览、搜索并安装技能到 `{defaultSkillsDisplayPath}`</p>
           </div>
         </div>
 

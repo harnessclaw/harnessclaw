@@ -6,19 +6,53 @@ import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
 import {
+  APP_CONFIG_PATH,
+  BIN_DIR,
+  ENGINE_CONFIG_PATH,
+  ENGINE_HOME,
+  HARNESSCLAW_HOME,
+  HARNESSCLAW_LAUNCHED_FLAG,
+  IS_WINDOWS,
+  LEGACY_APP_CONFIG_IN_HOME,
+  LEGACY_APP_CONFIG_PATH,
+  LEGACY_ENGINE_CONFIG_PATH,
+  LEGACY_NANOBOT_HOME,
+  getDefaultWorkspaceSetting,
+} from './runtime-paths'
+import {
   getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent,
   getMessages, insertToolActivity
 } from './db'
 
-const HARNESSCLAW_DIR = join(homedir(), '.harnessclaw')
-const NANOBOT_HOME = join(homedir(), '.nanobot')
-const NANOBOT_CONFIG_PATH = join(NANOBOT_HOME, 'config.json')
-const APP_CONFIG_PATH = join(homedir(), '.icuclaw.json')
-const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
-const BIN_DIR = join(HARNESSCLAW_DIR, 'bin')
+const HARNESSCLAW_DIR = HARNESSCLAW_HOME
+const NANOBOT_HOME = ENGINE_HOME
+const NANOBOT_CONFIG_PATH = ENGINE_CONFIG_PATH
 const CLAWHUB_BIN = join(BIN_DIR, process.platform === 'win32' ? 'clawhub.cmd' : 'clawhub')
-const DEFAULT_WORKSPACE = '~/.nanobot/workspace'
+const SUPPORTED_PROVIDER_KEYS = [
+  'custom',
+  'azure_openai',
+  'anthropic',
+  'openai',
+  'openrouter',
+  'deepseek',
+  'groq',
+  'zhipu',
+  'dashscope',
+  'vllm',
+  'ollama',
+  'gemini',
+  'moonshot',
+  'minimax',
+  'aihubmix',
+  'siliconflow',
+  'volcengine',
+  'volcengine_coding_plan',
+  'byteplus',
+  'byteplus_coding_plan',
+  'openai_codex',
+  'github_copilot',
+] as const
 
 interface LaunchSpec {
   command: string
@@ -112,6 +146,24 @@ function readJsonConfig(path: string, fallback: Record<string, unknown> = {}): R
   }
 }
 
+function ensureAppConfig(): Record<string, unknown> {
+  if (existsSync(APP_CONFIG_PATH)) {
+    return readJsonConfig(APP_CONFIG_PATH, {})
+  }
+
+  const legacyCandidates = [LEGACY_APP_CONFIG_IN_HOME, LEGACY_APP_CONFIG_PATH]
+  for (const legacyPath of legacyCandidates) {
+    if (!existsSync(legacyPath)) continue
+    const data = readJsonConfig(legacyPath, {})
+    saveJsonConfig(APP_CONFIG_PATH, data)
+    return data
+  }
+
+  const initial = {}
+  saveJsonConfig(APP_CONFIG_PATH, initial)
+  return initial
+}
+
 function saveJsonConfig(path: string, data: unknown): { ok: boolean; error?: string } {
   try {
     ensureDir(dirname(path))
@@ -123,13 +175,90 @@ function saveJsonConfig(path: string, data: unknown): { ok: boolean; error?: str
 }
 
 function getDefaultWorkspace(): string {
-  return DEFAULT_WORKSPACE
+  return getDefaultWorkspaceSetting()
+}
+
+function normalizePathLike(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+function isLegacyWindowsWorkspace(value: string): boolean {
+  if (!IS_WINDOWS) return false
+  const normalized = normalizePathLike(value)
+  return normalized === '~/.nanobot/workspace'
+    || normalized === normalizePathLike(join(LEGACY_NANOBOT_HOME, 'workspace'))
+}
+
+function hasLegacyWindowsNanobotConfig(): boolean {
+  return IS_WINDOWS && existsSync(LEGACY_ENGINE_CONFIG_PATH)
+}
+
+function shouldBootstrapNanobotConfig(): boolean {
+  return !existsSync(NANOBOT_CONFIG_PATH) && !hasLegacyWindowsNanobotConfig()
+}
+
+function bootstrapNanobotConfigWithOnboard(): void {
+  if (!shouldBootstrapNanobotConfig()) return
+
+  const launch = getNanobotLaunchSpec()
+  if (!launch) {
+    console.warn('[Nanobot] Skipping onboard bootstrap because no launch target was found.')
+    return
+  }
+
+  console.log('[Nanobot] Bootstrapping config via onboard using', launch.source)
+  const result = spawnSync(launch.command, [
+    ...launch.args,
+    'onboard',
+    '--config',
+    NANOBOT_CONFIG_PATH,
+    '--workspace',
+    getDefaultWorkspace(),
+  ], {
+    cwd: launch.cwd,
+    env: buildChildEnv(),
+    encoding: 'utf-8',
+    windowsHide: process.platform === 'win32',
+    shell: requiresShell(launch.command),
+  })
+
+  if (result.status === 0 && existsSync(NANOBOT_CONFIG_PATH)) {
+    return
+  }
+
+  console.warn('[Nanobot] Onboard bootstrap did not complete successfully.')
+  if (result.stdout?.trim()) {
+    console.warn('[Nanobot] onboard stdout:', result.stdout.trim())
+  }
+  if (result.stderr?.trim()) {
+    console.warn('[Nanobot] onboard stderr:', result.stderr.trim())
+  }
+}
+
+function readNanobotConfigSource(): Record<string, unknown> {
+  if (existsSync(NANOBOT_CONFIG_PATH)) {
+    return readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} })
+  }
+
+  if (IS_WINDOWS && existsSync(LEGACY_ENGINE_CONFIG_PATH)) {
+    return readJsonConfig(LEGACY_ENGINE_CONFIG_PATH, { providers: {} })
+  }
+
+  return { providers: {} }
 }
 
 function normalizeNanobotConfig(raw: unknown): Record<string, unknown> {
   const source = asRecord(raw)
   const { _error: _ignored, ...config } = source
-  const providers = asRecord(config.providers)
+  const providerSource = asRecord(config.providers)
+  const providers = Object.fromEntries(
+    SUPPORTED_PROVIDER_KEYS.map((key) => [key, asRecord(providerSource[key])])
+  ) as Record<string, unknown>
+  for (const [key, value] of Object.entries(providerSource)) {
+    if (!(key in providers)) {
+      providers[key] = asRecord(value)
+    }
+  }
   const agents = asRecord(config.agents)
   const defaults = asRecord(agents.defaults)
   const channels = asRecord(config.channels)
@@ -142,6 +271,12 @@ function normalizeNanobotConfig(raw: unknown): Record<string, unknown> {
   const allowFrom = Array.isArray(harnessclaw.allowFrom)
     ? harnessclaw.allowFrom.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : ['*']
+  const configuredWorkspace = typeof defaults.workspace === 'string' && defaults.workspace.trim()
+    ? defaults.workspace
+    : getDefaultWorkspace()
+  const workspace = isLegacyWindowsWorkspace(configuredWorkspace)
+    ? getDefaultWorkspace()
+    : configuredWorkspace
 
   return {
     ...config,
@@ -150,9 +285,7 @@ function normalizeNanobotConfig(raw: unknown): Record<string, unknown> {
       ...agents,
       defaults: {
         ...defaults,
-        workspace: typeof defaults.workspace === 'string' && defaults.workspace.trim()
-          ? defaults.workspace
-          : getDefaultWorkspace(),
+        workspace,
       },
     },
     channels: {
@@ -172,11 +305,14 @@ function normalizeNanobotConfig(raw: unknown): Record<string, unknown> {
 }
 
 function ensureNanobotConfig(): Record<string, unknown> {
-  const current = readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} })
+  bootstrapNanobotConfigWithOnboard()
+
+  const current = readNanobotConfigSource()
   const normalized = normalizeNanobotConfig(current)
   ensureDir(NANOBOT_HOME)
   ensureDir(getWorkspaceDir(normalized))
   ensureDir(getSkillsDir(normalized))
+  ensureDir(BIN_DIR)
 
   if (!existsSync(NANOBOT_CONFIG_PATH) || JSON.stringify(current) !== JSON.stringify(normalized)) {
     const saved = saveJsonConfig(NANOBOT_CONFIG_PATH, normalized)
@@ -189,7 +325,7 @@ function ensureNanobotConfig(): Record<string, unknown> {
 }
 
 function getWorkspaceDir(config?: Record<string, unknown>): string {
-  const normalized = config ? normalizeNanobotConfig(config) : normalizeNanobotConfig(readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} }))
+  const normalized = config ? normalizeNanobotConfig(config) : normalizeNanobotConfig(readNanobotConfigSource())
   const defaults = asRecord(asRecord(asRecord(normalized).agents).defaults)
   const workspace = typeof defaults.workspace === 'string' && defaults.workspace.trim()
     ? defaults.workspace
@@ -310,13 +446,9 @@ function getNanobotRepoCandidates(): string[] {
   const candidates = [
     process.env.ICUCLAW_NANOBOT_SRC,
     join(appPath, '..', 'nanobot'),
-    join(appPath, '..', 'nanobot-feat-stream'),
     join(appPath, '..', '..', 'nanobot'),
-    join(appPath, '..', '..', 'nanobot-feat-stream'),
     join(process.cwd(), '..', 'nanobot'),
-    join(process.cwd(), '..', 'nanobot-feat-stream'),
     join(process.cwd(), 'nanobot'),
-    join(process.cwd(), 'nanobot-feat-stream'),
   ]
 
   const seen = new Set<string>()
@@ -365,7 +497,12 @@ function getNanobotLaunchSpec(): LaunchSpec | null {
     }
   }
 
-  const pythonCandidates = getCommandCandidates(process.env.ICUCLAW_PYTHON, 'py', 'python', 'python3')
+  const pythonCandidates = getCommandCandidates(
+    process.env.ICUCLAW_PYTHON,
+    'py',
+    'python',
+    'python3',
+  )
   for (const repo of repoCandidates) {
     for (const python of pythonCandidates) {
       if (canImportNanobot(python, repo)) {
@@ -588,7 +725,7 @@ app.whenReady().then(() => {
     return result
   })
   ipcMain.handle('app-config:read', () => {
-    return readJsonConfig(APP_CONFIG_PATH, {})
+    return ensureAppConfig()
   })
 
   ipcMain.handle('app-config:save', (_, data: unknown) => {
@@ -729,6 +866,7 @@ app.whenReady().then(() => {
   })
 
   // Start nanobot gateway, then connect Harnessclaw (auto-retries until gateway is ready)
+  ensureAppConfig()
   startNanobot()
   getDb() // Initialize DB on startup
   harnessclawClient.connect()
@@ -782,7 +920,7 @@ app.whenReady().then(() => {
     try {
       switch (type) {
         case 'connected': {
-          // Don't auto-create session in DB — session is created when user sends first message
+          // Don't auto-create session in DB 鈥?session is created when user sends first message
           break
         }
         case 'turn_start': {
@@ -845,7 +983,7 @@ app.whenReady().then(() => {
             const chunk = event.content as string
             const now = Date.now()
             if (!aid) {
-              // No turn_start received — auto-create assistant message in DB
+              // No turn_start received 鈥?auto-create assistant message in DB
               aid = `ast-${now}`
               pendingDbAssistantIds[sid] = aid
               const initialSegments = chunk ? [{ text: chunk, ts: now }] : []
@@ -870,6 +1008,37 @@ app.whenReady().then(() => {
               pendingDbSegments[sid] = { ...state, segments }
               updateMessageContent(aid, chunk, segments)
             }
+          }
+          break
+        }
+        case 'response': {
+          if (sid) {
+            let aid = pendingDbAssistantIds[sid]
+            const content = (event.content as string) || ''
+            const now = Date.now()
+            const toolsUsed = event.tools_used as string[] | undefined
+            const usage = event.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined
+
+            if (!aid) {
+              aid = `ast-${now}`
+              pendingDbAssistantIds[sid] = aid
+              const segments = content ? [{ text: content, ts: now }] : []
+              insertMessage({
+                id: aid,
+                sessionId: sid,
+                role: 'assistant',
+                content,
+                contentSegments: segments,
+                createdAt: now,
+              })
+              updateMessageContent(aid, '', segments, toolsUsed, usage)
+            } else {
+              const segments = content ? [{ text: content, ts: now }] : pendingDbSegments[sid]?.segments
+              updateMessageContent(aid, content, segments, toolsUsed, usage)
+            }
+
+            delete pendingDbAssistantIds[sid]
+            delete pendingDbSegments[sid]
           }
           break
         }
@@ -973,4 +1142,5 @@ app.on('will-quit', () => {
   stopNanobot()
   closeDb()
 })
+
 

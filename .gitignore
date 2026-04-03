@@ -43,5 +43,6 @@ test_report.json
 
 # Claude Code
 
-# Local docs
-WINDOWS_CHANGES.md
+# Windows distribution artifacts
+harnessclaw/
+harnessclaw/bin/*

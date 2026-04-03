@@ -1,8 +1,7 @@
 import { WebSocket } from 'ws'
 import { readFileSync, existsSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
+import { ENGINE_CONFIG_PATH, IS_WINDOWS, LEGACY_ENGINE_CONFIG_PATH } from './runtime-paths'
 
 interface HarnessclawConfig {
   enabled: boolean
@@ -14,7 +13,6 @@ interface HarnessclawConfig {
 
 type HarnessclawStatus = 'disconnected' | 'connecting' | 'connected'
 
-const NANOBOT_CONFIG_PATH = join(homedir(), '.nanobot', 'config.json')
 const DEFAULT_HARNESSCLAW_CONFIG: HarnessclawConfig = {
   enabled: true,
   host: '127.0.0.1',
@@ -213,8 +211,14 @@ export class HarnessclawClient extends EventEmitter {
 
   private readConfig(): HarnessclawConfig {
     try {
-      if (!existsSync(NANOBOT_CONFIG_PATH)) return DEFAULT_HARNESSCLAW_CONFIG
-      const raw = asRecord(JSON.parse(readFileSync(NANOBOT_CONFIG_PATH, 'utf-8')))
+      const configPath = existsSync(ENGINE_CONFIG_PATH)
+        ? ENGINE_CONFIG_PATH
+        : IS_WINDOWS && existsSync(LEGACY_ENGINE_CONFIG_PATH)
+          ? LEGACY_ENGINE_CONFIG_PATH
+          : null
+      if (!configPath) return DEFAULT_HARNESSCLAW_CONFIG
+
+      const raw = asRecord(JSON.parse(readFileSync(configPath, 'utf-8')))
       const harnessclaw = asRecord(asRecord(raw.channels).harnessclaw)
       const allowFrom = Array.isArray(harnessclaw.allowFrom)
         ? harnessclaw.allowFrom.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
