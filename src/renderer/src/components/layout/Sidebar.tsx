@@ -21,7 +21,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { icon: House, path: '/', label: '首页' },
-  { icon: Zap, path: '/chat', label: '对话' },
+  { icon: Zap, path: '/chat', label: '聊天' },
   { icon: Puzzle, path: '/skills', label: '技能' },
   { icon: Store, path: '/clawhub', label: 'ClawHub' },
   { icon: Shield, path: '/doctor', label: 'Doctor' },
@@ -68,7 +68,7 @@ export function Sidebar() {
   )
 
   const bottomItemCls = cn(
-    'flex items-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-foreground',
+    'flex items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
     expanded ? 'w-full gap-3 px-3 py-2' : 'h-11 w-11 justify-center'
   )
 
@@ -76,7 +76,7 @@ export function Sidebar() {
     <nav
       aria-label="主导航"
       className={cn(
-        'flex flex-shrink-0 flex-col gap-1 overflow-hidden border-r border-border bg-card pb-3 pt-[52px] select-none transition-[width] duration-200',
+        'flex flex-shrink-0 select-none flex-col gap-1 overflow-hidden border-r border-border bg-card pb-3 pt-[52px] transition-[width] duration-200',
         expanded ? 'w-44 items-start px-2' : 'w-[78px] items-center'
       )}
     >
@@ -109,16 +109,14 @@ export function Sidebar() {
 
       <button
         onClick={toggleTheme}
-        title={expanded ? undefined : isDark ? '切换亮色' : '切换暗色'}
-        aria-label={isDark ? '切换亮色模式' : '切换暗色模式'}
+        title={expanded ? undefined : isDark ? '切换到浅色模式' : '切换到深色模式'}
+        aria-label={isDark ? '切换到浅色模式' : '切换到深色模式'}
         className={bottomItemCls}
       >
-        {isDark ? (
-          <Sun size={18} className="flex-shrink-0" aria-hidden="true" />
-        ) : (
-          <Moon size={18} className="flex-shrink-0" aria-hidden="true" />
-        )}
-        {expanded && <span className="text-sm font-medium">{isDark ? '亮色模式' : '暗色模式'}</span>}
+        {isDark
+          ? <Sun size={18} className="flex-shrink-0" aria-hidden="true" />
+          : <Moon size={18} className="flex-shrink-0" aria-hidden="true" />}
+        {expanded && <span className="text-sm font-medium">{isDark ? '浅色模式' : '深色模式'}</span>}
       </button>
 
       <button

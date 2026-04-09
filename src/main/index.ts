@@ -8,6 +8,14 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
 import { runDoctor } from './doctor'
 import {
+  type BundledToolStatus,
+  ensureBundledRuntimes,
+  getBundledClawhubLaunchSpec,
+  getBundledClawhubStatus,
+  getBundledNanobotLaunchSpec,
+  type LaunchSpec,
+} from './bundled-tools'
+import {
   APP_CONFIG_PATH,
   BIN_DIR,
   ENGINE_CONFIG_PATH,
@@ -20,18 +28,36 @@ import {
   LEGACY_ENGINE_CONFIG_PATH,
   LEGACY_NANOBOT_HOME,
   NANOBOT_PID_PATH,
+  LOGS_DIR,
+  NANOBOT_PID_PATH,
   getDefaultWorkspaceSetting,
 } from './runtime-paths'
 import {
   getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent,
-  getMessages, insertToolActivity
+  getMessages, insertToolActivity, insertUsageEvent, listUsageEvents
 } from './db'
+import {
+  ensureLoggingDirs,
+  getLogThreshold,
+  normalizeLogThreshold,
+  readStructuredLogs,
+  readTextFile,
+  sanitizeForLogging,
+  setLogThreshold,
+  writeAppLog,
+  writeExportFile,
+  writeRendererLog,
+  writeUsageLog,
+  type LogLevel,
+  type LogThreshold,
+  type UsageLogEntry,
+} from './logging'
+import { APP_LOG_PATH, RENDERER_LOG_PATH, USAGE_LOG_PATH } from './runtime-paths'
 
 const HARNESSCLAW_DIR = HARNESSCLAW_HOME
 const NANOBOT_HOME = ENGINE_HOME
 const NANOBOT_CONFIG_PATH = ENGINE_CONFIG_PATH
-const CLAWHUB_BIN = join(BIN_DIR, process.platform === 'win32' ? 'clawhub.cmd' : 'clawhub')
 const SUPPORTED_PROVIDER_KEYS = [
   'custom',
   'azure_openai',
@@ -57,13 +83,6 @@ const SUPPORTED_PROVIDER_KEYS = [
   'github_copilot',
 ] as const
 
-interface LaunchSpec {
-  command: string
-  args: string[]
-  cwd?: string
-  source: string
-}
-
 interface PickedLocalFile {
   name: string
   path: string
@@ -75,13 +94,32 @@ interface PickedLocalFile {
 
 let nanobotProcess: ChildProcess | null = null
 let safeConsoleInstalled = false
-let nanobotReloadTimer: ReturnType<typeof setTimeout> | null = null
+let configApplyTimer: ReturnType<typeof setTimeout> | null = null
+let pendingNanobotConfigApply: Record<string, unknown> | null = null
 const DOCTOR_RUN_ONCE = process.argv.includes('--doctor-run-once')
 const DOCTOR_FIX_ARG = process.argv.find((arg) => arg.startsWith('--doctor-fix='))?.split('=')[1] || ''
 const DOCTOR_WAIT_MS = Math.max(
   0,
   Number.parseInt(process.env.HARNESSCLAW_DOCTOR_WAIT_MS || '12000', 10) || 12000
 )
+
+type LocalServiceStatus = 'starting' | 'ready' | 'degraded'
+type TransportStatus = 'disconnected' | 'connecting' | 'connected'
+
+interface AppRuntimeStatus {
+  localService: LocalServiceStatus
+  transport: TransportStatus
+  llmConfigured: boolean
+  applyingConfig: boolean
+  lastError?: string
+}
+
+const appRuntimeStatus: AppRuntimeStatus = {
+  localService: 'starting',
+  transport: 'disconnected',
+  llmConfigured: false,
+  applyingConfig: false,
+}
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
@@ -298,6 +336,13 @@ function buildChildEnv(): NodeJS.ProcessEnv {
   }
 }
 
+function buildLaunchEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...buildChildEnv(),
+    ...extraEnv,
+  }
+}
+
 function isBrokenPipeError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error
     && (error as { code?: string }).code === 'EPIPE'
@@ -306,12 +351,15 @@ function isBrokenPipeError(error: unknown): boolean {
 function installSafeConsole(): void {
   if (safeConsoleInstalled) return
   safeConsoleInstalled = true
+  ensureLoggingDirs()
 
-  const methods = ['log', 'info', 'warn', 'error'] as const
+  const methods = ['debug', 'log', 'info', 'warn', 'error'] as const
   for (const method of methods) {
     const original = console[method].bind(console) as (...args: unknown[]) => void
     Object.defineProperty(console, method, {
       value: (...args: unknown[]) => {
+        const text = createLogText(args)
+        writeAppLog(classifyConsoleLevel(method, text), 'console', text)
         try {
           original(...args)
         } catch (error) {
@@ -341,6 +389,75 @@ function safeWrite(stream: NodeJS.WriteStream | undefined | null, chunk: string)
   }
 }
 
+function createLogText(args: unknown[]): string {
+  return args.map((arg) => {
+    if (typeof arg === 'string') return arg
+    try {
+      return JSON.stringify(sanitizeForLogging(arg))
+    } catch {
+      return String(arg)
+    }
+  }).join(' ')
+}
+
+function classifyConsoleLevel(
+  method: 'debug' | 'log' | 'info' | 'warn' | 'error',
+  text: string
+): LogLevel {
+  if (method === 'debug') return 'debug'
+  if (method === 'warn') return 'warn'
+  if (method === 'error') return 'error'
+
+  if (
+    text.startsWith('[Gateway] debug sign')
+    || (text.startsWith('[Harnessclaw]') && (text.includes('recv:') || text.includes('send:')))
+  ) {
+    return 'debug'
+  }
+
+  return 'info'
+}
+
+function scrubCliArgs(args: string[]): string[] {
+  const scrubbed = [...args]
+  for (let index = 0; index < scrubbed.length; index += 1) {
+    const value = scrubbed[index]
+    if (value === '--token' && scrubbed[index + 1]) {
+      scrubbed[index + 1] = '[REDACTED]'
+    }
+  }
+  return scrubbed
+}
+
+function broadcastAppRuntimeStatus(): void {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('app-runtime:status', { ...appRuntimeStatus })
+  })
+}
+
+function updateAppRuntimeStatus(patch: Partial<AppRuntimeStatus>): void {
+  Object.assign(appRuntimeStatus, patch)
+  broadcastAppRuntimeStatus()
+}
+
+function trackUsage(entry: UsageLogEntry): void {
+  const createdAt = entry.createdAt || Date.now()
+  const details = sanitizeForLogging(entry.details || {})
+  try {
+    insertUsageEvent({
+      category: entry.category,
+      action: entry.action,
+      status: entry.status,
+      detailsJson: JSON.stringify(details),
+      sessionId: entry.sessionId,
+      createdAt,
+    })
+  } catch (error) {
+    writeAppLog('error', 'usage', 'Failed to insert usage event', { entry, error: String(error) })
+  }
+  writeUsageLog({ ...entry, details, createdAt })
+}
+
 function readJsonConfig(path: string, fallback: Record<string, unknown> = {}): Record<string, unknown> {
   try {
     if (!existsSync(path)) return fallback
@@ -351,21 +468,47 @@ function readJsonConfig(path: string, fallback: Record<string, unknown> = {}): R
   }
 }
 
+function getAppLogThreshold(config: Record<string, unknown>): LogThreshold {
+  return normalizeLogThreshold(asRecord(config.logging).level)
+}
+
+function normalizeAppConfig(raw: unknown): Record<string, unknown> {
+  const source = asRecord(raw)
+  const logging = asRecord(source.logging)
+
+  return {
+    ...source,
+    logging: {
+      ...logging,
+      level: getAppLogThreshold(source),
+    },
+  }
+}
+
 function ensureAppConfig(): Record<string, unknown> {
   if (existsSync(APP_CONFIG_PATH)) {
-    return readJsonConfig(APP_CONFIG_PATH, {})
+    const current = readJsonConfig(APP_CONFIG_PATH, {})
+    const normalized = normalizeAppConfig(current)
+    setLogThreshold(getAppLogThreshold(normalized))
+    if (JSON.stringify(current) !== JSON.stringify(normalized)) {
+      saveJsonConfig(APP_CONFIG_PATH, normalized)
+    }
+    return normalized
   }
 
   const legacyCandidates = [LEGACY_APP_CONFIG_IN_HOME, LEGACY_APP_CONFIG_PATH]
   for (const legacyPath of legacyCandidates) {
     if (!existsSync(legacyPath)) continue
     const data = readJsonConfig(legacyPath, {})
-    saveJsonConfig(APP_CONFIG_PATH, data)
-    return data
+    const normalized = normalizeAppConfig(data)
+    saveJsonConfig(APP_CONFIG_PATH, normalized)
+    setLogThreshold(getAppLogThreshold(normalized))
+    return normalized
   }
 
-  const initial = {}
+  const initial = normalizeAppConfig({})
   saveJsonConfig(APP_CONFIG_PATH, initial)
+  setLogThreshold(getAppLogThreshold(initial))
   return initial
 }
 
@@ -465,7 +608,7 @@ function readNanobotConfigSource(): Record<string, unknown> {
 
 function normalizeNanobotConfig(raw: unknown): Record<string, unknown> {
   const source = asRecord(raw)
-  const { _error: _ignored, ...config } = source
+  const { _error: _ignored, metadata: _metadataIgnored, ...config } = source
   const providerSource = asRecord(config.providers)
   const providers = Object.fromEntries(
     SUPPORTED_PROVIDER_KEYS.map((key) => [key, asRecord(providerSource[key])])
@@ -553,59 +696,74 @@ function getSkillsDir(config?: Record<string, unknown>): string {
   return join(getWorkspaceDir(config), 'skills')
 }
 
-function getClawhubWrapper(): string {
-  if (process.platform === 'win32') {
-    return `@echo off
-setlocal
-where bunx >nul 2>nul
-if %errorlevel% equ 0 (
-  call bunx --bun clawhub@latest %*
-  exit /b %errorlevel%
-)
-where npx >nul 2>nul
-if %errorlevel% equ 0 (
-  call npx --yes clawhub@latest %*
-  exit /b %errorlevel%
-)
-echo clawhub requires bunx or npx in PATH 1>&2
-exit /b 127
-`
+function getProviderDefaultBase(providerKey: string): string {
+  const provider = providerKey.toLowerCase()
+  const defaults: Record<string, string> = {
+    openai: 'https://api.openai.com/v1',
+    anthropic: 'https://api.anthropic.com',
+    openrouter: 'https://openrouter.ai/api/v1',
+    deepseek: 'https://api.deepseek.com/v1',
+    groq: 'https://api.groq.com/openai/v1',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+    dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    moonshot: 'https://api.moonshot.cn/v1',
+    minimax: 'https://api.minimax.chat/v1',
+    siliconflow: 'https://api.siliconflow.cn/v1',
+    byteplus: 'https://ark.cn-beijing.volces.com/api/v3',
+    volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
+  }
+  return defaults[provider] || ''
+}
+
+function inferConfiguredProvider(config: Record<string, unknown>): string {
+  const defaults = asRecord(asRecord(asRecord(config).agents).defaults)
+  const model = typeof defaults.model === 'string' ? defaults.model.trim() : ''
+  if (model.includes('/')) {
+    const provider = model.split('/')[0]?.trim()
+    if (provider) return provider
+  }
+  const fallbackProvider = typeof defaults.provider === 'string' ? defaults.provider.trim() : ''
+  return fallbackProvider && fallbackProvider !== 'auto' ? fallbackProvider : ''
+}
+
+function isLlmConfigured(config: Record<string, unknown>): boolean {
+  const defaults = asRecord(asRecord(asRecord(config).agents).defaults)
+  const model = typeof defaults.model === 'string' ? defaults.model.trim() : ''
+  if (!model) return false
+
+  const providerKey = inferConfiguredProvider(config)
+  if (!providerKey) return true
+
+  const provider = asRecord(asRecord(config.providers)[providerKey])
+  const apiKey = typeof provider.apiKey === 'string' ? provider.apiKey.trim() : ''
+  const apiBase = typeof provider.apiBase === 'string' ? provider.apiBase.trim() : ''
+  const localProviders = new Set(['ollama', 'vllm', 'custom'])
+
+  if (localProviders.has(providerKey.toLowerCase())) {
+    return true
   }
 
-  return `#!/usr/bin/env bash
-set -euo pipefail
-
-if command -v bunx >/dev/null 2>&1; then
-  exec bunx --bun clawhub@latest "$@"
-fi
-
-if command -v npx >/dev/null 2>&1; then
-  exec npx --yes clawhub@latest "$@"
-fi
-
-echo "clawhub requires bunx or npx in PATH" >&2
-exit 127
-`
+  return Boolean(apiKey || apiBase || getProviderDefaultBase(providerKey))
 }
 
 function installClawhubBinary(): { ok: boolean; path: string; error?: string } {
-  try {
-    ensureDir(BIN_DIR)
-    writeFileSync(CLAWHUB_BIN, getClawhubWrapper(), 'utf-8')
-    if (process.platform !== 'win32') {
-      chmodSync(CLAWHUB_BIN, 0o755)
-    }
-    return { ok: true, path: CLAWHUB_BIN }
-  } catch (err) {
-    return { ok: false, path: CLAWHUB_BIN, error: String(err) }
-  }
+  const status = getBundledClawhubStatus({ forceSync: true })
+  writeAppLog(status.installed ? 'info' : 'warn', 'clawhub', 'Ensured bundled runtime', {
+    source: status.source,
+    sourcePath: status.sourcePath,
+    runtimePath: status.runtimePath,
+    entryPath: status.entryPath,
+    archivePath: status.archivePath,
+    error: status.error,
+  })
+  return status.installed
+    ? { ok: true, path: status.runtimePath }
+    : { ok: false, path: status.runtimePath, error: status.error || 'Bundled ClawHub runtime is unavailable' }
 }
 
-function getClawhubStatus(): { installed: boolean; path: string } {
-  return {
-    installed: existsSync(CLAWHUB_BIN),
-    path: CLAWHUB_BIN,
-  }
+function getClawhubStatus(): BundledToolStatus {
+  return getBundledClawhubStatus()
 }
 
 function requiresShell(command: string): boolean {
@@ -698,6 +856,11 @@ function getNanobotLaunchSpec(): LaunchSpec | null {
     return { command: explicitBin, args: [], source: 'ICUCLAW_NANOBOT_BIN' }
   }
 
+  const bundledLaunch = getBundledNanobotLaunchSpec()
+  if (bundledLaunch) {
+    return bundledLaunch
+  }
+
   const repoCandidates = getNanobotRepoCandidates()
   for (const repo of repoCandidates) {
     const repoPython = process.platform === 'win32'
@@ -732,16 +895,6 @@ function getNanobotLaunchSpec(): LaunchSpec | null {
     }
   }
 
-  const bundledCandidates = getCommandCandidates(
-    join(BIN_DIR, process.platform === 'win32' ? 'nanobot.cmd' : 'nanobot'),
-    join(BIN_DIR, process.platform === 'win32' ? 'nanobot.exe' : 'nanobot'),
-  )
-  for (const candidate of bundledCandidates) {
-    if (existsSync(candidate)) {
-      return { command: candidate, args: [], source: `bundled: ${candidate}` }
-    }
-  }
-
   for (const binary of process.platform === 'win32' ? ['nanobot.exe', 'nanobot.cmd', 'nanobot'] : ['nanobot']) {
     const resolved = findCommandInPath(binary)
     if (resolved) {
@@ -767,8 +920,15 @@ function runClawhub(
   options?: { timeoutMs?: number; cwd?: string }
 ): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve) => {
-    if (!existsSync(CLAWHUB_BIN)) {
-      resolve({ ok: false, stdout: '', stderr: `clawhub not found: ${CLAWHUB_BIN}`, code: null })
+    const launch = getBundledClawhubLaunchSpec()
+    if (!launch) {
+      const status = getClawhubStatus()
+      resolve({
+        ok: false,
+        stdout: '',
+        stderr: status.error || `clawhub not found: ${status.path}`,
+        code: null,
+      })
       return
     }
 
@@ -777,15 +937,27 @@ function runClawhub(
     const workspaceDir = getWorkspaceDir(config)
     ensureDir(workspaceDir)
 
-    const finalArgs = ['--workdir', workspaceDir, ...args]
-    console.log('[ClawHub] Run:', [CLAWHUB_BIN, ...finalArgs].join(' '), options?.cwd ? `(cwd: ${options.cwd})` : '')
+    const finalArgs = [...launch.args, '--workdir', workspaceDir, ...args]
+    const loggedArgs = scrubCliArgs(finalArgs)
+    console.log('[ClawHub] Run via', launch.source, [launch.command, ...loggedArgs].join(' '), options?.cwd ? `(cwd: ${options.cwd})` : '')
+    trackUsage({
+      category: 'clawhub',
+      action: args[0] || 'run',
+      status: 'started',
+      details: {
+        command: launch.command,
+        args: loggedArgs,
+        cwd: options?.cwd || launch.cwd || '',
+        source: launch.source,
+      },
+    })
 
-    const child = spawn(CLAWHUB_BIN, finalArgs, {
-      env: buildChildEnv(),
-      cwd: options?.cwd,
+    const child = spawn(launch.command, finalArgs, {
+      env: buildLaunchEnv(launch.env),
+      cwd: options?.cwd || launch.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: process.platform === 'win32',
-      shell: requiresShell(CLAWHUB_BIN),
+      shell: requiresShell(launch.command),
     })
 
     let stdout = ''
@@ -796,6 +968,12 @@ function runClawhub(
       if (settled) return
       settled = true
       child.kill()
+      trackUsage({
+        category: 'clawhub',
+        action: args[0] || 'run',
+        status: 'timeout',
+        details: { timeoutMs },
+      })
       resolve({ ok: false, stdout, stderr: stderr || `Timed out after ${timeoutMs}ms`, code: null })
     }, timeoutMs)
 
@@ -809,12 +987,29 @@ function runClawhub(
       if (settled) return
       settled = true
       clearTimeout(timer)
+      writeAppLog('error', 'clawhub', 'Spawn error', { args, error: String(err) })
+      trackUsage({
+        category: 'clawhub',
+        action: args[0] || 'run',
+        status: 'error',
+        details: { error: String(err) },
+      })
       resolve({ ok: false, stdout, stderr: String(err), code: null })
     })
     child.on('close', (code) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+       trackUsage({
+        category: 'clawhub',
+        action: args[0] || 'run',
+        status: code === 0 ? 'ok' : 'failed',
+        details: {
+          code,
+          stdout: stdout.trim().slice(0, 2000),
+          stderr: stderr.trim().slice(0, 2000),
+        },
+      })
       resolve({ ok: code === 0, stdout, stderr, code })
     })
   })
@@ -828,16 +1023,32 @@ function startNanobot(): void {
   cleanupStaleNanobotProcesses()
 
   const config = ensureNanobotConfig()
+  updateAppRuntimeStatus({
+    localService: 'starting',
+    llmConfigured: isLlmConfigured(config),
+    lastError: undefined,
+  })
+  ensureBundledRuntimes()
   const launch = getNanobotLaunchSpec()
   if (!launch) {
     console.warn('[Nanobot] No launch target found. Checked repo source, bundled binaries and PATH.')
+    updateAppRuntimeStatus({
+      localService: 'degraded',
+      lastError: 'Nanobot runtime not found',
+    })
     return
   }
 
   console.log('[Nanobot] Starting gateway via', launch.source)
+  trackUsage({
+    category: 'runtime',
+    action: 'nanobot_start',
+    status: 'started',
+    details: { source: launch.source },
+  })
   nanobotProcess = spawn(launch.command, [...launch.args, 'gateway', '--config', NANOBOT_CONFIG_PATH], {
     cwd: launch.cwd,
-    env: buildChildEnv(),
+    env: buildLaunchEnv(launch.env),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     windowsHide: process.platform === 'win32',
@@ -850,32 +1061,60 @@ function startNanobot(): void {
 
   ensureDir(getWorkspaceDir(config))
   ensureDir(getSkillsDir(config))
+  updateAppRuntimeStatus({
+    localService: 'ready',
+    llmConfigured: isLlmConfigured(config),
+    lastError: undefined,
+  })
 
   nanobotProcess.stdout?.on('data', (data) => {
     safeWrite(process.stdout, `[Nanobot] ${String(data)}`)
+    writeAppLog('info', 'nanobot.stdout', String(data).trim())
   })
   nanobotProcess.stderr?.on('data', (data) => {
     safeWrite(process.stderr, `[Nanobot] ${String(data)}`)
+    writeAppLog('warn', 'nanobot.stderr', String(data).trim())
   })
   nanobotProcess.on('error', (err) => {
     console.error('[Nanobot] Failed to start:', err)
+    updateAppRuntimeStatus({
+      localService: 'degraded',
+      lastError: `Nanobot failed to start: ${String(err)}`,
+    })
+    trackUsage({
+      category: 'runtime',
+      action: 'nanobot_start',
+      status: 'error',
+      details: { error: String(err) },
+    })
     clearPidFile(NANOBOT_PID_PATH)
     nanobotProcess = null
   })
   nanobotProcess.on('exit', (code) => {
     console.log('[Nanobot] Exited with code:', code)
+    updateAppRuntimeStatus({
+      localService: code === 0 ? 'starting' : 'degraded',
+      lastError: code === 0 ? undefined : `Nanobot exited with code ${String(code)}`,
+    })
+    trackUsage({
+      category: 'runtime',
+      action: 'nanobot_exit',
+      status: code === 0 ? 'ok' : 'failed',
+      details: { code },
+    })
     clearPidFile(NANOBOT_PID_PATH)
     nanobotProcess = null
   })
 }
 
 function stopNanobot(): void {
-  if (nanobotReloadTimer) {
-    clearTimeout(nanobotReloadTimer)
-    nanobotReloadTimer = null
-  }
   if (!nanobotProcess) return
   console.log('[Nanobot] Stopping gateway...')
+  trackUsage({
+    category: 'runtime',
+    action: 'nanobot_stop',
+    status: 'started',
+  })
   if (nanobotProcess.pid) {
     killProcessTree(nanobotProcess.pid)
   } else {
@@ -885,19 +1124,48 @@ function stopNanobot(): void {
   nanobotProcess = null
 }
 
-function scheduleNanobotReload(reason: string): void {
-  if (nanobotReloadTimer) {
-    clearTimeout(nanobotReloadTimer)
-  }
+function applyNanobotConfigNow(config: Record<string, unknown>): void {
+  updateAppRuntimeStatus({
+    applyingConfig: true,
+    localService: 'starting',
+    llmConfigured: isLlmConfigured(config),
+    lastError: undefined,
+  })
+  trackUsage({
+    category: 'config',
+    action: 'apply_nanobot_config',
+    status: 'started',
+    details: { provider: inferConfiguredProvider(config), llmConfigured: isLlmConfigured(config) },
+  })
 
-  nanobotReloadTimer = setTimeout(() => {
-    nanobotReloadTimer = null
-    console.log('[Nanobot] Reloading gateway after config change:', reason)
+  try {
     harnessclawClient.disconnect()
     stopNanobot()
     startNanobot()
     harnessclawClient.connect()
-  }, 350)
+    updateAppRuntimeStatus({
+      applyingConfig: false,
+      llmConfigured: isLlmConfigured(config),
+    })
+    trackUsage({
+      category: 'config',
+      action: 'apply_nanobot_config',
+      status: 'ok',
+      details: { provider: inferConfiguredProvider(config), llmConfigured: isLlmConfigured(config) },
+    })
+  } catch (error) {
+    updateAppRuntimeStatus({
+      applyingConfig: false,
+      localService: 'degraded',
+      lastError: `Failed to apply config: ${String(error)}`,
+    })
+    trackUsage({
+      category: 'config',
+      action: 'apply_nanobot_config',
+      status: 'error',
+      details: { error: String(error) },
+    })
+  }
 }
 
 async function performDoctorFix(checkId: string): Promise<{ ok: boolean; message: string }> {
@@ -952,6 +1220,67 @@ async function performDoctorFix(checkId: string): Promise<{ ok: boolean; message
   }
 }
 
+function scheduleNanobotConfigApply(config: Record<string, unknown>): void {
+  pendingNanobotConfigApply = config
+  updateAppRuntimeStatus({
+    applyingConfig: true,
+    llmConfigured: isLlmConfigured(config),
+    lastError: undefined,
+  })
+
+  if (configApplyTimer) {
+    clearTimeout(configApplyTimer)
+  }
+
+  configApplyTimer = setTimeout(() => {
+    configApplyTimer = null
+    const next = pendingNanobotConfigApply
+    pendingNanobotConfigApply = null
+    if (next) {
+      applyNanobotConfigNow(next)
+    }
+  }, 1000)
+}
+
+function buildExportPayload(type: string): { name: string; content: string } {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  if (type === 'logs') {
+    return {
+      name: `logs-export-${stamp}.json`,
+      content: JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        appLog: readTextFile(APP_LOG_PATH),
+        rendererLog: readTextFile(RENDERER_LOG_PATH),
+        usageLog: readTextFile(USAGE_LOG_PATH),
+        usageEvents: listUsageEvents(1000),
+      }, null, 2),
+    }
+  }
+
+  if (type === 'config') {
+    return {
+      name: `config-export-${stamp}.json`,
+      content: JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        nanobotConfig: sanitizeForLogging(ensureNanobotConfig()),
+        appConfig: sanitizeForLogging(ensureAppConfig()),
+      }, null, 2),
+    }
+  }
+
+  return {
+    name: `chat-export-${stamp}.json`,
+    content: JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      sessions: dbListSessions().map((session) => ({
+        ...session,
+        messages: getMessages(session.session_id),
+      })),
+    }, null, 2),
+  }
+}
+
+setLogThreshold(getAppLogThreshold(ensureAppConfig()))
 installSafeConsole()
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -1014,7 +1343,9 @@ app.whenReady().then(() => {
 
   // Config file read/write
   ipcMain.handle('config:read', () => {
-    return ensureNanobotConfig()
+    const config = ensureNanobotConfig()
+    updateAppRuntimeStatus({ llmConfigured: isLlmConfigured(config) })
+    return config
   })
 
   ipcMain.handle('config:save', (_, data: unknown) => {
@@ -1023,7 +1354,21 @@ app.whenReady().then(() => {
     if (result.ok) {
       ensureDir(getWorkspaceDir(normalized))
       ensureDir(getSkillsDir(normalized))
-      scheduleNanobotReload('config saved from renderer')
+      updateAppRuntimeStatus({ llmConfigured: isLlmConfigured(normalized) })
+      scheduleNanobotConfigApply(normalized)
+      trackUsage({
+        category: 'config',
+        action: 'save_nanobot_config',
+        status: 'ok',
+        details: { provider: inferConfiguredProvider(normalized), llmConfigured: isLlmConfigured(normalized), applyScheduled: true },
+      })
+      } else {
+        trackUsage({
+          category: 'config',
+          action: 'save_nanobot_config',
+          status: 'error',
+          details: { error: result.error || 'Unknown error' },
+        })
     }
     return result
   })
@@ -1032,7 +1377,74 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('app-config:save', (_, data: unknown) => {
-    return saveJsonConfig(APP_CONFIG_PATH, data)
+    const normalized = normalizeAppConfig(data)
+    const result = saveJsonConfig(APP_CONFIG_PATH, normalized)
+    if (result.ok) {
+      setLogThreshold(getAppLogThreshold(normalized))
+    }
+    trackUsage({
+      category: 'config',
+      action: 'save_app_config',
+      status: result.ok ? 'ok' : 'error',
+      details: result.ok
+        ? { logLevel: getAppLogThreshold(normalized) }
+        : { error: result.error || 'Unknown error' },
+    })
+    return result
+  })
+
+  ipcMain.handle('app-runtime:getStatus', () => {
+    return { ...appRuntimeStatus }
+  })
+
+  ipcMain.handle('app-runtime:getLogLevel', () => {
+    return getLogThreshold()
+  })
+
+  ipcMain.handle('app-runtime:getLogs', (_, options) => {
+    return readStructuredLogs(options || {})
+  })
+
+  ipcMain.handle('app-runtime:openLogsDirectory', async () => {
+    const error = await shell.openPath(LOGS_DIR)
+    return {
+      ok: !error,
+      path: LOGS_DIR,
+      error: error || undefined,
+    }
+  })
+
+  ipcMain.handle('app-runtime:logRenderer', (_, level: LogLevel, message: string, details?: Record<string, unknown>) => {
+    writeRendererLog(level, message, details)
+    return { ok: true }
+  })
+
+  ipcMain.handle('app-runtime:trackUsage', (_, entry: UsageLogEntry) => {
+    trackUsage(entry)
+    return { ok: true }
+  })
+
+  ipcMain.handle('app-runtime:exportData', (_, type: string) => {
+    try {
+      const payload = buildExportPayload(type)
+      const path = writeExportFile(payload.name, payload.content)
+      trackUsage({
+        category: 'export',
+        action: type,
+        status: 'ok',
+        details: { path },
+      })
+      return { ok: true, path }
+    } catch (error) {
+      const errText = String(error)
+      trackUsage({
+        category: 'export',
+        action: type,
+        status: 'error',
+        details: { error: errText },
+      })
+      return { ok: false, error: errText }
+    }
   })
 
   ipcMain.handle('clawhub:getStatus', () => {
@@ -1169,12 +1581,36 @@ app.whenReady().then(() => {
   })
 
   // Start nanobot gateway, then connect Harnessclaw (auto-retries until gateway is ready)
+  ensureLoggingDirs()
   ensureAppConfig()
+  const initialNanobotConfig = ensureNanobotConfig()
+  updateAppRuntimeStatus({
+    localService: 'starting',
+    transport: 'disconnected',
+    llmConfigured: isLlmConfigured(initialNanobotConfig),
+    applyingConfig: false,
+    lastError: undefined,
+  })
+  trackUsage({
+    category: 'app',
+    action: 'startup',
+    status: 'ok',
+    details: { version: app.getVersion() },
+  })
   startNanobot()
-  getDb() // Initialize DB on startup
+  try {
+    getDb() // Initialize DB on startup
+  } catch (err) {
+    console.error('[DB] Startup initialization failed:', err)
+  }
   harnessclawClient.connect()
 
   harnessclawClient.on('statusChange', (status) => {
+    updateAppRuntimeStatus({
+      transport: status as TransportStatus,
+      localService: status === 'connected' ? 'ready' : appRuntimeStatus.localService === 'degraded' ? 'degraded' : appRuntimeStatus.localService,
+      lastError: status === 'connected' ? undefined : appRuntimeStatus.lastError,
+    })
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send('harnessclaw:status', status)
     })
@@ -1202,8 +1638,10 @@ app.whenReady().then(() => {
   ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
     try {
       dbDeleteSession(sessionId)
+      trackUsage({ category: 'chat', action: 'delete_session', status: 'ok', sessionId })
       return { ok: true }
     } catch (err) {
+      trackUsage({ category: 'chat', action: 'delete_session', status: 'error', sessionId, details: { error: String(err) } })
       return { ok: false, error: String(err) }
     }
   })
@@ -1248,6 +1686,7 @@ app.whenReady().then(() => {
       switch (type) {
         case 'connected': {
           // Don't auto-create session in DB 鈥?session is created when user sends first message
+          updateAppRuntimeStatus({ localService: 'ready', transport: 'connected', lastError: undefined })
           break
         }
         case 'turn_start': {
@@ -1391,16 +1830,25 @@ app.whenReady().then(() => {
 
   ipcMain.handle('harnessclaw:connect', () => {
     harnessclawClient.connect()
+    trackUsage({ category: 'chat', action: 'connect', status: 'started' })
     return { ok: true }
   })
 
   ipcMain.handle('harnessclaw:disconnect', () => {
     harnessclawClient.disconnect()
+    trackUsage({ category: 'chat', action: 'disconnect', status: 'ok' })
     return { ok: true }
   })
 
   ipcMain.handle('harnessclaw:send', (_, content: string, sessionId?: string) => {
     harnessclawClient.send(content, sessionId)
+    trackUsage({
+      category: 'chat',
+      action: 'send_message',
+      status: 'ok',
+      sessionId,
+      details: { contentLength: content.length },
+    })
     // Write user message to DB
     if (sessionId) {
       try {
@@ -1426,26 +1874,31 @@ app.whenReady().then(() => {
 
   ipcMain.handle('harnessclaw:command', (_, cmd: string, sessionId?: string) => {
     harnessclawClient.command(cmd, sessionId)
+    trackUsage({ category: 'chat', action: 'command', status: 'ok', sessionId, details: { command: cmd } })
     return { ok: true }
   })
 
   ipcMain.handle('harnessclaw:stop', (_, sessionId?: string) => {
     harnessclawClient.stop(sessionId)
+    trackUsage({ category: 'chat', action: 'stop', status: 'ok', sessionId })
     return { ok: true }
   })
 
   ipcMain.handle('harnessclaw:subscribe', (_, sessionId: string) => {
     harnessclawClient.subscribe(sessionId)
+    trackUsage({ category: 'chat', action: 'subscribe', status: 'ok', sessionId })
     return { ok: true }
   })
 
   ipcMain.handle('harnessclaw:unsubscribe', (_, sessionId: string) => {
     harnessclawClient.unsubscribe(sessionId)
+    trackUsage({ category: 'chat', action: 'unsubscribe', status: 'ok', sessionId })
     return { ok: true }
   })
 
   ipcMain.handle('harnessclaw:listSessions', () => {
     harnessclawClient.listSessions()
+    trackUsage({ category: 'chat', action: 'list_sessions', status: 'ok' })
     return { ok: true }
   })
 
@@ -1488,6 +1941,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  if (configApplyTimer) {
+    clearTimeout(configApplyTimer)
+    configApplyTimer = null
+  }
   harnessclawClient.disconnect()
   stopNanobot()
   closeDb()

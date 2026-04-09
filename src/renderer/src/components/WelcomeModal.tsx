@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Bot } from 'lucide-react'
 
 const features = [
-  { title: '安全可靠', desc: '本地部署，数据不离开您的设备' },
-  { title: '高效稳定', desc: '低延迟通信，多会话并行处理' },
-  { title: '权限管控', desc: '工具调用白名单，操作可审计追溯' },
-  { title: '多模型支持', desc: '灵活对接多种 AI 后端' },
+  { title: '本地优先', desc: '配置、日志和数据库都保存在你的设备上。' },
+  { title: '稳定工作流', desc: '内置运行时会自动启动，常用流程打开即可用。' },
+  { title: '工具可追踪', desc: '关键调用和运行日志会被记录，便于排查问题。' },
+  { title: '灵活接入模型', desc: '填写 API Key、API Base 和默认模型后即可开始使用。' },
 ]
 
 export function WelcomeModal() {
@@ -52,11 +52,9 @@ export function WelcomeModal() {
           e.preventDefault()
           last?.focus()
         }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault()
-          first?.focus()
-        }
+      } else if (document.activeElement === last) {
+        e.preventDefault()
+        first?.focus()
       }
     }
   }, [handleClose])
@@ -73,42 +71,37 @@ export function WelcomeModal() {
       tabIndex={-1}
       onKeyDown={handleKeyDown}
     >
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
 
-      {/* Modal */}
-      <div className="relative w-[420px] bg-card rounded-2xl shadow-2xl border border-border overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="px-8 pt-8 pb-2 text-center">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-foreground/5 mb-4">
-            <span className="text-3xl" aria-hidden="true">🤖</span>
+      <div className="relative w-[420px] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <div className="px-8 pb-2 pt-8 text-center">
+          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-foreground/5">
+            <Bot size={30} className="text-primary" aria-hidden="true" />
           </div>
           <h2 id="welcome-title" className="text-xl font-semibold text-foreground">欢迎使用 Harnessclaw</h2>
-          <p className="text-sm text-muted-foreground mt-1.5">
-            您的本地 AI 助手，安全、高效、可控
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            本地桌面 AI 助手已经就绪，保存模型配置后即可开始使用。
           </p>
         </div>
 
-        {/* Features — simple list, no colored icons */}
         <div className="px-8 py-5">
           <ul className="space-y-2.5">
-            {features.map((f) => (
-              <li key={f.title} className="flex items-baseline gap-2 text-sm">
-                <span className="w-1 h-1 rounded-full bg-foreground/40 flex-shrink-0 translate-y-[-1px]" aria-hidden="true" />
+            {features.map((feature) => (
+              <li key={feature.title} className="flex items-baseline gap-2 text-sm">
+                <span className="w-1 h-1 translate-y-[-1px] flex-shrink-0 rounded-full bg-foreground/40" aria-hidden="true" />
                 <span>
-                  <span className="font-medium text-foreground">{f.title}</span>
-                  <span className="text-muted-foreground"> — {f.desc}</span>
+                  <span className="font-medium text-foreground">{feature.title}</span>
+                  <span className="text-muted-foreground">：{feature.desc}</span>
                 </span>
               </li>
             ))}
           </ul>
         </div>
 
-        {/* Footer */}
         <div className="px-8 pb-8 pt-2">
           <button
             onClick={handleClose}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             开始使用
             <ArrowRight size={14} aria-hidden="true" />

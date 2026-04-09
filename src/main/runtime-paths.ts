@@ -16,6 +16,11 @@ export const NANOBOT_PID_PATH = join(HARNESSCLAW_HOME, 'nanobot-gateway.pid')
 export const BIN_DIR = join(HARNESSCLAW_HOME, 'bin')
 export const DB_DIR = join(HARNESSCLAW_HOME, 'db')
 export const DB_PATH = join(DB_DIR, 'harnessclaw.db')
+export const LOGS_DIR = join(HARNESSCLAW_HOME, 'logs')
+export const APP_LOG_PATH = join(LOGS_DIR, 'app.log')
+export const RENDERER_LOG_PATH = join(LOGS_DIR, 'renderer.log')
+export const USAGE_LOG_PATH = join(LOGS_DIR, 'usage.jsonl')
+export const EXPORTS_DIR = join(LOGS_DIR, 'exports')
 
 export function getDefaultWorkspaceSetting(): string {
   return IS_WINDOWS ? '~/.harnessclaw/workspace' : '~/.nanobot/workspace'

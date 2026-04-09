@@ -35,7 +35,16 @@ function useJsonConfig(bridge: ConfigBridge) {
       configRef.current = updated
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(async () => {
-        await bridge.save(configRef.current)
+        const result = await bridge.save(configRef.current)
+        void window.appRuntime.trackUsage({
+          category: 'config',
+          action: bridge === window.nanobotConfig ? 'renderer_save_nanobot_config' : 'renderer_save_app_config',
+          status: result.ok ? 'ok' : 'error',
+          details: result.ok ? {} : { error: result.error || 'Unknown error' },
+        })
+        if (!result.ok) {
+          void window.appRuntime.logRenderer('error', 'Config save failed', { error: result.error || 'Unknown error' })
+        }
       }, 500)
       return updated
     })

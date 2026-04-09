@@ -1,0 +1,51 @@
+appId: com.openclaw.nanny
+productName: OpenClaw Nanny
+copyright: Copyright (c) 2026 OpenClaw
+
+directories:
+  output: dist
+  buildResources: resources
+
+electronDist: node_modules/electron/dist
+
+electronDownload:
+  mirror: https://github.com/electron/electron/releases/download/
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: build/bundled-tools/nanobot
+    to: bundled-tools/nanobot
+    filter:
+      - '**/*'
+  - from: build/bundled-tools/clawhub
+    to: bundled-tools/clawhub
+    filter:
+      - 'package.json'
+      - 'runtime-manifest.json'
+      - 'payload.zip'
+
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
+  - '**/*.node'
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  executableName: OpenClaw Nanny
+  icon: icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: OpenClaw Nanny
+  uninstallDisplayName: OpenClaw Nanny
+
+artifactName: ${productName}-${version}-${arch}.${ext}
