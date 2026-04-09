@@ -54,6 +54,7 @@ function initTables(db: Database.Database): void {
       content    TEXT NOT NULL DEFAULT '',
       call_id    TEXT,
       is_error   INTEGER DEFAULT 0,
+      subagent_json TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
@@ -65,6 +66,12 @@ function initTables(db: Database.Database): void {
   const hasContentSegments = messageColumns.some((col) => col.name === 'content_segments')
   if (!hasContentSegments) {
     db.exec(`ALTER TABLE messages ADD COLUMN content_segments TEXT`)
+  }
+
+  const toolColumns = db.prepare(`PRAGMA table_info(tool_activities)`).all() as Array<{ name: string }>
+  const hasSubagentJson = toolColumns.some((col) => col.name === 'subagent_json')
+  if (!hasSubagentJson) {
+    db.exec(`ALTER TABLE tool_activities ADD COLUMN subagent_json TEXT`)
   }
 }
 
@@ -123,6 +130,7 @@ export interface ToolActivityRow {
   content: string
   call_id: string | null
   is_error: number
+  subagent_json: string | null
   created_at: number
 }
 
@@ -131,7 +139,7 @@ export function insertMessage(msg: {
   sessionId: string
   role: string
   content: string
-  contentSegments?: Array<{ text: string; ts: number }>
+  contentSegments?: Array<{ text: string; ts: number; subagent?: { taskId: string; label: string; status: string } }>
   thinking?: string
   createdAt: number
 }): void {
@@ -155,7 +163,7 @@ export function insertMessage(msg: {
 export function updateMessageContent(
   id: string,
   content: string,
-  contentSegments?: Array<{ text: string; ts: number }>,
+  contentSegments?: Array<{ text: string; ts: number; subagent?: { taskId: string; label: string; status: string } }>,
   toolsUsed?: string[],
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
 ): void {
@@ -245,11 +253,21 @@ export function insertToolActivity(messageId: string, activity: {
   content: string
   callId?: string
   isError?: boolean
+  subagent?: { taskId: string; label: string; status: string }
 }): void {
   getDb().prepare(`
-    INSERT INTO tool_activities (message_id, type, name, content, call_id, is_error, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(messageId, activity.type, activity.name || null, activity.content, activity.callId || null, activity.isError ? 1 : 0, Date.now())
+    INSERT INTO tool_activities (message_id, type, name, content, call_id, is_error, subagent_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    messageId,
+    activity.type,
+    activity.name || null,
+    activity.content,
+    activity.callId || null,
+    activity.isError ? 1 : 0,
+    activity.subagent ? JSON.stringify(activity.subagent) : null,
+    Date.now()
+  )
 }
 
 export function closeDb(): void {

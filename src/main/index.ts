@@ -6,14 +6,43 @@ import { spawn, ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
 import {
+  HARNESSCLAW_DIR,
+  NANOBOT_CONFIG_PATH,
+  ensureDir,
+  readNanobotConfig,
+  saveNanobotConfig,
+  readHarnessclawConfig,
+  saveHarnessclawConfig,
+} from './config'
+import {
   getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent,
   getMessages, insertToolActivity
 } from './db'
 
-const HARNESSCLAW_DIR = join(homedir(), '.harnessclaw')
-const NANOBOT_CONFIG_PATH = join(HARNESSCLAW_DIR, 'config.json')
-const APP_CONFIG_PATH = join(homedir(), '.icuclaw.json')
+type PersistedSubagent = { taskId: string; label: string; status: string }
+
+function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const candidate = raw as Record<string, unknown>
+  const taskId = typeof candidate.task_id === 'string' ? candidate.task_id : ''
+  const label = typeof candidate.label === 'string' ? candidate.label : ''
+  const status = typeof candidate.status === 'string' ? candidate.status : ''
+  if (!taskId || !label) return undefined
+  return { taskId, label, status: status || 'ok' }
+}
+
+function isSameSubagent(
+  left?: PersistedSubagent,
+  right?: PersistedSubagent,
+): boolean {
+  return left?.taskId === right?.taskId
+}
+
+function getModuleKey(subagent?: PersistedSubagent): string {
+  return subagent?.taskId || '__main__'
+}
+
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
 const NANOBOT_BIN = join(HARNESSCLAW_DIR, 'bin', 'nanobot')
 const CLAWHUB_BIN = join(HARNESSCLAW_DIR, 'bin', 'clawhub')
@@ -21,32 +50,6 @@ const CLAWHUB_WORKDIR = join(HARNESSCLAW_DIR, 'workspace')
 const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
 
 let nanobotProcess: ChildProcess | null = null
-
-function ensureDir(dir: string): void {
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
-  }
-}
-
-function readJsonConfig(path: string, fallback: Record<string, unknown> = {}): Record<string, unknown> {
-  try {
-    if (!existsSync(path)) return fallback
-    const raw = readFileSync(path, 'utf-8')
-    return JSON.parse(raw)
-  } catch (err) {
-    return { ...fallback, _error: String(err) }
-  }
-}
-
-function saveJsonConfig(path: string, data: unknown): { ok: boolean; error?: string } {
-  try {
-    ensureDir(join(path, '..'))
-    writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8')
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: String(err) }
-  }
-}
 
 function getClawhubWrapper(): string {
   return `#!/usr/bin/env bash
@@ -233,20 +236,21 @@ app.whenReady().then(() => {
 
   // Config file read/write
   ipcMain.handle('config:read', () => {
-    return readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} })
+    return readNanobotConfig({ providers: {} })
   })
 
   ipcMain.handle('config:save', (_, data: unknown) => {
     ensureDir(HARNESSCLAW_DIR)
-    return saveJsonConfig(NANOBOT_CONFIG_PATH, data)
+    return saveNanobotConfig(data)
   })
 
   ipcMain.handle('app-config:read', () => {
-    return readJsonConfig(APP_CONFIG_PATH, {})
+    return readHarnessclawConfig({})
   })
 
   ipcMain.handle('app-config:save', (_, data: unknown) => {
-    return saveJsonConfig(APP_CONFIG_PATH, data)
+    ensureDir(HARNESSCLAW_DIR)
+    return saveHarnessclawConfig(data)
   })
 
   ipcMain.handle('clawhub:getStatus', () => {
@@ -424,7 +428,10 @@ app.whenReady().then(() => {
 
   // Track pending assistant message IDs per session for DB writes
   const pendingDbAssistantIds: Record<string, string> = {}
-  const pendingDbSegments: Record<string, { segments: Array<{ text: string; ts: number }>; lastToolTs: number }> = {}
+  const pendingDbSegments: Record<string, {
+    segments: Array<{ text: string; ts: number; subagent?: PersistedSubagent }>
+    lastToolTsByModule: Record<string, number>
+  }> = {}
 
   harnessclawClient.on('event', (event) => {
     BrowserWindow.getAllWindows().forEach((win) => {
@@ -434,7 +441,19 @@ app.whenReady().then(() => {
     // Write to DB based on event type
     const type = event.type as string
     const sid = event.session_id as string | undefined
+    const subagent = normalizeSubagent(event.subagent)
     try {
+      const ensureDbAssistantMessage = (sessionId: string, now: number): string => {
+        let aid = pendingDbAssistantIds[sessionId]
+        if (aid) return aid
+
+        aid = `ast-${now}`
+        pendingDbAssistantIds[sessionId] = aid
+        pendingDbSegments[sessionId] = { segments: [], lastToolTsByModule: {} }
+        insertMessage({ id: aid, sessionId, role: 'assistant', content: '', contentSegments: [], createdAt: now })
+        return aid
+      }
+
       switch (type) {
         case 'connected': {
           // Don't auto-create session in DB — session is created when user sends first message
@@ -443,43 +462,66 @@ app.whenReady().then(() => {
         case 'turn_start': {
           if (sid) {
             const now = Date.now()
+            if (subagent) {
+              const aid = ensureDbAssistantMessage(sid, now)
+              insertToolActivity(aid, {
+                type: 'status',
+                name: 'turn_start',
+                content: subagent.status === 'running' ? '子任务启动' : '开始总结',
+                subagent,
+              })
+              break
+            }
             const id = `ast-${now}`
             pendingDbAssistantIds[sid] = id
-            pendingDbSegments[sid] = { segments: [], lastToolTs: 0 }
+            pendingDbSegments[sid] = { segments: [], lastToolTsByModule: {} }
             insertMessage({ id, sessionId: sid, role: 'assistant', content: '', contentSegments: [], createdAt: now })
+          }
+          break
+        }
+        case 'task_start': {
+          if (sid && subagent) {
+            const aid = ensureDbAssistantMessage(sid, Date.now())
+            insertToolActivity(aid, {
+              type: 'status',
+              name: 'task_start',
+              content: '子任务已创建',
+              subagent,
+            })
           }
           break
         }
         case 'tool_hint': {
           if (sid) {
-            const aid = pendingDbAssistantIds[sid]
+            const aid = ensureDbAssistantMessage(sid, Date.now())
             if (aid) {
-              insertToolActivity(aid, { type: 'hint', content: (event.content as string) || '' })
+              insertToolActivity(aid, { type: 'hint', content: (event.content as string) || '', subagent })
               const state = pendingDbSegments[sid]
-              if (state) state.lastToolTs = Date.now()
+              if (state) state.lastToolTsByModule[getModuleKey(subagent)] = Date.now()
             }
           }
           break
         }
         case 'tool_call': {
           if (sid) {
-            const aid = pendingDbAssistantIds[sid]
+            const aid = ensureDbAssistantMessage(sid, Date.now())
             if (aid) {
               insertToolActivity(aid, {
                 type: 'call',
                 name: event.name as string,
                 content: JSON.stringify(event.arguments, null, 2),
                 callId: event.call_id as string,
+                subagent,
               })
               const state = pendingDbSegments[sid]
-              if (state) state.lastToolTs = Date.now()
+              if (state) state.lastToolTsByModule[getModuleKey(subagent)] = Date.now()
             }
           }
           break
         }
         case 'tool_result': {
           if (sid) {
-            const aid = pendingDbAssistantIds[sid]
+            const aid = ensureDbAssistantMessage(sid, Date.now())
             if (aid) {
               insertToolActivity(aid, {
                 type: 'result',
@@ -487,9 +529,54 @@ app.whenReady().then(() => {
                 content: (event.content as string) || '',
                 callId: event.call_id as string,
                 isError: event.is_error as boolean,
+                subagent,
               })
               const state = pendingDbSegments[sid]
-              if (state) state.lastToolTs = Date.now()
+              if (state) state.lastToolTsByModule[getModuleKey(subagent)] = Date.now()
+            }
+          }
+          break
+        }
+        case 'permission_request': {
+          if (sid) {
+            const aid = ensureDbAssistantMessage(sid, Date.now())
+            if (aid) {
+              insertToolActivity(aid, {
+                type: 'permission',
+                name: event.name as string,
+                content: JSON.stringify({
+                  tool_input: (event.tool_input as string) || '',
+                  message: (event.content as string) || '',
+                  is_read_only: event.is_read_only === true,
+                  options: Array.isArray(event.options) ? event.options : [],
+                }),
+                callId: event.request_id as string,
+                subagent,
+              })
+              const state = pendingDbSegments[sid]
+              if (state) state.lastToolTsByModule[getModuleKey(subagent)] = Date.now()
+            }
+          }
+          break
+        }
+        case 'permission_result': {
+          if (sid) {
+            const aid = ensureDbAssistantMessage(sid, Date.now())
+            if (aid) {
+              insertToolActivity(aid, {
+                type: 'permission_result',
+                name: event.name as string,
+                content: JSON.stringify({
+                  approved: event.approved === true,
+                  scope: event.scope === 'session' ? 'session' : 'once',
+                  message: (event.content as string) || '',
+                }),
+                callId: event.request_id as string,
+                isError: event.approved !== true,
+                subagent,
+              })
+              const state = pendingDbSegments[sid]
+              if (state) state.lastToolTsByModule[getModuleKey(subagent)] = Date.now()
             }
           }
           break
@@ -500,30 +587,54 @@ app.whenReady().then(() => {
             const chunk = event.content as string
             const now = Date.now()
             if (!aid) {
-              // No turn_start received — auto-create assistant message in DB
-              aid = `ast-${now}`
-              pendingDbAssistantIds[sid] = aid
-              const initialSegments = chunk ? [{ text: chunk, ts: now }] : []
-              pendingDbSegments[sid] = { segments: initialSegments, lastToolTs: 0 }
-              insertMessage({
-                id: aid,
-                sessionId: sid,
-                role: 'assistant',
-                content: chunk || '',
-                contentSegments: initialSegments,
-                createdAt: now
-              })
+              aid = ensureDbAssistantMessage(sid, now)
+              const initialSegments = chunk ? [{ text: chunk, ts: now, subagent }] : []
+              pendingDbSegments[sid] = { ...(pendingDbSegments[sid] || { lastToolTsByModule: {}, segments: [] }), segments: initialSegments }
+              updateMessageContent(aid, chunk || '', initialSegments)
             } else if (chunk) {
-              const state = pendingDbSegments[sid] || { segments: [], lastToolTs: 0 }
+              const state = pendingDbSegments[sid] || { segments: [], lastToolTsByModule: {} }
               const segments = [...state.segments]
-              const lastSeg = segments[segments.length - 1]
-              if (lastSeg && state.lastToolTs <= lastSeg.ts) {
-                segments[segments.length - 1] = { text: lastSeg.text + chunk, ts: lastSeg.ts }
+              const moduleKey = getModuleKey(subagent)
+              const lastSegIndex = [...segments].reverse().findIndex((seg) => getModuleKey(seg.subagent) === moduleKey)
+              const resolvedLastSegIndex = lastSegIndex === -1 ? -1 : segments.length - 1 - lastSegIndex
+              const lastSeg = resolvedLastSegIndex >= 0 ? segments[resolvedLastSegIndex] : undefined
+              const lastRelatedToolTs = state.lastToolTsByModule[moduleKey] || 0
+              if (lastSeg && lastRelatedToolTs <= lastSeg.ts && isSameSubagent(lastSeg.subagent, subagent)) {
+                segments[resolvedLastSegIndex] = { ...lastSeg, text: lastSeg.text + chunk, ts: lastSeg.ts }
               } else {
-                segments.push({ text: chunk, ts: now })
+                segments.push({ text: chunk, ts: now, subagent })
               }
               pendingDbSegments[sid] = { ...state, segments }
               updateMessageContent(aid, chunk, segments)
+            }
+          }
+          break
+        }
+        case 'response': {
+          if (sid) {
+            let aid = pendingDbAssistantIds[sid]
+            const content = (event.content as string) || ''
+            const now = Date.now()
+            const toolsUsed = event.tools_used as string[] | undefined
+            const usage = event.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined
+
+            if (!aid) {
+              aid = ensureDbAssistantMessage(sid, now)
+              const segments = content ? [{ text: content, ts: now, subagent }] : []
+              pendingDbSegments[sid] = { segments, lastToolTsByModule: {} }
+              updateMessageContent(aid, content, segments)
+            } else {
+              const segments = pendingDbSegments[sid]?.segments || []
+              if (content && segments.length === 0) {
+                pendingDbSegments[sid] = { segments: [{ text: content, ts: now, subagent }], lastToolTsByModule: {} }
+              }
+              updateMessageContent(aid, content, pendingDbSegments[sid]?.segments)
+            }
+
+            if (!subagent) {
+              updateMessageContent(aid, '', pendingDbSegments[sid]?.segments, toolsUsed, usage)
+              delete pendingDbAssistantIds[sid]
+              delete pendingDbSegments[sid]
             }
           }
           break
@@ -532,12 +643,35 @@ app.whenReady().then(() => {
           if (sid) {
             const aid = pendingDbAssistantIds[sid]
             if (aid) {
+              if (subagent) {
+                insertToolActivity(aid, {
+                  type: 'status',
+                  name: 'response_end',
+                  content: subagent.status === 'error' ? '子任务失败' : '子任务完成',
+                  subagent,
+                })
+                break
+              }
               const toolsUsed = event.tools_used as string[] | undefined
               const usage = event.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined
               // Content already accumulated via text_delta; just update metadata
               updateMessageContent(aid, '', pendingDbSegments[sid]?.segments, toolsUsed, usage)
               delete pendingDbAssistantIds[sid]
               delete pendingDbSegments[sid]
+            }
+          }
+          break
+        }
+        case 'task_end': {
+          if (sid) {
+            const aid = pendingDbAssistantIds[sid]
+            if (aid && subagent) {
+              insertToolActivity(aid, {
+                type: 'status',
+                name: 'task_end',
+                content: subagent.status === 'error' ? '子任务生命周期结束，状态失败' : '子任务生命周期结束',
+                subagent,
+              })
             }
           }
           break
@@ -558,8 +692,11 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
-  ipcMain.handle('harnessclaw:send', (_, content: string, sessionId?: string) => {
-    harnessclawClient.send(content, sessionId)
+  ipcMain.handle('harnessclaw:send', async (_, content: string, sessionId?: string) => {
+    const ok = await harnessclawClient.send(content, sessionId)
+    if (!ok) {
+      return { ok: false, error: 'Failed to send message to Harnessclaw' }
+    }
     // Write user message to DB
     if (sessionId) {
       try {
@@ -586,9 +723,9 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
-  ipcMain.handle('harnessclaw:stop', (_, sessionId?: string) => {
-    harnessclawClient.stop(sessionId)
-    return { ok: true }
+  ipcMain.handle('harnessclaw:stop', async (_, sessionId?: string) => {
+    const ok = await harnessclawClient.stop(sessionId)
+    return ok ? { ok: true } : { ok: false, error: 'Failed to interrupt Harnessclaw session' }
   })
 
   ipcMain.handle('harnessclaw:subscribe', (_, sessionId: string) => {
@@ -604,6 +741,16 @@ app.whenReady().then(() => {
   ipcMain.handle('harnessclaw:listSessions', () => {
     harnessclawClient.listSessions()
     return { ok: true }
+  })
+
+  ipcMain.handle('harnessclaw:probe', async () => {
+    const ok = await harnessclawClient.probe()
+    return { ok }
+  })
+
+  ipcMain.handle('harnessclaw:respondPermission', (_, requestId: string, approved: boolean, scope?: 'once' | 'session', message?: string) => {
+    const ok = harnessclawClient.respondPermission(requestId, approved, scope === 'session' ? 'session' : 'once', message)
+    return ok ? { ok: true } : { ok: false, error: 'Permission request not found or socket unavailable' }
   })
 
   ipcMain.handle('harnessclaw:status', () => {
