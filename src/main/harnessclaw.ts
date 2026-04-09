@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { readNanobotConfig } from './config'
+import { readEngineConfig } from './config'
 
 interface HarnessclawConfig {
   enabled: boolean
@@ -1262,7 +1262,7 @@ export class HarnessclawClient extends EventEmitter {
 
   private readConfig(): HarnessclawConfig | null {
     try {
-      const raw = readNanobotConfig({})
+      const raw = readEngineConfig({})
 
       const channels = isPlainObject(raw.channels) ? raw.channels : {}
       const websocket = isPlainObject(channels.websocket)

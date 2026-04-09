@@ -1,16 +1,17 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, chmodSync, rmSync } from 'fs'
+import { readFileSync, mkdirSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
 import { homedir } from 'os'
 import { spawn, ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
 import {
   HARNESSCLAW_DIR,
-  NANOBOT_CONFIG_PATH,
+  ENGINE_CONFIG_PATH,
+  resolveBundledBinaryPath,
   ensureDir,
-  readNanobotConfig,
-  saveNanobotConfig,
+  readEngineConfig,
+  saveEngineConfig,
   readHarnessclawConfig,
   saveHarnessclawConfig,
 } from './config'
@@ -44,46 +45,29 @@ function getModuleKey(subagent?: PersistedSubagent): string {
 }
 
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
-const NANOBOT_BIN = join(HARNESSCLAW_DIR, 'bin', 'nanobot')
-const CLAWHUB_BIN = join(HARNESSCLAW_DIR, 'bin', 'clawhub')
+const HARNESSCLAW_ENGINE_BIN = resolveBundledBinaryPath('harnessclaw-engine')
+const CLAWHUB_BIN = resolveBundledBinaryPath('clawhub')
 const CLAWHUB_WORKDIR = join(HARNESSCLAW_DIR, 'workspace')
 const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
 
-let nanobotProcess: ChildProcess | null = null
+let harnessclawEngineProcess: ChildProcess | null = null
 
-function getClawhubWrapper(): string {
-  return `#!/usr/bin/env bash
-set -euo pipefail
-
-if command -v bunx >/dev/null 2>&1; then
-  exec bunx --bun clawhub@latest "$@"
-fi
-
-if command -v npx >/dev/null 2>&1; then
-  exec npx --yes clawhub@latest "$@"
-fi
-
-echo "clawhub requires bunx or npx in PATH" >&2
-exit 127
-`
-}
-
-function installClawhubBinary(): { ok: boolean; path: string; error?: string } {
-  try {
-    const binDir = join(HARNESSCLAW_DIR, 'bin')
-    ensureDir(binDir)
-    writeFileSync(CLAWHUB_BIN, getClawhubWrapper(), 'utf-8')
-    chmodSync(CLAWHUB_BIN, 0o755)
+function ensureClawhubBinary(): { ok: boolean; path: string; error?: string } {
+  if (CLAWHUB_BIN && existsSync(CLAWHUB_BIN)) {
     return { ok: true, path: CLAWHUB_BIN }
-  } catch (err) {
-    return { ok: false, path: CLAWHUB_BIN, error: String(err) }
+  }
+  return {
+    ok: false,
+    path: CLAWHUB_BIN || '',
+    error: 'Bundled clawhub binary not found in resources/bin',
   }
 }
 
 function getClawhubStatus(): { installed: boolean; path: string } {
+  const resolved = ensureClawhubBinary()
   return {
-    installed: existsSync(CLAWHUB_BIN),
-    path: CLAWHUB_BIN,
+    installed: resolved.ok,
+    path: resolved.path,
   }
 }
 
@@ -92,18 +76,19 @@ function runClawhub(
   options?: { timeoutMs?: number; cwd?: string }
 ): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve) => {
-    if (!existsSync(CLAWHUB_BIN)) {
-      resolve({ ok: false, stdout: '', stderr: `clawhub not found: ${CLAWHUB_BIN}`, code: null })
+    const resolved = ensureClawhubBinary()
+    if (!resolved.ok) {
+      resolve({ ok: false, stdout: '', stderr: resolved.error || `clawhub not found: ${resolved.path}`, code: null })
       return
     }
 
     const timeoutMs = options?.timeoutMs ?? 30000
     ensureDir(CLAWHUB_WORKDIR)
     const finalArgs = ['--workdir', CLAWHUB_WORKDIR, ...args]
-    const commandLine = [CLAWHUB_BIN, ...finalArgs].join(' ')
+    const commandLine = [resolved.path, ...finalArgs].join(' ')
     console.log('[ClawHub] Run:', commandLine, options?.cwd ? `(cwd: ${options.cwd})` : '')
 
-    const child = spawn(CLAWHUB_BIN, finalArgs, {
+    const child = spawn(resolved.path, finalArgs, {
       env: { ...process.env, HOME: homedir() },
       cwd: options?.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -141,38 +126,38 @@ function runClawhub(
   })
 }
 
-function startNanobot(): void {
-  if (nanobotProcess) return
-  if (!existsSync(NANOBOT_BIN)) {
-    console.warn('[Nanobot] Binary not found:', NANOBOT_BIN)
+function startHarnessclawEngine(): void {
+  if (harnessclawEngineProcess) return
+  if (!HARNESSCLAW_ENGINE_BIN || !existsSync(HARNESSCLAW_ENGINE_BIN)) {
+    console.warn('[HarnessclawEngine] Binary not found:', HARNESSCLAW_ENGINE_BIN || '<missing>')
     return
   }
-  console.log('[Nanobot] Starting gateway...')
-  nanobotProcess = spawn(NANOBOT_BIN, ['gateway', '--config', NANOBOT_CONFIG_PATH], {
+  console.log('[HarnessclawEngine] Starting engine...')
+  harnessclawEngineProcess = spawn(HARNESSCLAW_ENGINE_BIN, ['-config', ENGINE_CONFIG_PATH], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   })
-  nanobotProcess.stdout?.on('data', (data) => {
-    process.stdout.write(`[Nanobot] ${data}`)
+  harnessclawEngineProcess.stdout?.on('data', (data) => {
+    process.stdout.write(`[HarnessclawEngine] ${data}`)
   })
-  nanobotProcess.stderr?.on('data', (data) => {
-    process.stderr.write(`[Nanobot] ${data}`)
+  harnessclawEngineProcess.stderr?.on('data', (data) => {
+    process.stderr.write(`[HarnessclawEngine] ${data}`)
   })
-  nanobotProcess.on('error', (err) => {
-    console.error('[Nanobot] Failed to start:', err)
-    nanobotProcess = null
+  harnessclawEngineProcess.on('error', (err) => {
+    console.error('[HarnessclawEngine] Failed to start:', err)
+    harnessclawEngineProcess = null
   })
-  nanobotProcess.on('exit', (code) => {
-    console.log('[Nanobot] Exited with code:', code)
-    nanobotProcess = null
+  harnessclawEngineProcess.on('exit', (code) => {
+    console.log('[HarnessclawEngine] Exited with code:', code)
+    harnessclawEngineProcess = null
   })
 }
 
-function stopNanobot(): void {
-  if (!nanobotProcess) return
-  console.log('[Nanobot] Stopping gateway...')
-  nanobotProcess.kill('SIGTERM')
-  nanobotProcess = null
+function stopHarnessclawEngine(): void {
+  if (!harnessclawEngineProcess) return
+  console.log('[HarnessclawEngine] Stopping engine...')
+  harnessclawEngineProcess.kill('SIGTERM')
+  harnessclawEngineProcess = null
 }
 
 function createWindow(): void {
@@ -236,12 +221,12 @@ app.whenReady().then(() => {
 
   // Config file read/write
   ipcMain.handle('config:read', () => {
-    return readNanobotConfig({ providers: {} })
+    return readEngineConfig({ providers: {} })
   })
 
   ipcMain.handle('config:save', (_, data: unknown) => {
     ensureDir(HARNESSCLAW_DIR)
-    return saveNanobotConfig(data)
+    return saveEngineConfig(data)
   })
 
   ipcMain.handle('app-config:read', () => {
@@ -258,7 +243,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('clawhub:install', () => {
-    return installClawhubBinary()
+    return ensureClawhubBinary()
   })
 
   ipcMain.handle('clawhub:verifyToken', async (_, token: string) => {
@@ -268,9 +253,9 @@ app.whenReady().then(() => {
     }
     const status = getClawhubStatus()
     if (!status.installed) {
-      const install = installClawhubBinary()
+      const install = ensureClawhubBinary()
       if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
       }
     }
     return runClawhub(['login', '--token', trimmed])
@@ -279,9 +264,9 @@ app.whenReady().then(() => {
   ipcMain.handle('clawhub:explore', async () => {
     const status = getClawhubStatus()
     if (!status.installed) {
-      const install = installClawhubBinary()
+      const install = ensureClawhubBinary()
       if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
       }
     }
     return runClawhub(['explore'])
@@ -294,9 +279,9 @@ app.whenReady().then(() => {
     }
     const status = getClawhubStatus()
     if (!status.installed) {
-      const install = installClawhubBinary()
+      const install = ensureClawhubBinary()
       if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
       }
     }
     return runClawhub(['search', trimmed])
@@ -309,9 +294,9 @@ app.whenReady().then(() => {
     }
     const status = getClawhubStatus()
     if (!status.installed) {
-      const install = installClawhubBinary()
+      const install = ensureClawhubBinary()
       if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Failed to install clawhub', code: null }
+        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
       }
     }
     ensureDir(SKILLS_DIR)
@@ -387,8 +372,8 @@ app.whenReady().then(() => {
     }
   })
 
-  // Start nanobot gateway, then connect Harnessclaw (auto-retries until gateway is ready)
-  startNanobot()
+  // Start bundled harnessclaw engine, then connect Harnessclaw (auto-retries until engine is ready)
+  startHarnessclawEngine()
   getDb() // Initialize DB on startup
   harnessclawClient.connect()
 
@@ -772,6 +757,6 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   harnessclawClient.disconnect()
-  stopNanobot()
+  stopHarnessclawEngine()
   closeDb()
 })
