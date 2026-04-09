@@ -1,13 +1,18 @@
 {
   "name": "openclaw-nanny",
-  "version": "0.1.0",
-  "description": "OpenClaw Gateway 可视化客户端",
+  "version": "0.5.1",
+  "author": "OpenClaw",
+  "description": "OpenClaw Gateway desktop client",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/electron-vite-runner.cjs dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
-    "lint": "eslint . --ext .ts,.tsx"
+    "preview": "node scripts/electron-vite-runner.cjs preview",
+    "lint": "eslint . --ext .ts,.tsx",
+    "rebuild:electron-native": "electron-builder install-app-deps",
+    "bundle:tools": "node scripts/build-bundled-tools.cjs",
+    "pack:win": "npm run build && npm run rebuild:electron-native && npm run bundle:tools && electron-builder --dir --win nsis --x64",
+    "dist:win": "npm run build && npm run rebuild:electron-native && npm run bundle:tools && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
@@ -20,8 +25,9 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "electron": "^31.0.0",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^2.3.0",
-    "eslint": "^8.57.0",
+    "eslint": "^9.24.0",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.2",
@@ -43,6 +49,8 @@
     "@radix-ui/react-toast": "^1.2.1",
     "@radix-ui/react-tooltip": "^1.1.2",
     "@tailwindcss/typography": "^0.5.19",
+    "@types/adm-zip": "^0.5.8",
+    "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.8.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

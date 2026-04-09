@@ -5,13 +5,16 @@ import {
   Eye, EyeOff, Loader2, Check, X,
   FolderOpen, Download, Trash2,
   Search, Plus, Settings2, Cpu,
-  Bot, Radio, Wrench
+  Bot, Radio, Wrench, FileText,
+  Pause, Play, RotateCcw, AlertTriangle,
+  ChevronDown, ChevronRight
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppConfig, useNanobotConfig } from '@/hooks/useNanobotConfig'
 import {
   defaultClawhubBinaryDisplayPath,
   defaultDbDisplayPath,
+  defaultLogsDisplayPath,
   defaultWorkspaceDisplayPath,
 } from '@/lib/runtimePaths'
 
@@ -267,7 +270,7 @@ function SliderInput({
   )
 }
 
-// ─── Connection Section ─────────────────────────────────────────────────────
+// Connection Section
 
 function ConnectionSection() {
   const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
@@ -292,12 +295,12 @@ function ConnectionSection() {
 
   return (
     <div>
-      <SectionHeader icon={Wifi} title="连接设置" subtitle="Gateway 连接与心跳" />
+      <SectionHeader icon={Wifi} title="连接设置" subtitle="Gateway 连接与心跳配置" />
       <GroupCard title="Gateway 连接">
         <SettingRow label="监听地址" description="Gateway 服务端绑定的主机地址">
           <TextInput value={host} onChange={(v) => updateGateway({ host: v })} placeholder="0.0.0.0" className="w-40" mono />
         </SettingRow>
-        <SettingRow label="端口" description="Gateway 监听端口号">
+        <SettingRow label="端口" description="Gateway 监听端口">
           <NumberInput value={port} onChange={(v) => updateGateway({ port: v })} min={1} max={65535} className="w-20" />
         </SettingRow>
         <SettingRow label="自动重连" description="连接断开后自动尝试重新连接">
@@ -306,7 +309,7 @@ function ConnectionSection() {
         <SettingRow label="重连间隔" description="每次重连尝试之间的等待时间">
           <NumberInput value={reconnectInterval} onChange={setReconnectInterval} suffix="秒" min={1} max={60} disabled={!autoReconnect} />
         </SettingRow>
-        <SettingRow label="连接超时" description="建立连接的最大等待时间">
+        <SettingRow label="连接超时" description="建立连接的最长等待时间">
           <NumberInput value={connTimeout} onChange={setConnTimeout} suffix="秒" min={3} max={60} />
         </SettingRow>
       </GroupCard>
@@ -323,7 +326,7 @@ function ConnectionSection() {
   )
 }
 
-// ─── Auth Section ───────────────────────────────────────────────────────────
+// Auth Section
 
 function AuthSection() {
   type AuthMode = 'none' | 'token' | 'password' | 'trusted-proxy'
@@ -359,7 +362,7 @@ function AuthSection() {
 
   return (
     <div>
-      <SectionHeader icon={Shield} title="认证设置" subtitle="本地配置，无需 API 支持" />
+      <SectionHeader icon={Shield} title="认证设置" subtitle="本地访问控制配置，无需额外 API 支持" />
       <GroupCard title="认证模式">
         <SettingRow label="认证方式" description="选择连接 Gateway 时使用的认证协议">
           <Segment options={authModeOptions} value={mode} onChange={(v) => updateAuth({ mode: v as AuthMode })} />
@@ -428,7 +431,7 @@ function AuthSection() {
   )
 }
 
-// ─── ClawHub Section ───────────────────────────────────────────────────────
+// ClawHub Section
 
 function ClawHubSection() {
   const { app: { config, loading, updateConfig } } = useSettingsConfigs()
@@ -436,7 +439,15 @@ function ClawHubSection() {
   const token = clawhub.token ?? ''
 
   const [showToken, setShowToken] = useState(false)
-  const [binaryStatus, setBinaryStatus] = useState<{ installed: boolean; path: string } | null>(null)
+  const [binaryStatus, setBinaryStatus] = useState<{
+    installed: boolean
+    bundled: boolean
+    path: string
+    runtimePath: string
+    entryPath: string
+    source: string
+    error?: string
+  } | null>(null)
   const [installState, setInstallState] = useState<'idle' | 'installing' | 'ok' | 'fail'>('idle')
   const [verifyState, setVerifyState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
   const [feedback, setFeedback] = useState('')
@@ -461,10 +472,10 @@ function ClawHubSection() {
     await refreshStatus()
     if (res.ok) {
       setInstallState('ok')
-      setFeedback(`已更新命令: ${res.path}`)
+      setFeedback(`Bundled runtime ready at ${res.path}`)
     } else {
       setInstallState('fail')
-      setFeedback(res.error || '安装失败')
+      setFeedback(res.error || 'Failed to prepare bundled ClawHub runtime')
     }
   }
 
@@ -492,19 +503,19 @@ function ClawHubSection() {
 
   return (
     <div>
-      <SectionHeader icon={Wrench} title="ClawHub" subtitle="CLI 安装与 Token 验证" />
+      <SectionHeader icon={Wrench} title="ClawHub" subtitle="Bundled runtime and token verification" />
 
-      <GroupCard title="CLI">
-        <SettingRow label="命令路径" description={`ClawHub 命令安装在 ${defaultClawhubBinaryDisplayPath}`}>
-          <TextInput value={binaryStatus?.path || defaultClawhubBinaryDisplayPath} onChange={() => undefined} className="w-64" mono disabled />
+      <GroupCard title="Runtime">
+        <SettingRow label="Runtime Path" description={`Bundled runtime sync target: ${defaultClawhubBinaryDisplayPath}`}>
+          <TextInput value={binaryStatus?.runtimePath || defaultClawhubBinaryDisplayPath} onChange={() => undefined} className="w-[28rem]" mono disabled />
         </SettingRow>
-        <SettingRow label="安装状态" description="点击下载/更新会写入启动脚本，并在运行时调用最新 clawhub">
+        <SettingRow label="Runtime Status" description="ClawHub is shipped with the app and can be re-synced locally if needed">
           <div className="flex items-center gap-2">
             <span className={cn(
               'text-xs font-medium px-2 py-1 rounded-full',
               binaryStatus?.installed ? 'text-green-700 bg-green-100' : 'text-yellow-700 bg-yellow-100'
             )}>
-              {binaryStatus?.installed ? '已安装' : '未安装'}
+              {binaryStatus?.installed ? 'Bundled Ready' : 'Not Ready'}
             </span>
             <button
               onClick={handleInstall}
@@ -512,14 +523,20 @@ function ClawHubSection() {
               className="h-8 px-3 text-sm font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors text-foreground flex items-center gap-1.5 disabled:opacity-60"
             >
               {installState === 'installing' ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-              {installState === 'installing' ? '下载中' : '下载/更新'}
+              {installState === 'installing' ? 'Syncing...' : 'Sync Runtime'}
             </button>
           </div>
         </SettingRow>
+        {binaryStatus?.source && (
+          <div className="mt-3 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+            Source: {binaryStatus.source}
+            {binaryStatus.entryPath ? ` | Entry: ${binaryStatus.entryPath}` : ''}
+          </div>
+        )}
       </GroupCard>
 
       <GroupCard title="Token">
-        <SettingRow label="访问 Token" description="输入并验证 ClawHub Token">
+        <SettingRow label="Access Token" description="Enter and verify your ClawHub token">
           <div className="flex items-center gap-1.5">
             <input
               type={showToken ? 'text' : 'password'}
@@ -563,7 +580,7 @@ function ClawHubSection() {
   )
 }
 
-// ─── Agent Section ──────────────────────────────────────────────────────────
+// Agent Section
 
 function AgentSection() {
   const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
@@ -589,10 +606,10 @@ function AgentSection() {
 
   return (
     <div>
-      <SectionHeader icon={Bot} title="Agent 默认设置" subtitle="新建 Agent 的默认参数" />
+      <SectionHeader icon={Bot} title="Agent 默认设置" subtitle="新建 Agent 时使用的默认参数" />
 
       <GroupCard title="模型">
-        <SettingRow label="默认模型" description="格式: provider/model-name">
+        <SettingRow label="默认模型" description="格式：provider/model-name">
           <TextInput value={model} onChange={(v) => updateDefaults({ model: v })} placeholder="anthropic/claude-opus-4-5" className="w-60" mono />
         </SettingRow>
         <SettingRow label="Provider 策略" description="选择模型提供方的路由策略">
@@ -613,7 +630,7 @@ function AgentSection() {
       </GroupCard>
 
       <GroupCard title="生成参数">
-        <SettingRow label="Max Tokens" description="单次回复的最大 Token 数">
+        <SettingRow label="Max Tokens" description="单次回复允许的最大 Token 数">
           <NumberInput value={maxTokens} onChange={(v) => updateDefaults({ maxTokens: v })} min={256} max={200000} className="w-24" />
         </SettingRow>
         <SettingRow label="Context Window" description="上下文窗口大小 (Tokens)">
@@ -622,7 +639,7 @@ function AgentSection() {
         <SettingRow label="Temperature" description="生成温度，值越高越随机">
           <SliderInput value={temperature} onChange={(v) => updateDefaults({ temperature: v })} min={0} max={2} step={0.1} />
         </SettingRow>
-        <SettingRow label="Reasoning Effort" description="推理强度 (留空使用模型默认)">
+        <SettingRow label="Reasoning Effort" description="推理强度（留空使用模型默认值）">
           <SelectInput
             value={reasoningEffort || ''}
             onChange={(v) => updateDefaults({ reasoningEffort: v || null })}
@@ -637,7 +654,7 @@ function AgentSection() {
       </GroupCard>
 
       <GroupCard title="工具与工作区">
-        <SettingRow label="Max Tool Iterations" description="Agent 单轮最大工具调用次数">
+        <SettingRow label="Max Tool Iterations" description="Agent 单轮中允许的最大工具调用次数">
           <NumberInput value={maxToolIterations} onChange={(v) => updateDefaults({ maxToolIterations: v })} min={1} max={200} className="w-20" />
         </SettingRow>
         <SettingRow label="工作目录" description="Agent 的默认文件工作区路径">
@@ -648,7 +665,7 @@ function AgentSection() {
   )
 }
 
-// ─── Model Config Helpers ───────────────────────────────────────────────────
+// Model Config Helpers
 
 interface ProviderConfig {
   apiKey: string
@@ -669,10 +686,10 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   vllm: 'vLLM',
   ollama: 'Ollama',
   gemini: 'Google Gemini',
-  moonshot: '月之暗面',
+  moonshot: 'Moonshot',
   minimax: 'MiniMax',
   aihubmix: 'AIHubMix',
-  siliconflow: '硅基流动',
+  siliconflow: 'SiliconFlow',
   volcengine: '火山引擎',
   volcengineCodingPlan: '火山 Coding',
   byteplus: 'BytePlus',
@@ -719,7 +736,7 @@ function getDisplayName(key: string): string {
   return PROVIDER_DISPLAY_NAMES[key] || key
 }
 
-// ─── Model Section ──────────────────────────────────────────────────────────
+// Model Section
 
 function ModelSection() {
   const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
@@ -899,7 +916,7 @@ function ModelSection() {
           </div>
         ) : (
           <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-muted-foreground">选择一个模型平台查看配置</p>
+            <p className="text-sm text-muted-foreground">选择一个模型平台查看配置。</p>
           </div>
         )}
       </div>
@@ -907,18 +924,18 @@ function ModelSection() {
   )
 }
 
-// ─── Channel Config Helpers ─────────────────────────────────────────────────
+// Channel Config Helpers
 
 const CHANNEL_DISPLAY: Record<string, { name: string; icon: string; color: string }> = {
-  dingtalk:  { name: '钉钉', icon: '钉', color: '#3370FF' },
+  dingtalk:  { name: '钉钉', icon: 'D', color: '#3370FF' },
   discord:   { name: 'Discord', icon: 'D', color: '#5865F2' },
   email:     { name: 'Email', icon: '@', color: '#EA4335' },
-  feishu:    { name: '飞书', icon: '飞', color: '#3370FF' },
+  feishu:    { name: '飞书', icon: 'F', color: '#3370FF' },
   mochat:    { name: 'MoChat', icon: 'M', color: '#00C853' },
   qq:        { name: 'QQ', icon: 'Q', color: '#12B7F5' },
   slack:     { name: 'Slack', icon: 'S', color: '#4A154B' },
   telegram:  { name: 'Telegram', icon: 'T', color: '#26A5E4' },
-  wecom:     { name: '企业微信', icon: '企', color: '#07C160' },
+  wecom:     { name: '企业微信', icon: 'W', color: '#07C160' },
   whatsapp:  { name: 'WhatsApp', icon: 'W', color: '#25D366' },
   harnessclaw:      { name: 'Harnessclaw', icon: 'H', color: '#F59E0B' },
 }
@@ -956,7 +973,7 @@ const FIELD_LABELS: Record<string, string> = {
   smtpUseSsl: 'SMTP SSL',
   fromAddress: '发件地址',
   autoReplyEnabled: '自动回复',
-  pollIntervalSeconds: '轮询间隔 (秒)',
+  pollIntervalSeconds: '轮询间隔（秒）',
   markSeen: '标记已读',
   maxBodyChars: '最大正文字符数',
   subjectPrefix: '主题前缀',
@@ -987,7 +1004,7 @@ const SKIP_FIELDS = new Set(['sessions', 'panels', 'groups', 'mention', 'dm', 'p
   'socketDisableMsgpack', 'socketReconnectDelayMs', 'socketMaxReconnectDelayMs', 'socketConnectTimeoutMs',
   'refreshIntervalMs', 'watchTimeoutMs', 'watchLimit', 'retryDelayMs', 'maxRetryAttempts', 'replyDelayMode', 'replyDelayMs'])
 
-// ─── Channel Section ────────────────────────────────────────────────────────
+// Channel Section
 
 function ChannelSection() {
   const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
@@ -1056,7 +1073,7 @@ function ChannelSection() {
           <TextInput
             value={strValue}
             onChange={(v) => {
-              const arr = v.split(/[,，]\s*/).map(s => s.trim()).filter(Boolean)
+              const arr = v.split(/[,\s，]+/).map((s) => s.trim()).filter(Boolean)
               updateChannel(selectedChannel, { [fieldKey]: arr })
             }}
             placeholder="留空表示不限制"
@@ -1168,7 +1185,7 @@ function SecretFieldRow({ label, value, onChange }: { label: string; value: stri
   )
 }
 
-// ─── Tools Section ──────────────────────────────────────────────────────────
+// Tools Section
 
 function ToolsSection() {
   const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
@@ -1226,8 +1243,8 @@ function ToolsSection() {
             </button>
           </div>
         </SettingRow>
-        <SettingRow label="Base URL" description="自定义搜索服务地址 (可选)">
-          <TextInput value={webSearch.baseUrl || ''} onChange={(v) => updateWeb({ baseUrl: v })} placeholder="留空使用默认" className="w-52" mono />
+        <SettingRow label="Base URL" description="自定义搜索服务地址（可选）">
+          <TextInput value={webSearch.baseUrl || ''} onChange={(v) => updateWeb({ baseUrl: v })} placeholder="留空使用默认值" className="w-52" mono />
         </SettingRow>
         <SettingRow label="最大结果数" description="每次搜索返回的最大条数">
           <NumberInput value={webSearch.maxResults ?? 5} onChange={(v) => updateWeb({ maxResults: v })} min={1} max={20} />
@@ -1235,10 +1252,10 @@ function ToolsSection() {
       </GroupCard>
 
       <GroupCard title="命令执行">
-        <SettingRow label="超时时间" description="执行命令的最大等待秒数">
+        <SettingRow label="超时时间" description="执行命令的最长等待秒数">
           <NumberInput value={exec.timeout ?? 60} onChange={(v) => updateExec({ timeout: v })} suffix="秒" min={5} max={600} />
         </SettingRow>
-        <SettingRow label="PATH 追加" description="追加到 PATH 环境变量的路径">
+        <SettingRow label="PATH 追加" description="追加到 PATH 环境变量中的路径">
           <TextInput value={exec.pathAppend || ''} onChange={(v) => updateExec({ pathAppend: v })} placeholder="/usr/local/bin" className="w-52" mono />
         </SettingRow>
         <SettingRow label="限制工作区" description="仅允许在 workspace 目录中执行命令">
@@ -1263,7 +1280,7 @@ function ToolsSection() {
   )
 }
 
-// ─── UI Section ─────────────────────────────────────────────────────────────
+// UI Section
 
 function UISection() {
   const { app: { config, loading, updateConfig } } = useSettingsConfigs()
@@ -1337,7 +1354,7 @@ function UISection() {
             ]}
           />
         </SettingRow>
-        <SettingRow label="动画效果" description="启用界面过渡和微交互动画">
+        <SettingRow label="动画效果" description="启用界面过渡和微交互动效">
           <Toggle checked={animation} onChange={(v) => updateUi({ animation: v })} />
         </SettingRow>
       </GroupCard>
@@ -1345,14 +1362,14 @@ function UISection() {
   )
 }
 
-// ─── Storage Section ────────────────────────────────────────────────────────
+// Storage Section
 
 function StorageSection() {
   const { app: { config, loading, updateConfig } } = useSettingsConfigs()
   const storage = (config?.storage || {}) as { dbPath?: string }
   const dbPath = storage.dbPath || defaultDbDisplayPath
   const [clearState, setClearState] = useState<'idle' | 'clearing' | 'done'>('idle')
-  const exportRef = useRef<HTMLAnchorElement>(null)
+  const [exportState, setExportState] = useState<{ type: string; text: string; ok: boolean } | null>(null)
 
   const handleClearCache = async () => {
     setClearState('clearing')
@@ -1361,8 +1378,13 @@ function StorageSection() {
     setTimeout(() => setClearState('idle'), 2000)
   }
 
-  const handleExport = (type: string) => {
-    console.log(`[Export] ${type}`)
+  const handleExport = async (type: 'chat' | 'config') => {
+    const result = await window.appRuntime.exportData(type)
+    if (result.ok && result.path) {
+      setExportState({ type, text: `已导出到 ${result.path}`, ok: true })
+    } else {
+      setExportState({ type, text: result.error || '导出失败', ok: false })
+    }
   }
 
   if (loading) {
@@ -1371,7 +1393,7 @@ function StorageSection() {
 
   return (
     <div>
-      <SectionHeader icon={HardDrive} title="数据与存储" subtitle="本地文件与缓存管理" />
+      <SectionHeader icon={HardDrive} title="数据与存储" subtitle="本地文件、数据库与缓存管理" />
       <GroupCard title="存储">
         <SettingRow label="数据库路径" description="本地 SQLite 数据库文件位置">
           <div className="flex items-center gap-1.5">
@@ -1390,7 +1412,7 @@ function StorageSection() {
               className="h-7 px-2.5 text-xs font-medium rounded-md border border-border bg-card hover:border-destructive hover:text-destructive transition-colors text-foreground flex items-center gap-1.5 disabled:opacity-50"
             >
               {clearState === 'clearing' ? <Loader2 size={11} className="animate-spin" /> : clearState === 'done' ? <Check size={11} className="text-green-500" /> : <Trash2 size={11} />}
-              {clearState === 'clearing' ? '清空中...' : clearState === 'done' ? '已清空' : '清空缓存'}
+              {clearState === 'clearing' ? '清理中...' : clearState === 'done' ? '已清理' : '清理缓存'}
             </button>
           </div>
         </SettingRow>
@@ -1399,25 +1421,398 @@ function StorageSection() {
       <GroupCard title="导出">
         {[
           { key: 'chat', label: '导出聊天历史', description: '将所有会话导出为 JSON 或 Markdown' },
-          { key: 'logs', label: '导出日志', description: '导出应用运行日志' },
           { key: 'config', label: '导出配置', description: '导出全部设置为配置文件' },
         ].map((item) => (
           <SettingRow key={item.key} label={item.label} description={item.description}>
-            <button onClick={() => handleExport(item.key)} className="h-7 px-2.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors text-foreground flex items-center gap-1.5">
+            <button onClick={() => void handleExport(item.key as 'chat' | 'config')} className="h-7 px-2.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors text-foreground flex items-center gap-1.5">
               <Download size={12} />导出
             </button>
           </SettingRow>
         ))}
       </GroupCard>
 
-      <a ref={exportRef} className="hidden" />
+      {exportState && (
+        <div className={cn(
+          'mt-3 rounded-lg border px-3 py-2 text-xs',
+          exportState.ok ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-600'
+        )}>
+          {exportState.text}
+        </div>
+      )}
     </div>
   )
 }
 
-// ─── Nav ───────────────────────────────────────────────────────────────────
+// Nav
 
-type SectionKey = 'connection' | 'auth' | 'clawhub' | 'models' | 'agents' | 'channels' | 'tools' | 'ui' | 'storage'
+type LogViewerLevel = 'error' | 'info' | 'debug'
+type LogViewerFile = 'all' | 'app' | 'renderer'
+type LogEntry = {
+  cursor: string
+  timestamp: number
+  isoTime: string
+  level: 'debug' | 'info' | 'warn' | 'error'
+  source: string
+  message: string
+  metaText: string
+  file: 'app' | 'renderer'
+  raw: string
+}
+
+function getLogBadgeClass(level: LogEntry['level']): string {
+  if (level === 'error') return 'bg-red-50 text-red-700 border-red-200'
+  if (level === 'warn') return 'bg-amber-50 text-amber-700 border-amber-200'
+  if (level === 'debug') return 'bg-sky-50 text-sky-700 border-sky-200'
+  return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+}
+
+function formatLogTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
+}
+
+function summarizeLog(entry: LogEntry): string {
+  const summary = entry.message || entry.metaText || entry.raw
+  if (summary.length <= 140) return summary
+  return `${summary.slice(0, 140)}...`
+}
+
+function mergeLogEntries(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
+  const merged = new Map<string, LogEntry>()
+  for (const entry of current) {
+    merged.set(entry.cursor, entry)
+  }
+  for (const entry of incoming) {
+    merged.set(entry.cursor, entry)
+  }
+  return [...merged.values()]
+    .sort((left, right) => {
+      if (left.timestamp !== right.timestamp) {
+        return right.timestamp - left.timestamp
+      }
+      return right.cursor.localeCompare(left.cursor)
+    })
+    .slice(0, 500)
+}
+
+function LogsSection() {
+  const { config, loading, updateConfig } = useAppConfig()
+  const logging = (config?.logging || {}) as { level?: LogViewerLevel }
+  const persistedLevel = logging.level || 'info'
+
+  const [selectedLevel, setSelectedLevel] = useState<LogViewerLevel>('info')
+  const [selectedFile, setSelectedFile] = useState<LogViewerFile>('all')
+  const [query, setQuery] = useState('')
+  const [followMode, setFollowMode] = useState(true)
+  const [entries, setEntries] = useState<LogEntry[]>([])
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [loadingLogs, setLoadingLogs] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    if (!loading) {
+      setSelectedLevel(persistedLevel)
+    }
+  }, [loading, persistedLevel])
+
+  useEffect(() => {
+    if (loading) return
+
+    let cancelled = false
+    setLoadingLogs(true)
+
+    void window.appRuntime.getLogs({
+      level: selectedLevel,
+      file: selectedFile,
+      query: query.trim() || undefined,
+      limit: 500,
+    }).then((result) => {
+      if (cancelled) return
+      setEntries(result.items as LogEntry[])
+      setCursor(result.cursor)
+      setLoadError('')
+    }).catch((error) => {
+      if (cancelled) return
+      setLoadError(String(error))
+    }).finally(() => {
+      if (!cancelled) {
+        setLoadingLogs(false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [loading, query, reloadKey, selectedFile, selectedLevel])
+
+  useEffect(() => {
+    if (loading || !followMode || !cursor) return
+
+    let cancelled = false
+    const timer = setInterval(() => {
+      void window.appRuntime.getLogs({
+        after: cursor,
+        level: selectedLevel,
+        file: selectedFile,
+        query: query.trim() || undefined,
+        limit: 200,
+      }).then((result) => {
+        if (cancelled) return
+        if (result.items.length > 0) {
+          setEntries((current) => mergeLogEntries(current, result.items as LogEntry[]))
+        }
+        setCursor(result.cursor)
+        setLoadError('')
+      }).catch((error) => {
+        if (cancelled) return
+        setLoadError(String(error))
+      })
+    }, 1500)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [loading, followMode, cursor, query, selectedFile, selectedLevel])
+
+  const handleLevelChange = (value: string) => {
+    const nextLevel = value as LogViewerLevel
+    setSelectedLevel(nextLevel)
+    updateConfig({ logging: { ...logging, level: nextLevel } })
+  }
+
+  const handleReset = () => {
+    setQuery('')
+    setSelectedFile('all')
+    setSelectedLevel(persistedLevel)
+    setFollowMode(true)
+    setExpandedRows({})
+    setNotice(null)
+    setReloadKey((current) => current + 1)
+  }
+
+  const toggleExpanded = (cursorValue: string) => {
+    setExpandedRows((current) => ({
+      ...current,
+      [cursorValue]: !current[cursorValue],
+    }))
+  }
+
+  const handleOpenLogsDirectory = async () => {
+    const result = await window.appRuntime.openLogsDirectory()
+    setNotice(result.ok
+      ? { ok: true, text: `已打开日志目录：${result.path}` }
+      : { ok: false, text: result.error || '打开日志目录失败。' })
+  }
+
+  const handleExportLogs = async () => {
+    const result = await window.appRuntime.exportData('logs')
+    setNotice(result.ok && result.path
+      ? { ok: true, text: `日志已导出到：${result.path}` }
+      : { ok: false, text: result.error || '导出日志失败。' })
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+  }
+
+  return (
+    <div className="h-full overflow-hidden">
+      <div className="h-full max-w-5xl mx-auto px-8 py-8 flex flex-col">
+        <SectionHeader icon={FileText} title="日志" subtitle="合并查看 app.log 与 renderer.log，支持筛选、搜索与实时跟随。" />
+
+        <div className="rounded-2xl border border-border bg-card shadow-sm p-4 mb-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex-1 min-w-0">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索消息、来源或元数据"
+                  className="w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Segment
+                options={[
+                  { label: '错误', value: 'error' },
+                  { label: '标准', value: 'info' },
+                  { label: '调试', value: 'debug' },
+                ]}
+                value={selectedLevel}
+                onChange={handleLevelChange}
+              />
+              <Segment
+                options={[
+                  { label: '全部', value: 'all' },
+                  { label: 'app.log', value: 'app' },
+                  { label: 'renderer.log', value: 'renderer' },
+                ]}
+                value={selectedFile}
+                onChange={(value) => setSelectedFile(value as LogViewerFile)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1',
+                followMode ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'
+              )}>
+                <span className={cn('w-2 h-2 rounded-full', followMode ? 'bg-emerald-500' : 'bg-amber-500')} />
+                {followMode ? '跟随中' : '已暂停'}
+              </span>
+              <span>日志目录：{defaultLogsDisplayPath}</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setFollowMode((current) => !current)}
+                className="h-9 px-3 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm text-foreground flex items-center gap-1.5"
+              >
+                {followMode ? <Pause size={14} /> : <Play size={14} />}
+                {followMode ? '暂停刷新' : '恢复刷新'}
+              </button>
+              <button
+                onClick={handleReset}
+                className="h-9 px-3 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm text-foreground flex items-center gap-1.5"
+              >
+                <RotateCcw size={14} />
+                重置筛选
+              </button>
+              <button
+                onClick={() => void handleOpenLogsDirectory()}
+                className="h-9 px-3 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm text-foreground flex items-center gap-1.5"
+              >
+                <FolderOpen size={14} />
+                打开日志目录
+              </button>
+              <button
+                onClick={() => void handleExportLogs()}
+                className="h-9 px-3 rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors text-sm font-medium flex items-center gap-1.5"
+              >
+                <Download size={14} />
+                导出日志
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {notice && (
+          <div className={cn(
+            'mb-4 rounded-xl border px-3 py-2 text-sm',
+            notice.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-600'
+          )}>
+            {notice.text}
+          </div>
+        )}
+
+        {loadError && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 flex items-center gap-2">
+            <AlertTriangle size={15} />
+            <span className="flex-1">读取日志失败：{loadError}</span>
+            <button
+              onClick={() => setReloadKey((current) => current + 1)}
+              className="h-7 px-2.5 rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors"
+            >
+              重试
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 min-h-0 rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div>
+              <p className="text-sm font-semibold text-foreground">日志列表</p>
+              <p className="text-xs text-muted-foreground">当前展示 {entries.length} 条合并日志，来源于 app.log 与 renderer.log</p>
+            </div>
+            {(loadingLogs || (followMode && entries.length === 0)) && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 size={14} className="animate-spin" />
+                加载中
+              </div>
+            )}
+          </div>
+
+          <div className="h-full overflow-y-auto">
+            {!loadingLogs && entries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+                <FileText size={28} className="text-muted-foreground mb-3" />
+                <p className="text-sm font-medium text-foreground">
+                  {query.trim() ? '当前筛选条件下没有匹配日志。' : '暂时还没有可显示的日志。'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {query.trim() ? '可以尝试放宽关键词或切换日志等级。' : '新的日志会在这里自动追加显示。'}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {entries.map((entry) => {
+                  const expanded = Boolean(expandedRows[entry.cursor])
+                  return (
+                    <div key={entry.cursor} className="px-4 py-3">
+                      <button onClick={() => toggleExpanded(entry.cursor)} className="w-full text-left">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase', getLogBadgeClass(entry.level))}>
+                                {entry.level}
+                              </span>
+                              <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                                {entry.file === 'app' ? 'app.log' : 'renderer.log'}
+                              </span>
+                              <span className="text-xs font-mono text-muted-foreground break-all">{entry.source}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              {expanded ? <ChevronDown size={15} className="mt-0.5 text-muted-foreground flex-shrink-0" /> : <ChevronRight size={15} className="mt-0.5 text-muted-foreground flex-shrink-0" />}
+                              <div className="min-w-0">
+                                <p className="text-sm text-foreground break-words">{summarizeLog(entry)}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{formatLogTime(entry.timestamp)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+
+                      {expanded && (
+                        <div className="mt-3 ml-6 rounded-xl border border-border bg-background/60 p-3 space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Message</p>
+                            <pre className="whitespace-pre-wrap break-words text-sm text-foreground font-mono">{entry.message || '(empty)'}</pre>
+                          </div>
+
+                          {entry.metaText && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Metadata</p>
+                              <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground font-mono">{entry.metaText}</pre>
+                            </div>
+                          )}
+
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Raw</p>
+                            <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground font-mono">{entry.raw}</pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+type SectionKey = 'connection' | 'auth' | 'clawhub' | 'models' | 'agents' | 'channels' | 'tools' | 'ui' | 'storage' | 'logs'
 
 const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementType; label: string }[] }[] = [
   {
@@ -1435,15 +1830,16 @@ const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementT
     items: [
       { key: 'auth', icon: Shield, label: '认证设置' },
       { key: 'clawhub', icon: Wrench, label: 'ClawHub' },
+      { key: 'logs', icon: FileText, label: '日志' },
       { key: 'ui', icon: Palette, label: 'UI 设置' },
       { key: 'storage', icon: HardDrive, label: '数据与存储' },
     ],
   },
 ]
 
-const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'channels'])
+const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'channels', 'logs'])
 
-// ─── Page ──────────────────────────────────────────────────────────────────
+// Page
 
 export function SettingsPage() {
   const location = useLocation()
@@ -1496,6 +1892,7 @@ export function SettingsPage() {
           <>
             {active === 'models' && <ModelSection />}
             {active === 'channels' && <ChannelSection />}
+            {active === 'logs' && <LogsSection />}
           </>
         ) : (
           <div className="max-w-2xl mx-auto px-8 py-8">
@@ -1513,3 +1910,4 @@ export function SettingsPage() {
     </SettingsConfigContext.Provider>
   )
 }
+

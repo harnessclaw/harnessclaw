@@ -10,7 +10,9 @@ export const defaultWorkspaceDisplayPath = isWindowsRuntime()
 export const defaultSkillsDisplayPath = `${defaultWorkspaceDisplayPath}/skills`
 
 export const defaultClawhubBinaryDisplayPath = isWindowsRuntime()
-  ? '~/.harnessclaw/bin/clawhub.cmd'
-  : '~/.harnessclaw/bin/clawhub'
+  ? '~/.harnessclaw/bin/clawhub-runtime'
+  : '~/.harnessclaw/bin/clawhub-runtime'
 
 export const defaultDbDisplayPath = '~/.harnessclaw/db/harnessclaw.db'
+
+export const defaultLogsDisplayPath = '~/.harnessclaw/logs'

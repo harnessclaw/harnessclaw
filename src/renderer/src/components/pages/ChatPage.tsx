@@ -12,6 +12,8 @@ import {
   AttachmentPreviewPanel,
   type LocalAttachmentItem,
 } from '../attachments/AttachmentPreviewPanel'
+import { useAppRuntimeStatus } from '@/hooks/useAppRuntimeStatus'
+import { useAppRuntimeStatus } from '@/hooks/useAppRuntimeStatus'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -155,6 +157,7 @@ export function ChatPage() {
   const [showSidebar, setShowSidebar] = useState(true)
   const [harnessclawStatus, setHarnessclawStatus] = useState<HarnessclawStatus>('disconnected')
   const [clientId, setClientId] = useState('')
+  const runtimeStatus = useAppRuntimeStatus()
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const pendingInitialTurn = useRef<{ content: string; attachments: AttachmentItem[] } | null>(
@@ -169,6 +172,15 @@ export function ChatPage() {
   const maxLength = 4000
 
   const [dbSessions, setDbSessions] = useState<{ session_id: string; title: string; updated_at: number }[]>([])
+  const canSend = harnessclawStatus === 'connected' && runtimeStatus.llmConfigured && !runtimeStatus.applyingConfig
+
+  useEffect(() => {
+    void window.appRuntime.trackUsage({
+      category: 'navigation',
+      action: 'open_chat_page',
+      status: 'ok',
+    })
+  }, [])
 
   // Get or create session state
   const getSession = useCallback((sid: string): SessionState => {
@@ -632,7 +644,7 @@ export function ChatPage() {
   const handleSend = () => {
     console.log('[ChatPage] handleSend activeSessionId:', activeSessionId, 'input:', input.slice(0, 20))
     const trimmedInput = input.trim()
-    if ((trimmedInput.length === 0 && attachments.length === 0) || activeSession.isProcessing || harnessclawStatus !== 'connected' || !activeSessionId) return
+    if ((trimmedInput.length === 0 && attachments.length === 0) || activeSession.isProcessing || !canSend || !activeSessionId) return
 
     const payload = buildMessagePayload(trimmedInput, attachments)
     const displayContent = trimmedInput || ''
@@ -650,6 +662,13 @@ export function ChatPage() {
         timestamp: Date.now(),
       }],
     }))
+    void window.appRuntime.trackUsage({
+      category: 'chat',
+      action: 'send_message',
+      status: 'ok',
+      sessionId: activeSessionId,
+      details: { contentLength: trimmedInput.length, attachmentCount: attachedFiles.length },
+    })
     window.harnessclaw.send(payload, activeSessionId)
     setInput('')
     setAttachments([])
@@ -675,12 +694,24 @@ export function ChatPage() {
       [newId]: { messages: [], pendingAssistantId: null, isProcessing: false, currentThinking: '' },
     }))
     setActiveSessionId(newId)
+    void window.appRuntime.trackUsage({
+      category: 'chat',
+      action: 'new_session',
+      status: 'ok',
+      sessionId: newId,
+    })
     // Refresh session list
     setTimeout(() => window.harnessclaw.listSessions(), 500)
   }
 
   const handleSwitchSession = (key: string) => {
     if (key === activeSessionId) return
+    void window.appRuntime.trackUsage({
+      category: 'chat',
+      action: 'switch_session',
+      status: 'ok',
+      sessionId: key,
+    })
     window.harnessclaw.subscribe(key)
     window.db.getMessages(key).then((rows) => {
       if (rows.length > 0) {
@@ -701,12 +732,23 @@ export function ChatPage() {
   }
 
   const handleReconnect = () => {
+    void window.appRuntime.trackUsage({
+      category: 'chat',
+      action: 'reconnect',
+      status: 'started',
+    })
     window.harnessclaw.disconnect().then(() => {
       setTimeout(() => window.harnessclaw.connect(), 300)
     })
   }
 
   const handleDeleteSession = (sid: string) => {
+    void window.appRuntime.trackUsage({
+      category: 'chat',
+      action: 'delete_session',
+      status: 'ok',
+      sessionId: sid,
+    })
     window.db.deleteSession(sid)
     setSessionMap((prev) => {
       const next = { ...prev }
@@ -723,11 +765,23 @@ export function ChatPage() {
   const handleStop = () => {
     if (!activeSessionId) return
     // Send stop command per API protocol: { type: "stop", session_id: "..." }
+    void window.appRuntime.trackUsage({
+      category: 'chat',
+      action: 'stop_generation',
+      status: 'ok',
+      sessionId: activeSessionId,
+    })
     window.harnessclaw.stop(activeSessionId)
   }
 
   const handleClearHistory = () => {
     if (activeSessionId) {
+      void window.appRuntime.trackUsage({
+        category: 'chat',
+        action: 'clear_history',
+        status: 'ok',
+        sessionId: activeSessionId,
+      })
       window.db.deleteSession(activeSessionId)
     }
     updateSession(activeSessionId, (prev) => ({
@@ -938,6 +992,22 @@ export function ChatPage() {
                   </button>
                 </div>
               )}
+              {harnessclawStatus === 'connected' && !runtimeStatus.llmConfigured && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
+                  <AlertCircle size={14} className="text-blue-600 flex-shrink-0" />
+                  <span className="text-xs text-blue-700">
+                    本地服务已就绪，但还需要在设置中填写 API Key、API Base 和默认模型。保存后会自动生效，无需重启应用。
+                  </span>
+                </div>
+              )}
+              {runtimeStatus.applyingConfig && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
+                  <Loader2 size={14} className="text-blue-600 animate-spin flex-shrink-0" />
+                  <span className="text-xs text-blue-700">
+                    正在应用最新模型配置，完成后可直接继续聊天。
+                  </span>
+                </div>
+              )}
               <div
                 className={cn(
                   'relative overflow-hidden rounded-2xl border shadow-sm bg-card',
@@ -958,8 +1028,16 @@ export function ChatPage() {
                     value={input}
                     onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
                     onKeyDown={handleKeyDown}
-                    disabled={activeSession.isProcessing || harnessclawStatus !== 'connected'}
-                    placeholder={harnessclawStatus === 'connected' ? '+ 有问题，尽管问' : '等待连接 Harnessclaw...'}
+                    disabled={activeSession.isProcessing || !canSend}
+                    placeholder={
+                      harnessclawStatus !== 'connected'
+                        ? '等待连接 Harnessclaw...'
+                        : runtimeStatus.applyingConfig
+                          ? '正在应用配置...'
+                          : runtimeStatus.llmConfigured
+                            ? '+ 有问题，尽管问'
+                            : '请先在设置中完成 API Key、API Base 和默认模型配置'
+                    }
                     className="w-full bg-transparent resize-none outline-none text-sm text-foreground placeholder:text-muted-foreground min-h-[60px] max-h-[150px] disabled:opacity-50"
                     rows={2}
                   />
@@ -996,7 +1074,7 @@ export function ChatPage() {
                       ) : (
                         <button
                           onClick={handleSend}
-                          disabled={(!input.trim() && attachments.length === 0) || harnessclawStatus !== 'connected'}
+                          disabled={(!input.trim() && attachments.length === 0) || !canSend}
                           className="w-7 h-7 rounded-lg bg-[#555555] disabled:bg-[#C4C4C4] flex items-center justify-center transition-colors hover:bg-[#444444]"
                         >
                           <Send size={13} className="text-white" />

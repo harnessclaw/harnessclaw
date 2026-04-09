@@ -10,8 +10,64 @@ interface ConfigAPI {
   save: (data: unknown) => Promise<{ ok: boolean; error?: string }>
 }
 
+interface AppRuntimeStatus {
+  localService: 'starting' | 'ready' | 'degraded'
+  transport: 'disconnected' | 'connecting' | 'connected'
+  llmConfigured: boolean
+  applyingConfig: boolean
+  lastError?: string
+}
+
+type LogViewerThreshold = 'error' | 'info' | 'debug'
+type LogViewerFile = 'all' | 'app' | 'renderer'
+type RuntimeLogFile = 'app' | 'renderer'
+type RuntimeLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+interface RuntimeLogEntry {
+  cursor: string
+  timestamp: number
+  isoTime: string
+  level: RuntimeLogLevel
+  source: string
+  message: string
+  metaText: string
+  file: RuntimeLogFile
+  raw: string
+}
+
+interface GetLogsOptions {
+  after?: string
+  level?: LogViewerThreshold
+  query?: string
+  file?: LogViewerFile
+  limit?: number
+}
+
+interface GetLogsResult {
+  items: RuntimeLogEntry[]
+  cursor: string | null
+  logDir: string
+}
+
+interface AppRuntimeAPI {
+  getStatus: () => Promise<AppRuntimeStatus>
+  getLogLevel: () => Promise<LogViewerThreshold>
+  getLogs: (options?: GetLogsOptions) => Promise<GetLogsResult>
+  openLogsDirectory: () => Promise<{ ok: boolean; path: string; error?: string }>
+  logRenderer: (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, unknown>) => Promise<{ ok: boolean }>
+  trackUsage: (entry: {
+    category: string
+    action: string
+    status: string
+    details?: Record<string, unknown>
+    sessionId?: string
+  }) => Promise<{ ok: boolean }>
+  exportData: (type: 'logs' | 'chat' | 'config') => Promise<{ ok: boolean; path?: string; error?: string }>
+  onStatus: (callback: (status: AppRuntimeStatus) => void) => () => void
+}
+
 interface ClawHubAPI {
-  getStatus: () => Promise<{ installed: boolean; path: string }>
+  getStatus: () => Promise<{ installed: boolean; bundled: boolean; path: string; runtimePath: string; entryPath: string; source: string; error?: string }>
   install: () => Promise<{ ok: boolean; path: string; error?: string }>
   verifyToken: (token: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
   explore: () => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
@@ -148,6 +204,7 @@ declare global {
     config: ConfigAPI
     nanobotConfig: ConfigAPI
     appConfig: ConfigAPI
+    appRuntime: AppRuntimeAPI
     clawhub: ClawHubAPI
     harnessclaw: HarnessclawAPI
     skills: SkillsAPI

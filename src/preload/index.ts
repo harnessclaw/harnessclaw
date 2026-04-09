@@ -19,6 +19,34 @@ const appConfigAPI = {
   save: (data: unknown) => ipcRenderer.invoke('app-config:save', data),
 }
 
+const appRuntimeAPI = {
+  getStatus: () => ipcRenderer.invoke('app-runtime:getStatus'),
+  getLogLevel: () => ipcRenderer.invoke('app-runtime:getLogLevel'),
+  getLogs: (options?: {
+    after?: string
+    level?: 'error' | 'info' | 'debug'
+    query?: string
+    file?: 'all' | 'app' | 'renderer'
+    limit?: number
+  }) => ipcRenderer.invoke('app-runtime:getLogs', options),
+  openLogsDirectory: () => ipcRenderer.invoke('app-runtime:openLogsDirectory'),
+  logRenderer: (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, unknown>) =>
+    ipcRenderer.invoke('app-runtime:logRenderer', level, message, details),
+  trackUsage: (entry: {
+    category: string
+    action: string
+    status: string
+    details?: Record<string, unknown>
+    sessionId?: string
+  }) => ipcRenderer.invoke('app-runtime:trackUsage', entry),
+  exportData: (type: 'logs' | 'chat' | 'config') => ipcRenderer.invoke('app-runtime:exportData', type),
+  onStatus: (callback: (status: Record<string, unknown>) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, status: Record<string, unknown>): void => callback(status)
+    ipcRenderer.on('app-runtime:status', handler)
+    return () => ipcRenderer.removeListener('app-runtime:status', handler)
+  },
+}
+
 const clawhubAPI = {
   getStatus: () => ipcRenderer.invoke('clawhub:getStatus'),
   install: () => ipcRenderer.invoke('clawhub:install'),
@@ -80,6 +108,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('config', configAPI)
     contextBridge.exposeInMainWorld('nanobotConfig', configAPI)
     contextBridge.exposeInMainWorld('appConfig', appConfigAPI)
+    contextBridge.exposeInMainWorld('appRuntime', appRuntimeAPI)
     contextBridge.exposeInMainWorld('clawhub', clawhubAPI)
     contextBridge.exposeInMainWorld('harnessclaw', harnessclawAPI)
     contextBridge.exposeInMainWorld('skills', skillsAPI)
@@ -102,6 +131,8 @@ if (process.contextIsolated) {
   window.nanobotConfig = configAPI
   // @ts-ignore (define in dts)
   window.appConfig = appConfigAPI
+  // @ts-ignore (define in dts)
+  window.appRuntime = appRuntimeAPI
   // @ts-ignore (define in dts)
   window.clawhub = clawhubAPI
   // @ts-ignore (define in dts)

@@ -18,7 +18,7 @@ export function HomePage() {
   const navigate = useNavigate()
   const maxLength = 2000
   const harnessclawStatus = useHarnessclawStatus()
-  const shortcutHint = useMemo(() => (isMac ? 'Command + Enter 发送' : 'Ctrl + Enter 发送'), [])
+  const shortcutHint = useMemo(() => (isMac ? 'Cmd + Enter 发送' : 'Ctrl + Enter 发送'), [])
 
   useEffect(() => {
     const preventWindowDrop = (event: DragEvent) => {
@@ -104,10 +104,10 @@ export function HomePage() {
   }
 
   const quickActions = [
-    { icon: Image, label: '创作图片', prompt: '帮我创作一张图片' },
-    { icon: BookOpen, label: '学习知识', prompt: '帮我学习一个知识点' },
-    { icon: Pencil, label: '编辑文本', prompt: '帮我编辑以下文本' },
-    { icon: HelpCircle, label: '操作帮助', prompt: '我需要操作帮助' },
+    { icon: Image, label: '创作图片', prompt: '帮我创作一张概念图。' },
+    { icon: BookOpen, label: '学习知识', prompt: '帮我快速学习一个新概念。' },
+    { icon: Pencil, label: '润色文本', prompt: '请帮我润色下面这段文字。' },
+    { icon: HelpCircle, label: '操作帮助', prompt: '请一步一步告诉我该怎么操作。' },
   ]
 
   return (
@@ -135,8 +135,8 @@ export function HomePage() {
               value={input}
               onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
               onKeyDown={handleKeyDown}
-              placeholder="+ 有问题，尽管问"
-              aria-label="输入您的问题"
+              placeholder="+ 有想法就告诉我，我们一起处理。"
+              aria-label="输入你的问题"
               className="min-h-[80px] max-h-[200px] w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               rows={3}
             />
@@ -166,7 +166,7 @@ export function HomePage() {
                 <button
                   onClick={handleSend}
                   disabled={!input.trim() && attachments.length === 0}
-                  aria-label="发送"
+                  aria-label="发送消息"
                   className="flex h-7 w-7 items-center justify-center rounded-lg bg-send-btn transition-colors hover:opacity-80 disabled:opacity-50"
                 >
                   <Send size={13} className="text-white" aria-hidden="true" />
@@ -196,7 +196,7 @@ export function HomePage() {
           </div>
           <div className="rounded-xl border border-dashed border-border p-8 text-center">
             <p className="text-sm text-muted-foreground">
-              {harnessclawStatus === 'connected' ? '暂无推荐技能' : '连接 Harnessclaw 后显示推荐技能'}
+              {harnessclawStatus === 'connected' ? '暂时还没有推荐技能。' : '连接到 Harnessclaw 后，这里会显示推荐技能。'}
             </p>
           </div>
         </section>

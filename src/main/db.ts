@@ -55,6 +55,18 @@ function initTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_tools_message ON tool_activities(message_id);
+
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      category     TEXT NOT NULL,
+      action       TEXT NOT NULL,
+      status       TEXT NOT NULL,
+      details_json TEXT NOT NULL DEFAULT '{}',
+      session_id   TEXT,
+      created_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_usage_events_created_at ON usage_events(created_at DESC);
   `)
 
   const messageColumns = db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
@@ -119,6 +131,16 @@ export interface ToolActivityRow {
   content: string
   call_id: string | null
   is_error: number
+  created_at: number
+}
+
+export interface UsageEventRow {
+  id: number
+  category: string
+  action: string
+  status: string
+  details_json: string
+  session_id: string | null
   created_at: number
 }
 
@@ -246,6 +268,35 @@ export function insertToolActivity(messageId: string, activity: {
     INSERT INTO tool_activities (message_id, type, name, content, call_id, is_error, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(messageId, activity.type, activity.name || null, activity.content, activity.callId || null, activity.isError ? 1 : 0, Date.now())
+}
+
+export function insertUsageEvent(entry: {
+  category: string
+  action: string
+  status: string
+  detailsJson?: string
+  sessionId?: string
+  createdAt?: number
+}): void {
+  getDb().prepare(`
+    INSERT INTO usage_events (category, action, status, details_json, session_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    entry.category,
+    entry.action,
+    entry.status,
+    entry.detailsJson || '{}',
+    entry.sessionId || null,
+    entry.createdAt || Date.now()
+  )
+}
+
+export function listUsageEvents(limit = 500): UsageEventRow[] {
+  return getDb().prepare(`
+    SELECT * FROM usage_events
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(limit) as UsageEventRow[]
 }
 
 export function closeDb(): void {

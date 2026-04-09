@@ -4,6 +4,7 @@ node_modules/
 # Build output
 out/
 dist/
+build/
 
 # Vite
 *.local
@@ -47,3 +48,5 @@ test_report.json
 # Windows distribution artifacts
 harnessclaw/
 harnessclaw/bin/*
+
+*.md
