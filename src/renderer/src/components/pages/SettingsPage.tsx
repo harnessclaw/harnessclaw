@@ -8,7 +8,7 @@ import {
   Bot, Radio, Wrench
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAppConfig, useNanobotConfig } from '@/hooks/useNanobotConfig'
+import { useAppConfig, useEngineConfig } from '@/hooks/useEngineConfig'
 
 // ─── Primitives ────────────────────────────────────────────────────────────
 
@@ -244,7 +244,7 @@ function SliderInput({
 // ─── Connection Section ─────────────────────────────────────────────────────
 
 function ConnectionSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { config, loading, updateConfig } = useEngineConfig()
 
   const gw = (config?.gateway || {}) as { host?: string; port?: number; heartbeat?: { enabled?: boolean; intervalS?: number } }
   const host = gw.host ?? '0.0.0.0'
@@ -540,11 +540,11 @@ function ClawHubSection() {
 // ─── Agent Section ──────────────────────────────────────────────────────────
 
 function AgentSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { config, loading, updateConfig } = useEngineConfig()
 
   const agents = (config?.agents || {}) as { defaults?: Record<string, unknown> }
   const defaults = agents.defaults || {}
-  const workspace = (defaults.workspace as string) ?? '~/.nanobot/workspace'
+  const workspace = (defaults.workspace as string) ?? '~/.harnessclaw/workspace'
   const model = (defaults.model as string) ?? ''
   const provider = (defaults.provider as string) ?? 'auto'
   const maxTokens = (defaults.maxTokens as number) ?? 8192
@@ -708,7 +708,7 @@ function ModelSection() {
   useEffect(() => {
     ;(async () => {
       try {
-        const data = await window.nanobotConfig.read()
+        const data = await window.engineConfig.read()
         setConfig(data)
         const p = (data.providers || {}) as Record<string, ProviderConfig>
         setProviders(p)
@@ -728,7 +728,7 @@ function ModelSection() {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(async () => {
         if (!config) return
-        await window.nanobotConfig.save({ ...config, providers: updatedProviders })
+        await window.engineConfig.save({ ...config, providers: updatedProviders })
       }, 500)
     },
     [config]
@@ -979,7 +979,7 @@ const SKIP_FIELDS = new Set(['sessions', 'panels', 'groups', 'mention', 'dm', 'p
 // ─── Channel Section ────────────────────────────────────────────────────────
 
 function ChannelSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { config, loading, updateConfig } = useEngineConfig()
 
   const channels = (config?.channels || {}) as Record<string, unknown>
   const sendProgress = (channels.sendProgress as boolean) ?? true
@@ -1160,7 +1160,7 @@ function SecretFieldRow({ label, value, onChange }: { label: string; value: stri
 // ─── Tools Section ──────────────────────────────────────────────────────────
 
 function ToolsSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { config, loading, updateConfig } = useEngineConfig()
 
   const tools = (config?.tools || {}) as Record<string, unknown>
   const web = (tools.web || {}) as { proxy?: string | null; search?: Record<string, unknown> }
@@ -1410,7 +1410,7 @@ type SectionKey = 'connection' | 'auth' | 'clawhub' | 'models' | 'agents' | 'cha
 
 const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementType; label: string }[] }[] = [
   {
-    title: 'Nanobot 配置',
+    title: 'Harnessclaw Engine 配置',
     items: [
       { key: 'connection', icon: Wifi, label: '连接设置' },
       { key: 'models', icon: Cpu, label: '模型配置' },
