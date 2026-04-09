@@ -4,6 +4,7 @@ node_modules/
 # Build output
 out/
 dist/
+release/
 
 # Vite
 *.local
@@ -39,3 +40,5 @@ test_report.json
 *.py
 
 # Claude Code
+
+
