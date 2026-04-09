@@ -2,6 +2,7 @@
   "name": "harnessclaw",
   "version": "0.0.1",
   "description": "harnessclaw,your agent is ready",
+  "license": "Apache-2.0",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
