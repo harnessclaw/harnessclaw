@@ -38,5 +38,3 @@ yarn-error.log*
 # Test artifacts
 test_report.json
 *.py
-
-# Claude Code
