@@ -1,10 +1,12 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { dirname, join } from 'path'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { dirname, join, basename, extname } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, chmodSync, rmSync } from 'fs'
 import { homedir } from 'os'
 import { spawn, spawnSync, ChildProcess } from 'child_process'
+import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
+import { runDoctor } from './doctor'
 import {
   APP_CONFIG_PATH,
   BIN_DIR,
@@ -17,6 +19,7 @@ import {
   LEGACY_APP_CONFIG_PATH,
   LEGACY_ENGINE_CONFIG_PATH,
   LEGACY_NANOBOT_HOME,
+  NANOBOT_PID_PATH,
   getDefaultWorkspaceSetting,
 } from './runtime-paths'
 import {
@@ -61,13 +64,215 @@ interface LaunchSpec {
   source: string
 }
 
+interface PickedLocalFile {
+  name: string
+  path: string
+  url: string
+  size: number
+  extension: string
+  kind: 'image' | 'video' | 'audio' | 'archive' | 'code' | 'document' | 'data' | 'other'
+}
+
 let nanobotProcess: ChildProcess | null = null
 let safeConsoleInstalled = false
+let nanobotReloadTimer: ReturnType<typeof setTimeout> | null = null
+const DOCTOR_RUN_ONCE = process.argv.includes('--doctor-run-once')
+const DOCTOR_FIX_ARG = process.argv.find((arg) => arg.startsWith('--doctor-fix='))?.split('=')[1] || ''
+const DOCTOR_WAIT_MS = Math.max(
+  0,
+  Number.parseInt(process.env.HARNESSCLAW_DOCTOR_WAIT_MS || '12000', 10) || 12000
+)
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
   }
+}
+
+function readPidFile(path: string): number | null {
+  try {
+    if (!existsSync(path)) return null
+    const raw = readFileSync(path, 'utf-8').trim()
+    const pid = Number.parseInt(raw, 10)
+    return Number.isFinite(pid) && pid > 0 ? pid : null
+  } catch {
+    return null
+  }
+}
+
+function writePidFile(path: string, pid: number): void {
+  ensureDir(dirname(path))
+  writeFileSync(path, String(pid), 'utf-8')
+}
+
+function clearPidFile(path: string): void {
+  try {
+    if (existsSync(path)) {
+      rmSync(path, { force: true })
+    }
+  } catch {
+    // Ignore PID-file cleanup errors during shutdown.
+  }
+}
+
+function killProcessTree(pid: number): void {
+  if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) return
+
+  if (IS_WINDOWS) {
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    })
+    return
+  }
+
+  try {
+    process.kill(pid, 'SIGTERM')
+  } catch {
+    return
+  }
+
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 1500) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      return
+    }
+  }
+
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    // Ignore processes that already exited.
+  }
+}
+
+function collectStaleNanobotPids(): number[] {
+  const configNeedles = [NANOBOT_CONFIG_PATH, LEGACY_ENGINE_CONFIG_PATH]
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const pids = new Set<number>()
+
+  const pidFromFile = readPidFile(NANOBOT_PID_PATH)
+  if (pidFromFile) {
+    pids.add(pidFromFile)
+  }
+
+  if (IS_WINDOWS) {
+    const escapedNeedles = configNeedles
+      .map((value) => value.replace(/'/g, "''"))
+      .map((value) => `'${value}'`)
+      .join(',')
+    const script = `
+$needles = @(${escapedNeedles})
+$matches = Get-CimInstance Win32_Process | Where-Object {
+  $_.ProcessId -ne ${process.pid} -and
+  $_.CommandLine -and
+  $_.CommandLine -match 'nanobot(\\.exe)?\\s+gateway'
+} | Where-Object {
+  $cmd = $_.CommandLine
+  foreach ($needle in $needles) {
+    if ($cmd -like "*$needle*") { return $true }
+  }
+  return $false
+} | Select-Object -ExpandProperty ProcessId
+$matches | ForEach-Object { $_.ToString() }
+`
+    const result = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', script], {
+      encoding: 'utf-8',
+      windowsHide: true,
+    })
+    if (result.status === 0) {
+      for (const line of result.stdout.split(/\r?\n/)) {
+        const pid = Number.parseInt(line.trim(), 10)
+        if (Number.isFinite(pid) && pid > 0) {
+          pids.add(pid)
+        }
+      }
+    }
+  } else {
+    const result = spawnSync('ps', ['-ax', '-o', 'pid=,command='], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    if (result.status === 0) {
+      for (const line of result.stdout.split(/\r?\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        const match = trimmed.match(/^(\d+)\s+(.*)$/)
+        if (!match) continue
+        const pid = Number.parseInt(match[1], 10)
+        const command = match[2]
+        if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) continue
+        if (!/nanobot(\.exe)?\s+gateway/.test(command)) continue
+        if (configNeedles.some((needle) => command.includes(needle))) {
+          pids.add(pid)
+        }
+      }
+    }
+  }
+
+  return [...pids]
+}
+
+function cleanupStaleNanobotProcesses(): void {
+  const stalePids = collectStaleNanobotPids()
+  if (stalePids.length === 0) {
+    clearPidFile(NANOBOT_PID_PATH)
+    return
+  }
+
+  console.log('[Nanobot] Cleaning stale gateway processes:', stalePids.join(', '))
+  for (const pid of stalePids) {
+    killProcessTree(pid)
+  }
+  clearPidFile(NANOBOT_PID_PATH)
+}
+
+function classifyFileKind(extension: string): PickedLocalFile['kind'] {
+  const ext = extension.toLowerCase()
+  if (['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg'].includes(ext)) return 'image'
+  if (['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext)) return 'video'
+  if (['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'].includes(ext)) return 'audio'
+  if (['.zip', '.rar', '.7z', '.tar', '.gz'].includes(ext)) return 'archive'
+  if (['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.cpp', '.c', '.cs', '.json', '.yml', '.yaml', '.toml', '.xml', '.md', '.sql', '.sh', '.ps1', '.bat'].includes(ext)) return 'code'
+  if (['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt', '.rtf'].includes(ext)) return 'document'
+  if (['.csv', '.parquet', '.log'].includes(ext)) return 'data'
+  return 'other'
+}
+
+function buildPickedLocalFiles(filePaths: string[]): PickedLocalFile[] {
+  const uniquePaths = [...new Set(filePaths.map((value) => value.trim()).filter(Boolean))]
+  const files: PickedLocalFile[] = []
+
+  for (const filePath of uniquePaths) {
+    try {
+      const stats = statSync(filePath)
+      if (!stats.isFile()) continue
+
+      const extension = extname(filePath)
+      files.push({
+        name: basename(filePath),
+        path: filePath,
+        url: pathToFileURL(filePath).toString(),
+        size: stats.size,
+        extension,
+        kind: classifyFileKind(extension),
+      })
+    } catch (error) {
+      console.warn('[Files] Failed to read file metadata:', filePath, error)
+    }
+  }
+
+  return files
+}
+
+function stripAttachmentMetadataFromContent(content: string): string {
+  return content
+    .replace(/\n?\[HARNESSCLAW_LOCAL_ATTACHMENTS\][\s\S]*?\[\/HARNESSCLAW_LOCAL_ATTACHMENTS\]/g, '')
+    .replace(/\n?Attached local files are listed below\.\nUse the local path or file URL with filesystem tools when you need to inspect file contents\./g, '')
+    .trim()
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -189,15 +394,28 @@ function isLegacyWindowsWorkspace(value: string): boolean {
     || normalized === normalizePathLike(join(LEGACY_NANOBOT_HOME, 'workspace'))
 }
 
-function hasLegacyWindowsNanobotConfig(): boolean {
-  return IS_WINDOWS && existsSync(LEGACY_ENGINE_CONFIG_PATH)
+function shouldBootstrapNanobotConfig(): boolean {
+  return !existsSync(NANOBOT_CONFIG_PATH)
 }
 
-function shouldBootstrapNanobotConfig(): boolean {
-  return !existsSync(NANOBOT_CONFIG_PATH) && !hasLegacyWindowsNanobotConfig()
+function migrateLegacyWindowsNanobotConfig(): void {
+  if (!IS_WINDOWS) return
+  if (existsSync(NANOBOT_CONFIG_PATH)) return
+  if (!existsSync(LEGACY_ENGINE_CONFIG_PATH)) return
+
+  const legacy = readJsonConfig(LEGACY_ENGINE_CONFIG_PATH, { providers: {} })
+  const normalized = normalizeNanobotConfig(legacy)
+  const saved = saveJsonConfig(NANOBOT_CONFIG_PATH, normalized)
+  if (saved.ok) {
+    console.log('[Nanobot] Migrated legacy Windows config to', NANOBOT_CONFIG_PATH)
+    return
+  }
+
+  console.warn('[Nanobot] Failed to migrate legacy Windows config:', saved.error)
 }
 
 function bootstrapNanobotConfigWithOnboard(): void {
+  migrateLegacyWindowsNanobotConfig()
   if (!shouldBootstrapNanobotConfig()) return
 
   const launch = getNanobotLaunchSpec()
@@ -236,12 +454,10 @@ function bootstrapNanobotConfigWithOnboard(): void {
 }
 
 function readNanobotConfigSource(): Record<string, unknown> {
+  migrateLegacyWindowsNanobotConfig()
+
   if (existsSync(NANOBOT_CONFIG_PATH)) {
     return readJsonConfig(NANOBOT_CONFIG_PATH, { providers: {} })
-  }
-
-  if (IS_WINDOWS && existsSync(LEGACY_ENGINE_CONFIG_PATH)) {
-    return readJsonConfig(LEGACY_ENGINE_CONFIG_PATH, { providers: {} })
   }
 
   return { providers: {} }
@@ -607,6 +823,10 @@ function runClawhub(
 function startNanobot(): void {
   if (nanobotProcess) return
 
+  // Electron dev restarts and hard closes can orphan the previous gateway process.
+  // Always reclaim our last known instance before spawning a new one.
+  cleanupStaleNanobotProcesses()
+
   const config = ensureNanobotConfig()
   const launch = getNanobotLaunchSpec()
   if (!launch) {
@@ -624,6 +844,10 @@ function startNanobot(): void {
     shell: requiresShell(launch.command),
   })
 
+  if (nanobotProcess.pid) {
+    writePidFile(NANOBOT_PID_PATH, nanobotProcess.pid)
+  }
+
   ensureDir(getWorkspaceDir(config))
   ensureDir(getSkillsDir(config))
 
@@ -635,19 +859,97 @@ function startNanobot(): void {
   })
   nanobotProcess.on('error', (err) => {
     console.error('[Nanobot] Failed to start:', err)
+    clearPidFile(NANOBOT_PID_PATH)
     nanobotProcess = null
   })
   nanobotProcess.on('exit', (code) => {
     console.log('[Nanobot] Exited with code:', code)
+    clearPidFile(NANOBOT_PID_PATH)
     nanobotProcess = null
   })
 }
 
 function stopNanobot(): void {
+  if (nanobotReloadTimer) {
+    clearTimeout(nanobotReloadTimer)
+    nanobotReloadTimer = null
+  }
   if (!nanobotProcess) return
   console.log('[Nanobot] Stopping gateway...')
-  nanobotProcess.kill()
+  if (nanobotProcess.pid) {
+    killProcessTree(nanobotProcess.pid)
+  } else {
+    nanobotProcess.kill()
+  }
+  clearPidFile(NANOBOT_PID_PATH)
   nanobotProcess = null
+}
+
+function scheduleNanobotReload(reason: string): void {
+  if (nanobotReloadTimer) {
+    clearTimeout(nanobotReloadTimer)
+  }
+
+  nanobotReloadTimer = setTimeout(() => {
+    nanobotReloadTimer = null
+    console.log('[Nanobot] Reloading gateway after config change:', reason)
+    harnessclawClient.disconnect()
+    stopNanobot()
+    startNanobot()
+    harnessclawClient.connect()
+  }, 350)
+}
+
+async function performDoctorFix(checkId: string): Promise<{ ok: boolean; message: string }> {
+  switch (checkId) {
+    case 'environment.runtime_dirs':
+    case 'config.workspace': {
+      const config = ensureNanobotConfig()
+      ensureDir(HARNESSCLAW_DIR)
+      ensureDir(BIN_DIR)
+      ensureDir(join(HARNESSCLAW_DIR, 'db'))
+      ensureDir(NANOBOT_HOME)
+      ensureDir(getWorkspaceDir(config))
+      ensureDir(getSkillsDir(config))
+      return { ok: true, message: 'Runtime directories have been created or refreshed.' }
+    }
+
+    case 'config.app_exists': {
+      ensureAppConfig()
+      return { ok: true, message: 'App config file has been created.' }
+    }
+
+    case 'config.nanobot_exists': {
+      ensureNanobotConfig()
+      return { ok: true, message: 'Engine config has been bootstrapped.' }
+    }
+
+    case 'runtime.clawhub_installed': {
+      const result = installClawhubBinary()
+      return result.ok
+        ? { ok: true, message: `ClawHub wrapper installed at ${result.path}.` }
+        : { ok: false, message: result.error || 'Failed to install ClawHub wrapper.' }
+    }
+
+    case 'runtime.harnessclaw_connection': {
+      harnessclawClient.disconnect()
+      harnessclawClient.connect()
+      return { ok: true, message: 'Requested a gateway reconnect from the app side.' }
+    }
+
+    case 'runtime.gateway_process':
+    case 'runtime.gateway_port':
+    case 'flow.gateway_handshake': {
+      harnessclawClient.disconnect()
+      stopNanobot()
+      startNanobot()
+      harnessclawClient.connect()
+      return { ok: true, message: 'Gateway restart and reconnect have been requested.' }
+    }
+
+    default:
+      return { ok: false, message: 'No automatic fix is available for this check yet.' }
+  }
 }
 
 installSafeConsole()
@@ -655,8 +957,8 @@ function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    minWidth: 1024,
-    minHeight: 768,
+    minWidth: 900,
+    minHeight: 620,
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hiddenInset',
@@ -721,6 +1023,7 @@ app.whenReady().then(() => {
     if (result.ok) {
       ensureDir(getWorkspaceDir(normalized))
       ensureDir(getSkillsDir(normalized))
+      scheduleNanobotReload('config saved from renderer')
     }
     return result
   })
@@ -905,6 +1208,30 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('files:pick', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return []
+    }
+
+    return buildPickedLocalFiles(result.filePaths)
+  })
+
+  ipcMain.handle('files:resolve', (_, filePaths: string[]) => {
+    return buildPickedLocalFiles(Array.isArray(filePaths) ? filePaths : [])
+  })
+
+  ipcMain.handle('doctor:run', async () => {
+    return await runDoctor()
+  })
+
+  ipcMain.handle('doctor:fix', async (_, checkId: string) => {
+    return await performDoctorFix(String(checkId || ''))
+  })
+
   // Track pending assistant message IDs per session for DB writes
   const pendingDbAssistantIds: Record<string, string> = {}
   const pendingDbSegments: Record<string, { segments: Array<{ text: string; ts: number }>; lastToolTs: number }> = {}
@@ -1084,7 +1411,9 @@ app.whenReady().then(() => {
         const msgs = getMessages(sessionId)
         const userMsgs = msgs.filter((m) => m.role === 'user')
         if (userMsgs.length === 1) {
-          const title = content.trim().replace(/\n/g, ' ')
+          const visibleContent = stripAttachmentMetadataFromContent(content)
+          const titleSource = visibleContent || '附件会话'
+          const title = titleSource.trim().replace(/\n/g, ' ')
           const truncated = title.length > 50 ? title.slice(0, 50) + '...' : title
           updateSessionTitle(sessionId, truncated)
         }
@@ -1124,10 +1453,31 @@ app.whenReady().then(() => {
     return harnessclawClient.getStatus()
   })
 
-  createWindow()
+  if (DOCTOR_RUN_ONCE) {
+    setTimeout(async () => {
+      try {
+        let fixResult: { ok: boolean; message: string } | undefined
+        if (DOCTOR_FIX_ARG) {
+          fixResult = await performDoctorFix(DOCTOR_FIX_ARG)
+        }
+        const result = await runDoctor()
+        console.log(JSON.stringify({
+          fix: fixResult,
+          result,
+        }))
+      } catch (error) {
+        console.error('[DoctorRunOnce] Failed:', error)
+        process.exitCode = 1
+      } finally {
+        app.quit()
+      }
+    }, DOCTOR_WAIT_MS)
+  } else {
+    createWindow()
+  }
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (!DOCTOR_RUN_ONCE && BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 

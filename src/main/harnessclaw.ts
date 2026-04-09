@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws'
 import { readFileSync, existsSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
-import { ENGINE_CONFIG_PATH, IS_WINDOWS, LEGACY_ENGINE_CONFIG_PATH } from './runtime-paths'
+import { ENGINE_CONFIG_PATH } from './runtime-paths'
 
 interface HarnessclawConfig {
   enabled: boolean
@@ -211,11 +211,7 @@ export class HarnessclawClient extends EventEmitter {
 
   private readConfig(): HarnessclawConfig {
     try {
-      const configPath = existsSync(ENGINE_CONFIG_PATH)
-        ? ENGINE_CONFIG_PATH
-        : IS_WINDOWS && existsSync(LEGACY_ENGINE_CONFIG_PATH)
-          ? LEGACY_ENGINE_CONFIG_PATH
-          : null
+      const configPath = existsSync(ENGINE_CONFIG_PATH) ? ENGINE_CONFIG_PATH : null
       if (!configPath) return DEFAULT_HARNESSCLAW_CONFIG
 
       const raw = asRecord(JSON.parse(readFileSync(configPath, 'utf-8')))

@@ -62,6 +62,16 @@ const dbAPI = {
   deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),
 }
 
+const filesAPI = {
+  pick: () => ipcRenderer.invoke('files:pick'),
+  resolve: (paths: string[]) => ipcRenderer.invoke('files:resolve', paths),
+}
+
+const doctorAPI = {
+  run: () => ipcRenderer.invoke('doctor:run'),
+  fix: (checkId: string) => ipcRenderer.invoke('doctor:fix', checkId),
+}
+
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
@@ -74,6 +84,8 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('harnessclaw', harnessclawAPI)
     contextBridge.exposeInMainWorld('skills', skillsAPI)
     contextBridge.exposeInMainWorld('db', dbAPI)
+    contextBridge.exposeInMainWorld('files', filesAPI)
+    contextBridge.exposeInMainWorld('doctor', doctorAPI)
   } catch (error) {
     console.error(error)
   }
@@ -98,4 +110,8 @@ if (process.contextIsolated) {
   window.skills = skillsAPI
   // @ts-ignore (define in dts)
   window.db = dbAPI
+  // @ts-ignore (define in dts)
+  window.files = filesAPI
+  // @ts-ignore (define in dts)
+  window.doctor = doctorAPI
 }

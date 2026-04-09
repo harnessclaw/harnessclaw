@@ -1,27 +1,106 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Image, BookOpen, Pencil, HelpCircle, Send, Puzzle } from 'lucide-react'
+import { BookOpen, HelpCircle, Image, Paperclip, Pencil, Puzzle, Send } from 'lucide-react'
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
+import {
+  AttachmentPreviewPanel,
+  type LocalAttachmentItem,
+} from '../attachments/AttachmentPreviewPanel'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
+type AttachmentItem = LocalAttachmentItem
+
 export function HomePage() {
   const [input, setInput] = useState('')
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([])
+  const [isDragOver, setIsDragOver] = useState(false)
   const navigate = useNavigate()
   const maxLength = 2000
   const harnessclawStatus = useHarnessclawStatus()
-  const shortcutHint = useMemo(() => isMac ? '⌘ + Enter 发送' : 'Ctrl + Enter 发送', [])
+  const shortcutHint = useMemo(() => (isMac ? 'Command + Enter 发送' : 'Ctrl + Enter 发送'), [])
+
+  useEffect(() => {
+    const preventWindowDrop = (event: DragEvent) => {
+      event.preventDefault()
+    }
+
+    window.addEventListener('dragover', preventWindowDrop)
+    window.addEventListener('drop', preventWindowDrop)
+
+    return () => {
+      window.removeEventListener('dragover', preventWindowDrop)
+      window.removeEventListener('drop', preventWindowDrop)
+    }
+  }, [])
+
+  const appendAttachments = (items: AttachmentItem[]) => {
+    if (!items.length) return
+
+    setAttachments((prev) => {
+      const byId = new Map(prev.map((item) => [item.id, item]))
+      for (const item of items) {
+        byId.set(item.path, { ...item, id: item.path })
+      }
+      return [...byId.values()]
+    })
+  }
 
   const handleSend = () => {
-    if (!input.trim()) return
-    navigate('/chat', { state: { initialMessage: input } })
+    if (!input.trim() && attachments.length === 0) return
+    navigate('/chat', { state: { initialMessage: input, initialAttachments: attachments } })
     setInput('')
+    setAttachments([])
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       handleSend()
     }
+  }
+
+  const handlePickFiles = async () => {
+    if (harnessclawStatus !== 'connected') return
+
+    const picked = await window.files.pick()
+    if (!picked.length) return
+    appendAttachments(picked.map((item) => ({ ...item, id: item.path })))
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (harnessclawStatus !== 'connected') return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy'
+      setIsDragOver(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setIsDragOver(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    if (harnessclawStatus !== 'connected') return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const droppedPaths = Array.from(e.dataTransfer.files)
+      .map((file) => (file as File & { path?: string }).path || '')
+      .filter(Boolean)
+
+    if (!droppedPaths.length) return
+    const resolved = await window.files.resolve(droppedPaths)
+    appendAttachments(resolved.map((item) => ({ ...item, id: item.path })))
+  }
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id))
   }
 
   const quickActions = [
@@ -32,16 +111,25 @@ export function HomePage() {
   ]
 
   return (
-    <div className="flex flex-col items-center justify-start min-h-full px-6 pt-12 pb-8">
+    <div className="flex min-h-full flex-col items-center justify-start px-6 pb-8 pt-12">
       <div className="w-full max-w-[720px]">
-
-        {/* 主标题 */}
-        <h1 className="text-2xl font-semibold text-foreground text-center mb-8">
-          我们先从哪里开始呢?
+        <h1 className="mb-8 text-center text-2xl font-semibold text-foreground">
+          我们先从哪里开始呢？
         </h1>
 
-        {/* 输入框卡片 */}
-        <div className="relative rounded-2xl border border-border overflow-hidden shadow-sm mb-4 bg-card transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.1)]">
+        <div
+          className={`relative mb-4 overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.1)] ${isDragOver ? 'border-primary shadow-[0_0_0_3px_rgba(37,99,235,0.16)]' : 'border-border'}`}
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isDragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5 text-sm text-primary">
+              松开即可添加文件
+            </div>
+          )}
+
           <div className="p-4">
             <textarea
               value={input}
@@ -49,18 +137,37 @@ export function HomePage() {
               onKeyDown={handleKeyDown}
               placeholder="+ 有问题，尽管问"
               aria-label="输入您的问题"
-              className="w-full bg-transparent resize-none outline-none text-sm text-foreground placeholder:text-muted-foreground min-h-[80px] max-h-[200px]"
+              className="min-h-[80px] max-h-[200px] w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               rows={3}
             />
-            <div className="flex items-center justify-between mt-2">
+
+            <AttachmentPreviewPanel
+              attachments={attachments}
+              onRemove={handleRemoveAttachment}
+            />
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={handlePickFiles}
+                disabled={harnessclawStatus !== 'connected'}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                title="选择本地文件"
+              >
+                <Paperclip size={12} />
+                <span>添加文件</span>
+              </button>
+              <span className="text-xs text-muted-foreground">也可直接拖拽文件到输入框</span>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between">
               <span className="text-xs text-muted-foreground">{shortcutHint}</span>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">{input.length}/{maxLength}</span>
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && attachments.length === 0}
                   aria-label="发送"
-                  className="w-7 h-7 rounded-lg bg-send-btn disabled:opacity-50 flex items-center justify-center transition-colors hover:opacity-80"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-send-btn transition-colors hover:opacity-80 disabled:opacity-50"
                 >
                   <Send size={13} className="text-white" aria-hidden="true" />
                 </button>
@@ -69,13 +176,12 @@ export function HomePage() {
           </div>
         </div>
 
-        {/* 快捷操作按钮 */}
-        <div className="flex flex-wrap gap-2 mb-8 justify-center">
+        <div className="mb-8 flex flex-wrap justify-center gap-2">
           {quickActions.map((action) => (
             <button
               key={action.label}
               onClick={() => setInput(action.prompt)}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-full text-sm text-muted-foreground bg-secondary hover:bg-accent hover:text-primary transition-colors"
+              className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
             >
               <action.icon size={14} aria-hidden="true" />
               {action.label}
@@ -83,19 +189,17 @@ export function HomePage() {
           ))}
         </div>
 
-        {/* 推荐技能 */}
         <section>
-          <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-3">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
             <Puzzle size={14} aria-hidden="true" />
             推荐技能
           </div>
-          <div className="border border-dashed border-border rounded-xl p-8 text-center">
+          <div className="rounded-xl border border-dashed border-border p-8 text-center">
             <p className="text-sm text-muted-foreground">
               {harnessclawStatus === 'connected' ? '暂无推荐技能' : '连接 Harnessclaw 后显示推荐技能'}
             </p>
           </div>
         </section>
-
       </div>
     </div>
   )
