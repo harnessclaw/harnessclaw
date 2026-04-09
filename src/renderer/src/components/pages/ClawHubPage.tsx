@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Download, Loader2, Search, Settings, Check, AlertCircle } from 'lucide-react'
-import { useAppConfig } from '@/hooks/useNanobotConfig'
+import { useAppConfig } from '@/hooks/useEngineConfig'
 import { cn } from '@/lib/utils'
 
 interface SkillItem {
