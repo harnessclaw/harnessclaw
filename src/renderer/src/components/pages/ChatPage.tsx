@@ -2,11 +2,16 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Send, Plus, ChevronLeft, ChevronRight, Copy, Check, Trash2,
-  Loader2, Wrench, Brain, AlertCircle, RefreshCw, ChevronDown, ChevronUp
+  Loader2, Wrench, Brain, AlertCircle, RefreshCw, ChevronDown, ChevronUp,
+  Paperclip, File, FileText, FileCode2, Archive, Image, Music4, Video
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import {
+  AttachmentPreviewPanel,
+  type LocalAttachmentItem,
+} from '../attachments/AttachmentPreviewPanel'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +27,8 @@ interface ToolActivity {
   ts: number
 }
 
+type AttachmentItem = LocalAttachmentItem
+
 interface Message {
   id: string
   role: MessageRole
@@ -31,6 +38,7 @@ interface Message {
   thinking?: string
   tools?: ToolActivity[]
   toolsUsed?: string[]
+  attachments?: AttachmentItem[]
   contentSegments?: Array<{ text: string; ts: number }> // text segments with timestamps for interleaving
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
 }
@@ -48,19 +56,112 @@ interface SessionState {
   currentThinking: string
 }
 
+const ATTACHMENT_BLOCK_START = '[HARNESSCLAW_LOCAL_ATTACHMENTS]'
+const ATTACHMENT_BLOCK_END = '[/HARNESSCLAW_LOCAL_ATTACHMENTS]'
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+function buildMessagePayload(content: string, attachments: AttachmentItem[]): string {
+  const text = content.trim()
+  if (attachments.length === 0) return text
+
+  const attachmentPayload = JSON.stringify({
+    version: 1,
+    items: attachments.map(({ name, path, url, size, extension, kind }) => ({
+      name,
+      path,
+      url,
+      size,
+      extension,
+      kind,
+    })),
+  }, null, 2)
+
+  const instructions = [
+    'Attached local files are listed below.',
+    'Use the local path or file URL with filesystem tools when you need to inspect file contents.',
+  ].join('\n')
+
+  return [
+    text,
+    instructions,
+    ATTACHMENT_BLOCK_START,
+    attachmentPayload,
+    ATTACHMENT_BLOCK_END,
+  ].filter(Boolean).join('\n\n')
+}
+
+function extractAttachments(content: string): { content: string; attachments: AttachmentItem[] } {
+  const startIndex = content.indexOf(ATTACHMENT_BLOCK_START)
+  const endIndex = content.indexOf(ATTACHMENT_BLOCK_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    return { content, attachments: [] }
+  }
+
+  const jsonStart = startIndex + ATTACHMENT_BLOCK_START.length
+  const jsonText = content.slice(jsonStart, endIndex).trim()
+  const body = content.slice(0, startIndex).trim()
+
+  try {
+    const parsed = JSON.parse(jsonText) as { items?: Array<Omit<AttachmentItem, 'id'>> }
+    const attachments = Array.isArray(parsed.items)
+      ? parsed.items.map((item) => ({
+          ...item,
+          id: item.path || item.url || `${item.name}-${item.size}`,
+        }))
+      : []
+    return { content: body, attachments }
+  } catch {
+    return { content, attachments: [] }
+  }
+}
+
+function getAttachmentIcon(kind: AttachmentItem['kind']) {
+  switch (kind) {
+    case 'image':
+      return Image
+    case 'video':
+      return Video
+    case 'audio':
+      return Music4
+    case 'archive':
+      return Archive
+    case 'code':
+      return FileCode2
+    case 'document':
+    case 'data':
+      return FileText
+    default:
+      return File
+  }
+}
+
 // ─── Chat Page ──────────────────────────────────────────────────────────────
 
 export function ChatPage() {
   const location = useLocation()
+  const initialMessage = location.state?.initialMessage || ''
+  const initialAttachments = (location.state?.initialAttachments || []) as AttachmentItem[]
   const [sessionMap, setSessionMap] = useState<Record<string, SessionState>>({})
   const [activeSessionId, setActiveSessionId] = useState('')
-  const [input, setInput] = useState(location.state?.initialMessage || '')
+  const [input, setInput] = useState(initialMessage)
+  const [attachments, setAttachments] = useState<AttachmentItem[]>(initialAttachments)
+  const [isDragOver, setIsDragOver] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
   const [harnessclawStatus, setHarnessclawStatus] = useState<HarnessclawStatus>('disconnected')
   const [clientId, setClientId] = useState('')
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const pendingInitialMessage = useRef<string>(location.state?.initialMessage || '')
+  const pendingInitialTurn = useRef<{ content: string; attachments: AttachmentItem[] } | null>(
+    initialMessage || initialAttachments.length > 0
+      ? { content: initialMessage, attachments: initialAttachments }
+      : null
+  )
   // Track pendingAssistantId per session in a ref map
   const pendingAssistantIds = useRef<Record<string, string | null>>({})
   const activeSessionIdRef = useRef(activeSessionId)
@@ -82,17 +183,26 @@ export function ChatPage() {
     }))
   }, [])
 
-  const sendInitialMessage = useCallback((sid: string, text: string) => {
-    pendingInitialMessage.current = ''
+  const sendInitialMessage = useCallback((sid: string, text: string, initialFiles: AttachmentItem[] = []) => {
+    pendingInitialTurn.current = null
+    const trimmedText = text.trim()
+    const payload = buildMessagePayload(trimmedText, initialFiles)
     setInput('')
+    setAttachments([])
     setActiveSessionId(sid)
     updateSession(sid, (prev) => ({
       ...prev,
       isProcessing: true,
       currentThinking: '',
-      messages: [...prev.messages, { id: `usr-${Date.now()}`, role: 'user', content: text, timestamp: Date.now() }],
+      messages: [...prev.messages, {
+        id: `usr-${Date.now()}`,
+        role: 'user',
+        content: trimmedText,
+        attachments: initialFiles,
+        timestamp: Date.now(),
+      }],
     }))
-    window.harnessclaw.send(text, sid)
+    window.harnessclaw.send(payload, sid)
   }, [updateSession])
 
   const activeSession = getSession(activeSessionId)
@@ -116,20 +226,36 @@ export function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeSession.messages, activeSession.currentThinking])
 
+  useEffect(() => {
+    const preventWindowDrop = (event: DragEvent) => {
+      event.preventDefault()
+    }
+
+    window.addEventListener('dragover', preventWindowDrop)
+    window.addEventListener('drop', preventWindowDrop)
+
+    return () => {
+      window.removeEventListener('dragover', preventWindowDrop)
+      window.removeEventListener('drop', preventWindowDrop)
+    }
+  }, [])
+
   // Helper: convert DB rows to Message[]
   const dbRowsToMessages = useCallback((rows: DbMessageRow[]): Message[] => {
     return rows.map((r) => {
+      const parsed = extractAttachments(r.content)
       const contentSegments = r.content_segments
         ? JSON.parse(r.content_segments) as Array<{ text: string; ts: number }>
-        : (r.content ? [{ text: r.content, ts: r.created_at }] : [])
+        : (parsed.content ? [{ text: parsed.content, ts: r.created_at }] : [])
 
       return {
         id: r.id,
         role: r.role as MessageRole,
-        content: r.content,
+        content: parsed.content,
         timestamp: r.created_at,
         thinking: r.thinking || undefined,
         toolsUsed: r.tools_used ? JSON.parse(r.tools_used) : undefined,
+        attachments: parsed.attachments,
         usage: r.usage_total != null ? {
           prompt_tokens: r.usage_prompt || 0,
           completion_tokens: r.usage_completion || 0,
@@ -186,8 +312,8 @@ export function ChatPage() {
       setHarnessclawStatus(s.status as HarnessclawStatus)
       if (s.clientId) setClientId(s.clientId)
       // Don't auto-set activeSessionId — user should pick or create a session
-      if (s.status === 'connected' && pendingInitialMessage.current && s.sessionId) {
-        sendInitialMessage(s.sessionId, pendingInitialMessage.current)
+      if (s.status === 'connected' && pendingInitialTurn.current && s.sessionId) {
+        sendInitialMessage(s.sessionId, pendingInitialTurn.current.content, pendingInitialTurn.current.attachments)
       }
     })
 
@@ -214,9 +340,9 @@ export function ChatPage() {
         // Don't auto-set activeSessionId — user creates/selects sessions manually
         window.harnessclaw.listSessions()
         // Auto-send pending initial message if exists (from route state)
-        if (pendingInitialMessage.current) {
+        if (pendingInitialTurn.current) {
           const sid = event.session_id as string
-          sendInitialMessage(sid, pendingInitialMessage.current)
+          sendInitialMessage(sid, pendingInitialTurn.current.content, pendingInitialTurn.current.attachments)
         }
         break
       }
@@ -505,16 +631,28 @@ export function ChatPage() {
 
   const handleSend = () => {
     console.log('[ChatPage] handleSend activeSessionId:', activeSessionId, 'input:', input.slice(0, 20))
-    if (!input.trim() || activeSession.isProcessing || harnessclawStatus !== 'connected' || !activeSessionId) return
+    const trimmedInput = input.trim()
+    if ((trimmedInput.length === 0 && attachments.length === 0) || activeSession.isProcessing || harnessclawStatus !== 'connected' || !activeSessionId) return
+
+    const payload = buildMessagePayload(trimmedInput, attachments)
+    const displayContent = trimmedInput || ''
+    const attachedFiles = [...attachments]
 
     updateSession(activeSessionId, (prev) => ({
       ...prev,
       isProcessing: true,
       currentThinking: '',
-      messages: [...prev.messages, { id: `usr-${Date.now()}`, role: 'user', content: input, timestamp: Date.now() }],
+      messages: [...prev.messages, {
+        id: `usr-${Date.now()}`,
+        role: 'user',
+        content: displayContent,
+        attachments: attachedFiles,
+        timestamp: Date.now(),
+      }],
     }))
-    window.harnessclaw.send(input, activeSessionId)
+    window.harnessclaw.send(payload, activeSessionId)
     setInput('')
+    setAttachments([])
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -599,8 +737,65 @@ export function ChatPage() {
     }))
   }
 
+  const appendAttachments = useCallback((items: AttachmentItem[]) => {
+    if (!items.length) return
+
+    setAttachments((prev) => {
+      const byId = new Map(prev.map((item) => [item.id, item]))
+      for (const item of items) {
+        byId.set(item.path, { ...item, id: item.path })
+      }
+      return [...byId.values()]
+    })
+  }, [])
+
+  const handlePickFiles = async () => {
+    if (activeSession.isProcessing || harnessclawStatus !== 'connected') return
+
+    const picked = await window.files.pick()
+    if (!picked.length) return
+
+    appendAttachments(picked.map((item) => ({ ...item, id: item.path })))
+  }
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (activeSession.isProcessing || harnessclawStatus !== 'connected') return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy'
+      setIsDragOver(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setIsDragOver(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    if (activeSession.isProcessing || harnessclawStatus !== 'connected') return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const droppedPaths = Array.from(e.dataTransfer.files)
+      .map((file) => (file as File & { path?: string }).path || '')
+      .filter(Boolean)
+
+    if (!droppedPaths.length) return
+    const resolved = await window.files.resolve(droppedPaths)
+    appendAttachments(resolved.map((item) => ({ ...item, id: item.path })))
+  }
+
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden">
       {/* Left: Session sidebar */}
       {showSidebar && (
         <div className="w-60 flex-shrink-0 border-r border-border bg-card flex flex-col">
@@ -662,7 +857,7 @@ export function ChatPage() {
       )}
 
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-card/80 backdrop-blur-sm">
           <div className="flex items-center gap-2">
@@ -743,7 +938,21 @@ export function ChatPage() {
                   </button>
                 </div>
               )}
-              <div className="relative rounded-2xl border border-border overflow-hidden shadow-sm bg-card">
+              <div
+                className={cn(
+                  'relative overflow-hidden rounded-2xl border shadow-sm bg-card',
+                  isDragOver ? 'border-primary shadow-[0_0_0_3px_rgba(37,99,235,0.16)]' : 'border-border'
+                )}
+                onDragOver={handleDragOver}
+                onDragEnter={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {isDragOver && (
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5 text-sm text-primary">
+                    松开即可添加文件
+                  </div>
+                )}
                 <div className="p-3">
                   <textarea
                     value={input}
@@ -754,6 +963,24 @@ export function ChatPage() {
                     className="w-full bg-transparent resize-none outline-none text-sm text-foreground placeholder:text-muted-foreground min-h-[60px] max-h-[150px] disabled:opacity-50"
                     rows={2}
                   />
+                  <AttachmentPreviewPanel
+                    attachments={attachments}
+                    onRemove={handleRemoveAttachment}
+                    removable={!activeSession.isProcessing}
+                  />
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={handlePickFiles}
+                      disabled={activeSession.isProcessing || harnessclawStatus !== 'connected'}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                      title="选择本地文件"
+                    >
+                      <Paperclip size={12} />
+                      <span>添加文件</span>
+                    </button>
+                    <span className="text-xs text-muted-foreground">也可直接拖拽文件到输入框</span>
+                  </div>
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-xs text-muted-foreground">Cmd + Enter 发送</span>
                     <div className="flex items-center gap-2">
@@ -769,7 +996,7 @@ export function ChatPage() {
                       ) : (
                         <button
                           onClick={handleSend}
-                          disabled={!input.trim() || harnessclawStatus !== 'connected'}
+                          disabled={(!input.trim() && attachments.length === 0) || harnessclawStatus !== 'connected'}
                           className="w-7 h-7 rounded-lg bg-[#555555] disabled:bg-[#C4C4C4] flex items-center justify-center transition-colors hover:bg-[#444444]"
                         >
                           <Send size={13} className="text-white" />
@@ -847,6 +1074,7 @@ function MessageBubble({ message }: { message: Message }) {
   segments.sort((a, b) => a.ts - b.ts)
 
   const toolCalls = tools.filter((a) => a.type === 'call')
+  const attachments = message.attachments || []
   const lastVisibleActivityTs = segments.reduce((latest, seg) => Math.max(latest, seg.ts), message.timestamp)
   const shouldShowBreathingDot = !isUser
     && !isSystem
@@ -912,6 +1140,14 @@ function MessageBubble({ message }: { message: Message }) {
           )
         })}
 
+        {attachments.length > 0 && (
+          <div className={cn('mb-1.5 flex flex-col gap-2', isUser ? 'items-end' : 'items-start')}>
+            {attachments.map((attachment) => (
+              <AttachmentCard key={attachment.id} attachment={attachment} isUser={isUser} />
+            ))}
+          </div>
+        )}
+
         {shouldShowBreathingDot && (
           <div className="mb-1.5 flex justify-end pr-1">
             <span className="streaming-breathing-dot" aria-label="服务仍在继续" />
@@ -933,6 +1169,34 @@ function MessageBubble({ message }: { message: Message }) {
               {message.usage.total_tokens} tokens
             </span>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AttachmentCard({ attachment, isUser }: { attachment: AttachmentItem; isUser: boolean }) {
+  const Icon = getAttachmentIcon(attachment.kind)
+
+  return (
+    <div
+      className={cn(
+        'min-w-[260px] max-w-[420px] rounded-2xl border px-3.5 py-2.5 text-sm shadow-sm',
+        isUser
+          ? 'border-[#666666] bg-[#4A4A4A] text-white'
+          : 'border-border bg-card text-foreground'
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <Icon size={16} className={cn('mt-0.5 flex-shrink-0', isUser ? 'text-white/80' : 'text-muted-foreground')} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{attachment.name}</div>
+          <div className={cn('mt-1 text-[11px]', isUser ? 'text-white/70' : 'text-muted-foreground')}>
+            {attachment.kind} · {attachment.extension || 'unknown'} · {formatBytes(attachment.size)}
+          </div>
+          <div className={cn('mt-1 truncate font-mono text-[10px]', isUser ? 'text-white/65' : 'text-muted-foreground')}>
+            {attachment.path}
+          </div>
         </div>
       </div>
     </div>

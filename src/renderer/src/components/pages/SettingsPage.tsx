@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { createContext, useState, useEffect, useRef, useCallback, useContext } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Wifi, Shield, Palette, HardDrive,
@@ -14,6 +14,27 @@ import {
   defaultDbDisplayPath,
   defaultWorkspaceDisplayPath,
 } from '@/lib/runtimePaths'
+
+type SettingsConfigState = {
+  config: Record<string, unknown> | null
+  loading: boolean
+  updateConfig: (patch: Record<string, unknown>) => void
+}
+
+type SettingsConfigContextValue = {
+  nanobot: SettingsConfigState
+  app: SettingsConfigState
+}
+
+const SettingsConfigContext = createContext<SettingsConfigContextValue | null>(null)
+
+function useSettingsConfigs() {
+  const context = useContext(SettingsConfigContext)
+  if (!context) {
+    throw new Error('SettingsConfigContext is not available.')
+  }
+  return context
+}
 
 // ─── Primitives ────────────────────────────────────────────────────────────
 
@@ -249,7 +270,7 @@ function SliderInput({
 // ─── Connection Section ─────────────────────────────────────────────────────
 
 function ConnectionSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
 
   const gw = (config?.gateway || {}) as { host?: string; port?: number; heartbeat?: { enabled?: boolean; intervalS?: number } }
   const host = gw.host ?? '0.0.0.0'
@@ -306,7 +327,7 @@ function ConnectionSection() {
 
 function AuthSection() {
   type AuthMode = 'none' | 'token' | 'password' | 'trusted-proxy'
-  const { config, loading, updateConfig } = useAppConfig()
+  const { app: { config, loading, updateConfig } } = useSettingsConfigs()
   const auth = (config?.auth || {}) as { mode?: AuthMode; token?: string; password?: string }
   const mode = auth.mode ?? 'token'
   const token = auth.token ?? ''
@@ -410,7 +431,7 @@ function AuthSection() {
 // ─── ClawHub Section ───────────────────────────────────────────────────────
 
 function ClawHubSection() {
-  const { config, loading, updateConfig } = useAppConfig()
+  const { app: { config, loading, updateConfig } } = useSettingsConfigs()
   const clawhub = (config?.clawhub || {}) as { token?: string }
   const token = clawhub.token ?? ''
 
@@ -545,7 +566,7 @@ function ClawHubSection() {
 // ─── Agent Section ──────────────────────────────────────────────────────────
 
 function AgentSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
 
   const agents = (config?.agents || {}) as { defaults?: Record<string, unknown> }
   const defaults = agents.defaults || {}
@@ -701,53 +722,38 @@ function getDisplayName(key: string): string {
 // ─── Model Section ──────────────────────────────────────────────────────────
 
 function ModelSection() {
-  const [config, setConfig] = useState<Record<string, unknown> | null>(null)
-  const [providers, setProviders] = useState<Record<string, ProviderConfig>>({})
+  const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [loading, setLoading] = useState(true)
   const [showApiKey, setShowApiKey] = useState(false)
   const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const providers = ((config?.providers || {}) as Record<string, ProviderConfig>)
 
   useEffect(() => {
-    ;(async () => {
-      try {
-        const data = await window.nanobotConfig.read()
-        setConfig(data)
-        const p = (data.providers || {}) as Record<string, ProviderConfig>
-        setProviders(p)
-        const keys = Object.keys(p)
-        const enabledKey = keys.find((k) => p[k].apiKey)
-        setSelectedProvider(enabledKey || keys[0] || null)
-      } catch {
-        setProviders({})
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [])
+    const keys = Object.keys(providers)
+    if (keys.length === 0) {
+      setSelectedProvider(null)
+      return
+    }
 
-  const debouncedSave = useCallback(
-    (updatedProviders: Record<string, ProviderConfig>) => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(async () => {
-        if (!config) return
-        await window.nanobotConfig.save({ ...config, providers: updatedProviders })
-      }, 500)
-    },
-    [config]
-  )
+    if (selectedProvider && providers[selectedProvider]) {
+      return
+    }
 
-  useEffect(() => {
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [])
+    const enabledKey = keys.find((key) => providers[key]?.apiKey)
+    setSelectedProvider(enabledKey || keys[0] || null)
+  }, [providers, selectedProvider])
 
   const updateProvider = (key: string, patch: Partial<ProviderConfig>) => {
-    setProviders((prev) => {
-      const updated = { ...prev, [key]: { ...prev[key], ...patch } }
-      debouncedSave(updated)
-      return updated
+    const current = providers[key] || { apiKey: '', apiBase: null, extraHeaders: null }
+    updateConfig({
+      providers: {
+        ...providers,
+        [key]: {
+          ...current,
+          ...patch,
+        },
+      },
     })
   }
 
@@ -984,7 +990,7 @@ const SKIP_FIELDS = new Set(['sessions', 'panels', 'groups', 'mention', 'dm', 'p
 // ─── Channel Section ────────────────────────────────────────────────────────
 
 function ChannelSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
 
   const channels = (config?.channels || {}) as Record<string, unknown>
   const sendProgress = (channels.sendProgress as boolean) ?? true
@@ -1165,7 +1171,7 @@ function SecretFieldRow({ label, value, onChange }: { label: string; value: stri
 // ─── Tools Section ──────────────────────────────────────────────────────────
 
 function ToolsSection() {
-  const { config, loading, updateConfig } = useNanobotConfig()
+  const { nanobot: { config, loading, updateConfig } } = useSettingsConfigs()
 
   const tools = (config?.tools || {}) as Record<string, unknown>
   const web = (tools.web || {}) as { proxy?: string | null; search?: Record<string, unknown> }
@@ -1260,7 +1266,7 @@ function ToolsSection() {
 // ─── UI Section ─────────────────────────────────────────────────────────────
 
 function UISection() {
-  const { config, loading, updateConfig } = useAppConfig()
+  const { app: { config, loading, updateConfig } } = useSettingsConfigs()
   const ui = (config?.ui || {}) as {
     theme?: string
     fontSize?: string
@@ -1342,7 +1348,7 @@ function UISection() {
 // ─── Storage Section ────────────────────────────────────────────────────────
 
 function StorageSection() {
-  const { config, loading, updateConfig } = useAppConfig()
+  const { app: { config, loading, updateConfig } } = useSettingsConfigs()
   const storage = (config?.storage || {}) as { dbPath?: string }
   const dbPath = storage.dbPath || defaultDbDisplayPath
   const [clearState, setClearState] = useState<'idle' | 'clearing' | 'done'>('idle')
@@ -1443,6 +1449,8 @@ export function SettingsPage() {
   const location = useLocation()
   const initialSection = location.state?.initialSection as SectionKey | undefined
   const [active, setActive] = useState<SectionKey>(initialSection || 'connection')
+  const nanobot = useNanobotConfig()
+  const app = useAppConfig()
 
   useEffect(() => {
     if (initialSection) {
@@ -1451,7 +1459,8 @@ export function SettingsPage() {
   }, [initialSection])
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <SettingsConfigContext.Provider value={{ nanobot, app }}>
+      <div className="flex h-full overflow-hidden">
       {/* Left nav */}
       <nav className="w-48 flex-shrink-0 border-r border-border bg-card flex flex-col py-4 gap-0.5 px-2">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest px-2 mb-1">
@@ -1500,6 +1509,7 @@ export function SettingsPage() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </SettingsConfigContext.Provider>
   )
 }
