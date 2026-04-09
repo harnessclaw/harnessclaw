@@ -95,6 +95,7 @@ declare global {
     electron: ElectronAPI
     api: object
     appBridge: AppBridgeAPI
+    engineConfig: ConfigAPI
     config: ConfigAPI
     nanobotConfig: ConfigAPI
     appConfig: ConfigAPI

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v bunx >/dev/null 2>&1; then
+  exec bunx --bun clawhub@latest "$@"
+fi
+
+if command -v npx >/dev/null 2>&1; then
+  exec npx --yes clawhub@latest "$@"
+fi
+
+echo "clawhub requires bunx or npx in PATH" >&2
+exit 127

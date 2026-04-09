@@ -69,6 +69,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('appBridge', appAPI)
+    contextBridge.exposeInMainWorld('engineConfig', configAPI)
     contextBridge.exposeInMainWorld('config', configAPI)
     contextBridge.exposeInMainWorld('nanobotConfig', configAPI)
     contextBridge.exposeInMainWorld('appConfig', appConfigAPI)
@@ -86,6 +87,8 @@ if (process.contextIsolated) {
   window.api = api
   // @ts-ignore (define in dts)
   window.appBridge = appAPI
+  // @ts-ignore (define in dts)
+  window.engineConfig = configAPI
   // @ts-ignore (define in dts)
   window.config = configAPI
   // @ts-ignore (define in dts)
