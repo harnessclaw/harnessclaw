@@ -87,6 +87,59 @@ interface DbAPI {
   deleteSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>
 }
 
+interface PickedLocalFile {
+  name: string
+  path: string
+  url: string
+  size: number
+  extension: string
+  kind: 'image' | 'video' | 'audio' | 'archive' | 'code' | 'document' | 'data' | 'other'
+}
+
+interface FilesAPI {
+  pick: () => Promise<PickedLocalFile[]>
+  resolve: (paths: string[]) => Promise<PickedLocalFile[]>
+}
+
+type DoctorStatus = 'pass' | 'warn' | 'fail' | 'skip'
+type DoctorStage = 'environment' | 'config' | 'runtime' | 'flow'
+
+interface DoctorCheckResult {
+  id: string
+  stage: DoctorStage
+  title: string
+  status: DoctorStatus
+  summary: string
+  detail?: string
+  impact?: string
+  fixHint?: string
+  durationMs: number
+  data?: Record<string, unknown>
+}
+
+interface DoctorRunResult {
+  ok: boolean
+  startedAt: string
+  finishedAt: string
+  summary: {
+    pass: number
+    warn: number
+    fail: number
+    skip: number
+  }
+  checks: DoctorCheckResult[]
+}
+
+interface DoctorFixResult {
+  ok: boolean
+  message: string
+}
+
+interface DoctorAPI {
+  run: () => Promise<DoctorRunResult>
+  fix: (checkId: string) => Promise<DoctorFixResult>
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -99,5 +152,7 @@ declare global {
     harnessclaw: HarnessclawAPI
     skills: SkillsAPI
     db: DbAPI
+    files: FilesAPI
+    doctor: DoctorAPI
   }
 }

@@ -2,13 +2,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
   House,
-  Zap,
-  Puzzle,
-  Store,
-  Settings,
   Moon,
+  PanelLeft,
+  Puzzle,
+  Settings,
+  Shield,
+  Store,
   Sun,
-  PanelLeft
+  Zap,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
@@ -23,6 +24,7 @@ const navItems: NavItem[] = [
   { icon: Zap, path: '/chat', label: '对话' },
   { icon: Puzzle, path: '/skills', label: '技能' },
   { icon: Store, path: '/clawhub', label: 'ClawHub' },
+  { icon: Shield, path: '/doctor', label: 'Doctor' },
 ]
 
 export function Sidebar() {
@@ -58,27 +60,26 @@ export function Sidebar() {
   }
 
   const itemCls = (active: boolean) => cn(
-    'flex items-center rounded-lg transition-colors flex-shrink-0',
-    expanded ? 'w-full gap-3 px-3 py-2' : 'w-11 h-11 justify-center',
+    'flex flex-shrink-0 items-center rounded-lg transition-colors',
+    expanded ? 'w-full gap-3 px-3 py-2' : 'h-11 w-11 justify-center',
     active
-      ? 'text-primary bg-accent'
-      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+      ? 'bg-accent text-primary'
+      : 'text-muted-foreground hover:bg-accent hover:text-foreground'
   )
 
   const bottomItemCls = cn(
-    'flex items-center rounded-lg transition-colors text-muted-foreground hover:text-foreground hover:bg-accent',
-    expanded ? 'w-full gap-3 px-3 py-2' : 'w-11 h-11 justify-center'
+    'flex items-center rounded-lg transition-colors text-muted-foreground hover:bg-accent hover:text-foreground',
+    expanded ? 'w-full gap-3 px-3 py-2' : 'h-11 w-11 justify-center'
   )
 
   return (
     <nav
       aria-label="主导航"
       className={cn(
-        'flex-shrink-0 bg-card border-r border-border flex flex-col pt-[52px] pb-3 gap-1 select-none transition-[width] duration-200 overflow-hidden',
+        'flex flex-shrink-0 flex-col gap-1 overflow-hidden border-r border-border bg-card pb-3 pt-[52px] select-none transition-[width] duration-200',
         expanded ? 'w-44 items-start px-2' : 'w-[78px] items-center'
       )}
     >
-      {/* Nav items */}
       {navItems.map((item) => (
         <button
           key={item.path}
@@ -93,10 +94,8 @@ export function Sidebar() {
         </button>
       ))}
 
-      {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Settings */}
       <button
         onClick={() => navigate('/settings')}
         title={expanded ? undefined : '设置'}
@@ -108,20 +107,20 @@ export function Sidebar() {
         {expanded && <span className="text-sm font-medium">设置</span>}
       </button>
 
-      {/* Theme toggle */}
       <button
         onClick={toggleTheme}
         title={expanded ? undefined : isDark ? '切换亮色' : '切换暗色'}
         aria-label={isDark ? '切换亮色模式' : '切换暗色模式'}
         className={bottomItemCls}
       >
-        {isDark
-          ? <Sun size={18} className="flex-shrink-0" aria-hidden="true" />
-          : <Moon size={18} className="flex-shrink-0" aria-hidden="true" />}
+        {isDark ? (
+          <Sun size={18} className="flex-shrink-0" aria-hidden="true" />
+        ) : (
+          <Moon size={18} className="flex-shrink-0" aria-hidden="true" />
+        )}
         {expanded && <span className="text-sm font-medium">{isDark ? '亮色模式' : '暗色模式'}</span>}
       </button>
 
-      {/* Expand / collapse toggle */}
       <button
         onClick={toggleExpanded}
         title={expanded ? '收起侧边栏' : '展开侧边栏'}

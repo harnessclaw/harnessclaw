@@ -6,6 +6,7 @@ import { SessionsPage } from './components/pages/SessionsPage'
 import { ChatPage } from './components/pages/ChatPage'
 import { SkillsPage } from './components/pages/SkillsPage'
 import { ClawHubPage } from './components/pages/ClawHubPage'
+import { DoctorPage } from './components/pages/DoctorPage'
 import { SettingsPage } from './components/pages/SettingsPage'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/clawhub" element={<ClawHubPage />} />
+          <Route path="/doctor" element={<DoctorPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </AppLayout>
