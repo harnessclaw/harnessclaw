@@ -22,12 +22,14 @@ interface ClawHubAPI {
 interface HarnessclawAPI {
   connect: () => Promise<{ ok: boolean }>
   disconnect: () => Promise<{ ok: boolean }>
-  send: (content: string, sessionId?: string) => Promise<{ ok: boolean }>
+  send: (content: string, sessionId?: string) => Promise<{ ok: boolean; error?: string }>
   command: (cmd: string, sessionId?: string) => Promise<{ ok: boolean }>
-  stop: (sessionId?: string) => Promise<{ ok: boolean }>
+  stop: (sessionId?: string) => Promise<{ ok: boolean; error?: string }>
   subscribe: (sessionId: string) => Promise<{ ok: boolean }>
   unsubscribe: (sessionId: string) => Promise<{ ok: boolean }>
   listSessions: () => Promise<{ ok: boolean }>
+  probe: () => Promise<{ ok: boolean }>
+  respondPermission: (requestId: string, approved: boolean, scope?: 'once' | 'session', message?: string) => Promise<{ ok: boolean; error?: string }>
   getStatus: () => Promise<{ status: string; clientId: string; sessionId: string; subscriptions: string[] }>
   onStatus: (callback: (status: string) => void) => () => void
   onEvent: (callback: (event: Record<string, unknown>) => void) => () => void
@@ -63,6 +65,7 @@ interface DbToolActivityRow {
   content: string
   call_id: string | null
   is_error: number
+  subagent_json: string | null
   created_at: number
 }
 
