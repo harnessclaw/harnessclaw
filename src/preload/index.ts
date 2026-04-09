@@ -7,6 +7,7 @@ const api = {}
 const appAPI = {
   isFirstLaunch: () => ipcRenderer.invoke('app:isFirstLaunch'),
   markLaunched: () => ipcRenderer.invoke('app:markLaunched'),
+  checkForUpdates: () => ipcRenderer.invoke('app:update:check'),
 }
 
 const configAPI = {

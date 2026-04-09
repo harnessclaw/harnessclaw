@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { spawn, ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
+import { manuallyCheckForUpdates, setupAutoUpdater } from './updater'
 import {
   HARNESSCLAW_DIR,
   ENGINE_CONFIG_PATH,
@@ -160,7 +161,7 @@ function stopHarnessclawEngine(): void {
   harnessclawEngineProcess = null
 }
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -193,10 +194,13 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  setupAutoUpdater(mainWindow)
+  return mainWindow
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.openclaw.nanny')
+  electronApp.setAppUserModelId('com.iflytek.harnessclaw')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -740,6 +744,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle('harnessclaw:status', () => {
     return harnessclawClient.getStatus()
+  })
+
+  ipcMain.handle('app:update:check', async () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (!win) {
+      return { ok: false, error: 'No active window' }
+    }
+    return manuallyCheckForUpdates(win)
   })
 
   createWindow()

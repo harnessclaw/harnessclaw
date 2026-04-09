@@ -83,12 +83,7 @@ export class GatewayClient extends EventEmitter {
     const privateKey = createPrivateKey(this.credentials.privateKeyPem)
     const message = Buffer.from(nonce, 'utf8')
     const signature = sign(null, message, { key: privateKey })
-    const sig64 = signature.toString('base64url')
-    console.log('[Gateway] debug sign → nonce:', nonce)
-    console.log('[Gateway] debug sign → publicKey:', this.getPublicKeyB64())
-    console.log('[Gateway] debug sign → signature:', sig64, '(len:', sig64.length, ')')
-    console.log('[Gateway] debug sign → token:', this.credentials.token)
-    return sig64
+    return signature.toString('base64url')
   }
 
   connect(): void {
