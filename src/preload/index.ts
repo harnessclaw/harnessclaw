@@ -37,6 +37,8 @@ const harnessclawAPI = {
   subscribe: (sessionId: string) => ipcRenderer.invoke('harnessclaw:subscribe', sessionId),
   unsubscribe: (sessionId: string) => ipcRenderer.invoke('harnessclaw:unsubscribe', sessionId),
   listSessions: () => ipcRenderer.invoke('harnessclaw:listSessions'),
+  probe: () => ipcRenderer.invoke('harnessclaw:probe'),
+  respondPermission: (requestId: string, approved: boolean, scope?: 'once' | 'session', message?: string) => ipcRenderer.invoke('harnessclaw:respondPermission', requestId, approved, scope, message),
   getStatus: () => ipcRenderer.invoke('harnessclaw:status'),
   onStatus: (callback: (status: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, status: string): void => callback(status)
