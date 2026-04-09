@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { dirname, join, basename, extname } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, chmodSync, rmSync } from 'fs'
+import { Socket } from 'net'
 import { homedir } from 'os'
 import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { pathToFileURL } from 'url'
@@ -27,7 +28,6 @@ import {
   LEGACY_APP_CONFIG_PATH,
   LEGACY_ENGINE_CONFIG_PATH,
   LEGACY_NANOBOT_HOME,
-  NANOBOT_PID_PATH,
   LOGS_DIR,
   NANOBOT_PID_PATH,
   getDefaultWorkspaceSetting,
@@ -96,12 +96,27 @@ let nanobotProcess: ChildProcess | null = null
 let safeConsoleInstalled = false
 let configApplyTimer: ReturnType<typeof setTimeout> | null = null
 let pendingNanobotConfigApply: Record<string, unknown> | null = null
+let nanobotLifecycleQueue: Promise<unknown> = Promise.resolve()
+let nanobotStopExpected = false
+let mainWindow: BrowserWindow | null = null
+let appIsQuitting = false
 const DOCTOR_RUN_ONCE = process.argv.includes('--doctor-run-once')
 const DOCTOR_FIX_ARG = process.argv.find((arg) => arg.startsWith('--doctor-fix='))?.split('=')[1] || ''
 const DOCTOR_WAIT_MS = Math.max(
   0,
   Number.parseInt(process.env.HARNESSCLAW_DOCTOR_WAIT_MS || '12000', 10) || 12000
 )
+const HARNESSCLAW_DEFAULT_HOST = '127.0.0.1'
+const HARNESSCLAW_DEFAULT_PORT = 18765
+const NANOBOT_STARTUP_TIMEOUT_MS = Math.max(
+  3000,
+  Number.parseInt(process.env.HARNESSCLAW_GATEWAY_START_TIMEOUT_MS || '45000', 10) || 45000
+)
+const NANOBOT_STOP_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.HARNESSCLAW_GATEWAY_STOP_TIMEOUT_MS || '5000', 10) || 5000
+)
+const gotSingleInstanceLock = DOCTOR_RUN_ONCE || app.requestSingleInstanceLock()
 
 type LocalServiceStatus = 'starting' | 'ready' | 'degraded'
 type TransportStatus = 'disconnected' | 'connecting' | 'connected'
@@ -438,6 +453,146 @@ function broadcastAppRuntimeStatus(): void {
 function updateAppRuntimeStatus(patch: Partial<AppRuntimeStatus>): void {
   Object.assign(appRuntimeStatus, patch)
   broadcastAppRuntimeStatus()
+}
+
+function queueNanobotLifecycle<T>(task: () => Promise<T>): Promise<T> {
+  const next = nanobotLifecycleQueue
+    .catch(() => undefined)
+    .then(task)
+
+  nanobotLifecycleQueue = next.then(
+    () => undefined,
+    () => undefined
+  )
+  return next
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function getHarnessclawRuntimeConfig(config: Record<string, unknown> = ensureNanobotConfig()): { host: string; port: number } {
+  const channels = asRecord(config.channels)
+  const harnessclaw = asRecord(channels.harnessclaw)
+  return {
+    host: typeof harnessclaw.host === 'string' && harnessclaw.host.trim()
+      ? harnessclaw.host.trim()
+      : HARNESSCLAW_DEFAULT_HOST,
+    port: typeof harnessclaw.port === 'number' && Number.isFinite(harnessclaw.port)
+      ? harnessclaw.port
+      : HARNESSCLAW_DEFAULT_PORT,
+  }
+}
+
+function getHarnessclawProbeHost(host: string): string {
+  if (host === '0.0.0.0' || host === '::') {
+    return HARNESSCLAW_DEFAULT_HOST
+  }
+  return host
+}
+
+function formatHarnessclawEndpoint(host: string, port: number): string {
+  return `ws://${host}:${port}`
+}
+
+function canConnectToPort(host: string, port: number, timeoutMs = 400): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new Socket()
+    let settled = false
+
+    const finish = (value: boolean): void => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      resolve(value)
+    }
+
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+    socket.connect(port, host)
+  })
+}
+
+async function waitForPortState(
+  host: string,
+  port: number,
+  shouldBeOpen: boolean,
+  timeoutMs: number,
+  pollMs = 250
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const isOpen = await canConnectToPort(host, port)
+    if (isOpen === shouldBeOpen) {
+      return true
+    }
+    await delay(pollMs)
+  }
+
+  return false
+}
+
+async function waitForGatewayReady(
+  child: ChildProcess,
+  timeoutMs: number,
+  isReadyHint: () => boolean
+): Promise<{ ok: boolean; reason?: string }> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      return {
+        ok: false,
+        reason: `Gateway exited before becoming ready (code ${String(child.exitCode)})`,
+      }
+    }
+
+    if (isReadyHint()) {
+      return { ok: true }
+    }
+
+    await delay(250)
+  }
+
+  return {
+    ok: false,
+    reason: `Gateway startup timeout after ${timeoutMs}ms`,
+  }
+}
+
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<number | null> {
+  if (child.exitCode !== null) {
+    return Promise.resolve(child.exitCode)
+  }
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (code: number | null): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.removeListener('exit', handleExit)
+      resolve(code)
+    }
+
+    const handleExit = (code: number | null): void => finish(code)
+    const timer = setTimeout(() => finish(child.exitCode), timeoutMs)
+    child.once('exit', handleExit)
+  })
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show()
+  }
+  mainWindow.focus()
 }
 
 function trackUsage(entry: UsageLogEntry): void {
@@ -1015,116 +1170,271 @@ function runClawhub(
   })
 }
 
-function startNanobot(): void {
-  if (nanobotProcess) return
+function startNanobot(): Promise<boolean> {
+  return queueNanobotLifecycle(async () => {
+    if (nanobotProcess) {
+      writeAppLog('info', 'nanobot.lifecycle', 'Skipping start because gateway is already running', {
+        pid: nanobotProcess.pid || null,
+      })
+      return true
+    }
 
-  // Electron dev restarts and hard closes can orphan the previous gateway process.
-  // Always reclaim our last known instance before spawning a new one.
-  cleanupStaleNanobotProcesses()
+    cleanupStaleNanobotProcesses()
 
-  const config = ensureNanobotConfig()
-  updateAppRuntimeStatus({
-    localService: 'starting',
-    llmConfigured: isLlmConfigured(config),
-    lastError: undefined,
-  })
-  ensureBundledRuntimes()
-  const launch = getNanobotLaunchSpec()
-  if (!launch) {
-    console.warn('[Nanobot] No launch target found. Checked repo source, bundled binaries and PATH.')
+    const config = ensureNanobotConfig()
+    const llmConfigured = isLlmConfigured(config)
+    const gateway = getHarnessclawRuntimeConfig(config)
+    const endpoint = formatHarnessclawEndpoint(gateway.host, gateway.port)
+    const probeHost = getHarnessclawProbeHost(gateway.host)
+    const readinessPattern = new RegExp(`HarnessClaw listening on ws://[^\\s:]+:${gateway.port}\\b`, 'i')
+    let readinessLogBuffer = ''
+    let readinessObserved = false
+    const captureReadinessHint = (chunk: string): void => {
+      readinessLogBuffer = `${readinessLogBuffer}${chunk}`.slice(-4096)
+      if (readinessPattern.test(readinessLogBuffer)) {
+        readinessObserved = true
+      }
+    }
+
     updateAppRuntimeStatus({
-      localService: 'degraded',
-      lastError: 'Nanobot runtime not found',
+      localService: 'starting',
+      llmConfigured,
+      lastError: undefined,
     })
-    return
-  }
+    writeAppLog('info', 'nanobot.lifecycle', 'Preparing gateway startup', {
+      endpoint,
+      configPath: NANOBOT_CONFIG_PATH,
+    })
 
-  console.log('[Nanobot] Starting gateway via', launch.source)
-  trackUsage({
-    category: 'runtime',
-    action: 'nanobot_start',
-    status: 'started',
-    details: { source: launch.source },
-  })
-  nanobotProcess = spawn(launch.command, [...launch.args, 'gateway', '--config', NANOBOT_CONFIG_PATH], {
-    cwd: launch.cwd,
-    env: buildLaunchEnv(launch.env),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: false,
-    windowsHide: process.platform === 'win32',
-    shell: requiresShell(launch.command),
-  })
+    ensureBundledRuntimes()
+    await waitForPortState(probeHost, gateway.port, false, 3000)
+    const portAlreadyOpen = await canConnectToPort(probeHost, gateway.port)
+    if (portAlreadyOpen) {
+      const message = `Harnessclaw endpoint already in use before startup: ${endpoint}`
+      writeAppLog('error', 'nanobot.lifecycle', message, { endpoint })
+      updateAppRuntimeStatus({
+        localService: 'degraded',
+        llmConfigured,
+        lastError: message,
+      })
+      trackUsage({
+        category: 'runtime',
+        action: 'nanobot_start',
+        status: 'error',
+        details: { error: message, endpoint, conflict: 'preexisting_listener' },
+      })
+      return false
+    }
 
-  if (nanobotProcess.pid) {
-    writePidFile(NANOBOT_PID_PATH, nanobotProcess.pid)
-  }
+    const launch = getNanobotLaunchSpec()
+    if (!launch) {
+      console.warn('[Nanobot] No launch target found. Checked repo source, bundled binaries and PATH.')
+      updateAppRuntimeStatus({
+        localService: 'degraded',
+        llmConfigured,
+        lastError: 'Nanobot runtime not found',
+      })
+      writeAppLog('error', 'nanobot.lifecycle', 'Nanobot runtime not found', {
+        configPath: NANOBOT_CONFIG_PATH,
+      })
+      return false
+    }
 
-  ensureDir(getWorkspaceDir(config))
-  ensureDir(getSkillsDir(config))
-  updateAppRuntimeStatus({
-    localService: 'ready',
-    llmConfigured: isLlmConfigured(config),
-    lastError: undefined,
-  })
-
-  nanobotProcess.stdout?.on('data', (data) => {
-    safeWrite(process.stdout, `[Nanobot] ${String(data)}`)
-    writeAppLog('info', 'nanobot.stdout', String(data).trim())
-  })
-  nanobotProcess.stderr?.on('data', (data) => {
-    safeWrite(process.stderr, `[Nanobot] ${String(data)}`)
-    writeAppLog('warn', 'nanobot.stderr', String(data).trim())
-  })
-  nanobotProcess.on('error', (err) => {
-    console.error('[Nanobot] Failed to start:', err)
-    updateAppRuntimeStatus({
-      localService: 'degraded',
-      lastError: `Nanobot failed to start: ${String(err)}`,
+    console.log('[Nanobot] Starting gateway via', launch.source)
+    writeAppLog('info', 'nanobot.lifecycle', 'Starting gateway process', {
+      source: launch.source,
+      endpoint,
     })
     trackUsage({
       category: 'runtime',
       action: 'nanobot_start',
-      status: 'error',
-      details: { error: String(err) },
+      status: 'started',
+      details: { source: launch.source, endpoint },
     })
-    clearPidFile(NANOBOT_PID_PATH)
-    nanobotProcess = null
-  })
-  nanobotProcess.on('exit', (code) => {
-    console.log('[Nanobot] Exited with code:', code)
+
+    const child = spawn(launch.command, [...launch.args, 'gateway', '--config', NANOBOT_CONFIG_PATH], {
+      cwd: launch.cwd,
+      env: buildLaunchEnv(launch.env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+      windowsHide: process.platform === 'win32',
+      shell: requiresShell(launch.command),
+    })
+
+    nanobotProcess = child
+    nanobotStopExpected = false
+
+    if (child.pid) {
+      writePidFile(NANOBOT_PID_PATH, child.pid)
+    }
+
+    ensureDir(getWorkspaceDir(config))
+    ensureDir(getSkillsDir(config))
+
+    child.stdout?.on('data', (data) => {
+      const text = String(data)
+      captureReadinessHint(text)
+      safeWrite(process.stdout, `[Nanobot] ${text}`)
+      writeAppLog('info', 'nanobot.stdout', text.trim())
+    })
+    child.stderr?.on('data', (data) => {
+      const text = String(data)
+      captureReadinessHint(text)
+      safeWrite(process.stderr, `[Nanobot] ${text}`)
+      writeAppLog('warn', 'nanobot.stderr', text.trim())
+    })
+    child.on('error', (err) => {
+      console.error('[Nanobot] Failed to start:', err)
+      writeAppLog('error', 'nanobot.lifecycle', 'Gateway process emitted error', {
+        error: String(err),
+        endpoint,
+      })
+      updateAppRuntimeStatus({
+        localService: 'degraded',
+        llmConfigured,
+        lastError: `Nanobot failed to start: ${String(err)}`,
+      })
+      trackUsage({
+        category: 'runtime',
+        action: 'nanobot_start',
+        status: 'error',
+        details: { error: String(err), endpoint },
+      })
+      clearPidFile(NANOBOT_PID_PATH)
+      if (nanobotProcess === child) {
+        nanobotProcess = null
+      }
+    })
+    child.on('exit', (code) => {
+      const expectedStop = nanobotStopExpected || appIsQuitting
+      console.log('[Nanobot] Exited with code:', code)
+      writeAppLog(expectedStop ? 'info' : 'warn', 'nanobot.lifecycle', 'Gateway process exited', {
+        code,
+        expectedStop,
+        endpoint,
+      })
+      if (nanobotProcess === child) {
+        nanobotProcess = null
+      }
+      clearPidFile(NANOBOT_PID_PATH)
+
+      if (!expectedStop) {
+        updateAppRuntimeStatus({
+          localService: 'degraded',
+          llmConfigured,
+          lastError: `Nanobot exited with code ${String(code)}`,
+        })
+      }
+
+      trackUsage({
+        category: 'runtime',
+        action: 'nanobot_exit',
+        status: expectedStop || code === 0 ? 'ok' : 'failed',
+        details: { code, endpoint, expectedStop },
+      })
+    })
+
+    writeAppLog('info', 'nanobot.lifecycle', 'Waiting for gateway readiness', {
+      endpoint,
+      timeoutMs: NANOBOT_STARTUP_TIMEOUT_MS,
+      pid: child.pid || null,
+    })
+
+    const ready = await waitForGatewayReady(child, NANOBOT_STARTUP_TIMEOUT_MS, () => readinessObserved)
+    if (nanobotProcess !== child) {
+      return false
+    }
+
+    if (!ready.ok) {
+      const message = ready.reason || `Gateway startup failed for ${endpoint}`
+      writeAppLog('error', 'nanobot.lifecycle', message, {
+        endpoint,
+        pid: child.pid || null,
+      })
+      updateAppRuntimeStatus({
+        localService: 'degraded',
+        llmConfigured,
+        lastError: message,
+      })
+      trackUsage({
+        category: 'runtime',
+        action: 'nanobot_start',
+        status: 'error',
+        details: { error: message, endpoint, timeoutMs: NANOBOT_STARTUP_TIMEOUT_MS },
+      })
+
+      nanobotStopExpected = true
+      if (child.pid) {
+        killProcessTree(child.pid)
+      } else {
+        child.kill()
+      }
+      await waitForChildExit(child, NANOBOT_STOP_TIMEOUT_MS)
+      await waitForPortState(probeHost, gateway.port, false, 3000)
+      clearPidFile(NANOBOT_PID_PATH)
+      if (nanobotProcess === child) {
+        nanobotProcess = null
+      }
+      return false
+    }
+
+    writeAppLog('info', 'nanobot.lifecycle', 'Gateway is ready', {
+      endpoint,
+      pid: child.pid || null,
+    })
     updateAppRuntimeStatus({
-      localService: code === 0 ? 'starting' : 'degraded',
-      lastError: code === 0 ? undefined : `Nanobot exited with code ${String(code)}`,
+      localService: 'ready',
+      llmConfigured,
+      lastError: undefined,
+    })
+    return true
+  })
+}
+
+async function stopNanobot(reason = 'manual stop'): Promise<void> {
+  return queueNanobotLifecycle(async () => {
+    const child = nanobotProcess
+    if (!child) {
+      clearPidFile(NANOBOT_PID_PATH)
+      return
+    }
+
+    console.log('[Nanobot] Stopping gateway...')
+    writeAppLog('info', 'nanobot.lifecycle', 'Stopping gateway process', {
+      reason,
+      pid: child.pid || null,
     })
     trackUsage({
       category: 'runtime',
-      action: 'nanobot_exit',
-      status: code === 0 ? 'ok' : 'failed',
-      details: { code },
+      action: 'nanobot_stop',
+      status: 'started',
+      details: { reason },
     })
+
+    nanobotStopExpected = true
+    if (child.pid) {
+      killProcessTree(child.pid)
+    } else {
+      child.kill()
+    }
     clearPidFile(NANOBOT_PID_PATH)
-    nanobotProcess = null
+    await waitForChildExit(child, NANOBOT_STOP_TIMEOUT_MS)
+    const gateway = getHarnessclawRuntimeConfig()
+    const probeHost = getHarnessclawProbeHost(gateway.host)
+    const released = await waitForPortState(probeHost, gateway.port, false, 3000)
+
+    if (nanobotProcess === child) {
+      nanobotProcess = null
+    }
+    writeAppLog('info', 'nanobot.lifecycle', 'Gateway process stopped', {
+      reason,
+      pid: child.pid || null,
+      portReleased: released,
+    })
   })
 }
 
-function stopNanobot(): void {
-  if (!nanobotProcess) return
-  console.log('[Nanobot] Stopping gateway...')
-  trackUsage({
-    category: 'runtime',
-    action: 'nanobot_stop',
-    status: 'started',
-  })
-  if (nanobotProcess.pid) {
-    killProcessTree(nanobotProcess.pid)
-  } else {
-    nanobotProcess.kill()
-  }
-  clearPidFile(NANOBOT_PID_PATH)
-  nanobotProcess = null
-}
-
-function applyNanobotConfigNow(config: Record<string, unknown>): void {
+async function applyNanobotConfigNow(config: Record<string, unknown>): Promise<void> {
   updateAppRuntimeStatus({
     applyingConfig: true,
     localService: 'starting',
@@ -1140,9 +1450,14 @@ function applyNanobotConfigNow(config: Record<string, unknown>): void {
 
   try {
     harnessclawClient.disconnect()
-    stopNanobot()
-    startNanobot()
-    harnessclawClient.connect()
+    writeAppLog('info', 'nanobot.lifecycle', 'Restarting gateway to apply updated config', {
+      provider: inferConfiguredProvider(config),
+    })
+    await stopNanobot('apply config restart')
+    const started = await startNanobot()
+    if (started) {
+      harnessclawClient.connect()
+    }
     updateAppRuntimeStatus({
       applyingConfig: false,
       llmConfigured: isLlmConfigured(config),
@@ -1209,9 +1524,11 @@ async function performDoctorFix(checkId: string): Promise<{ ok: boolean; message
     case 'runtime.gateway_port':
     case 'flow.gateway_handshake': {
       harnessclawClient.disconnect()
-      stopNanobot()
-      startNanobot()
-      harnessclawClient.connect()
+      await stopNanobot('doctor restart')
+      const started = await startNanobot()
+      if (started) {
+        harnessclawClient.connect()
+      }
       return { ok: true, message: 'Gateway restart and reconnect have been requested.' }
     }
 
@@ -1237,7 +1554,7 @@ function scheduleNanobotConfigApply(config: Record<string, unknown>): void {
     const next = pendingNanobotConfigApply
     pendingNanobotConfigApply = null
     if (next) {
-      applyNanobotConfigNow(next)
+      void applyNanobotConfigNow(next)
     }
   }, 1000)
 }
@@ -1280,10 +1597,27 @@ function buildExportPayload(type: string): { name: string; content: string } {
   }
 }
 
+if (!gotSingleInstanceLock) {
+  console.log('[App] Another instance is already running. Exiting current process.')
+  app.quit()
+}
+
+if (!DOCTOR_RUN_ONCE) {
+  app.on('second-instance', () => {
+    writeAppLog('info', 'app.lifecycle', 'Second instance requested focus on the primary window')
+    focusMainWindow()
+  })
+}
+
 setLogThreshold(getAppLogThreshold(ensureAppConfig()))
 installSafeConsole()
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusMainWindow()
+    return
+  }
+
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
@@ -1301,22 +1635,31 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  const currentWindow = mainWindow
+
+  currentWindow.on('ready-to-show', () => {
+    currentWindow.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  currentWindow.on('closed', () => {
+    if (mainWindow === currentWindow) {
+      mainWindow = null
+    }
+  })
+
+  currentWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    currentWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    currentWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
+if (gotSingleInstanceLock) {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.openclaw.nanny')
 
@@ -1362,13 +1705,13 @@ app.whenReady().then(() => {
         status: 'ok',
         details: { provider: inferConfiguredProvider(normalized), llmConfigured: isLlmConfigured(normalized), applyScheduled: true },
       })
-      } else {
-        trackUsage({
-          category: 'config',
-          action: 'save_nanobot_config',
-          status: 'error',
-          details: { error: result.error || 'Unknown error' },
-        })
+    } else {
+      trackUsage({
+        category: 'config',
+        action: 'save_nanobot_config',
+        status: 'error',
+        details: { error: result.error || 'Unknown error' },
+      })
     }
     return result
   })
@@ -1597,13 +1940,16 @@ app.whenReady().then(() => {
     status: 'ok',
     details: { version: app.getVersion() },
   })
-  startNanobot()
+  void startNanobot().then((started) => {
+    if (started) {
+      harnessclawClient.connect()
+    }
+  })
   try {
     getDb() // Initialize DB on startup
   } catch (err) {
     console.error('[DB] Startup initialization failed:', err)
   }
-  harnessclawClient.connect()
 
   harnessclawClient.on('statusChange', (status) => {
     updateAppRuntimeStatus({
@@ -1941,13 +2287,25 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  appIsQuitting = true
   if (configApplyTimer) {
     clearTimeout(configApplyTimer)
     configApplyTimer = null
   }
   harnessclawClient.disconnect()
-  stopNanobot()
+  const child = nanobotProcess
+  if (child) {
+    nanobotStopExpected = true
+    clearPidFile(NANOBOT_PID_PATH)
+    if (child.pid) {
+      killProcessTree(child.pid)
+    } else {
+      child.kill()
+    }
+    nanobotProcess = null
+  }
   closeDb()
 })
+}
 
 

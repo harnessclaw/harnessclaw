@@ -13,7 +13,6 @@ import {
   type LocalAttachmentItem,
 } from '../attachments/AttachmentPreviewPanel'
 import { useAppRuntimeStatus } from '@/hooks/useAppRuntimeStatus'
-import { useAppRuntimeStatus } from '@/hooks/useAppRuntimeStatus'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
