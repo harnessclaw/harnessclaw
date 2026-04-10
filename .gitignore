@@ -6,6 +6,9 @@ out/
 dist/
 release/
 
+# Electron / local runtime data
+challenge-and-connect.json
+
 # Vite
 *.local
 
@@ -38,3 +41,6 @@ yarn-error.log*
 # Test artifacts
 test_report.json
 *.py
+
+# Env
+.npmrc

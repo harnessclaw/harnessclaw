@@ -31,7 +31,6 @@ win:
       arch:
         - x64
   executableName: OpenClaw Nanny
-  icon: icon.ico
 
 nsis:
   oneClick: false
