@@ -20,12 +20,6 @@ extraResources:
     to: bundled-tools/nanobot
     filter:
       - '**/*'
-  - from: build/bundled-tools/clawhub
-    to: bundled-tools/clawhub
-    filter:
-      - 'package.json'
-      - 'runtime-manifest.json'
-      - 'payload.zip'
 
 asarUnpack:
   - node_modules/better-sqlite3/**/*

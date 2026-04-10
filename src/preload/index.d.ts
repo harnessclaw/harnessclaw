@@ -11,15 +11,6 @@ interface ConfigAPI {
   save: (data: unknown) => Promise<{ ok: boolean; error?: string }>
 }
 
-interface ClawHubAPI {
-  getStatus: () => Promise<{ installed: boolean; bundled?: boolean; path: string; runtimePath?: string; entryPath?: string; source?: string; error?: string }>
-  install: () => Promise<{ ok: boolean; path: string; error?: string }>
-  verifyToken: (token: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
-  explore: () => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
-  search: (query: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
-  installSkill: (slug: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
-}
-
 interface AppRuntimeStatus {
   localService: 'starting' | 'ready' | 'degraded'
   transport: 'disconnected' | 'connecting' | 'connected'
@@ -161,45 +152,6 @@ interface FilesAPI {
   resolve: (paths: string[]) => Promise<PickedLocalFile[]>
 }
 
-type DoctorStatus = 'pass' | 'warn' | 'fail' | 'skip'
-type DoctorStage = 'environment' | 'config' | 'runtime' | 'flow'
-
-interface DoctorCheckResult {
-  id: string
-  stage: DoctorStage
-  title: string
-  status: DoctorStatus
-  summary: string
-  detail?: string
-  impact?: string
-  fixHint?: string
-  durationMs: number
-  data?: Record<string, unknown>
-}
-
-interface DoctorRunResult {
-  ok: boolean
-  startedAt: string
-  finishedAt: string
-  summary: {
-    pass: number
-    warn: number
-    fail: number
-    skip: number
-  }
-  checks: DoctorCheckResult[]
-}
-
-interface DoctorFixResult {
-  ok: boolean
-  message: string
-}
-
-interface DoctorAPI {
-  run: () => Promise<DoctorRunResult>
-  fix: (checkId: string) => Promise<DoctorFixResult>
-}
-
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -210,11 +162,9 @@ declare global {
     nanobotConfig: ConfigAPI
     appConfig: ConfigAPI
     appRuntime: AppRuntimeAPI
-    clawhub: ClawHubAPI
     harnessclaw: HarnessclawAPI
     skills: SkillsAPI
     db: DbAPI
     files: FilesAPI
-    doctor: DoctorAPI
   }
 }

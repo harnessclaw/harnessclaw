@@ -48,15 +48,6 @@ const appRuntimeAPI = {
   },
 }
 
-const clawhubAPI = {
-  getStatus: () => ipcRenderer.invoke('clawhub:getStatus'),
-  install: () => ipcRenderer.invoke('clawhub:install'),
-  verifyToken: (token: string) => ipcRenderer.invoke('clawhub:verifyToken', token),
-  explore: () => ipcRenderer.invoke('clawhub:explore'),
-  search: (query: string) => ipcRenderer.invoke('clawhub:search', query),
-  installSkill: (slug: string) => ipcRenderer.invoke('clawhub:installSkill', slug),
-}
-
 const harnessclawAPI = {
   connect: () => ipcRenderer.invoke('harnessclaw:connect'),
   disconnect: () => ipcRenderer.invoke('harnessclaw:disconnect'),
@@ -98,11 +89,6 @@ const filesAPI = {
   resolve: (paths: string[]) => ipcRenderer.invoke('files:resolve', paths),
 }
 
-const doctorAPI = {
-  run: () => ipcRenderer.invoke('doctor:run'),
-  fix: (checkId: string) => ipcRenderer.invoke('doctor:fix', checkId),
-}
-
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
@@ -113,12 +99,10 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('nanobotConfig', configAPI)
     contextBridge.exposeInMainWorld('appConfig', appConfigAPI)
     contextBridge.exposeInMainWorld('appRuntime', appRuntimeAPI)
-    contextBridge.exposeInMainWorld('clawhub', clawhubAPI)
     contextBridge.exposeInMainWorld('harnessclaw', harnessclawAPI)
     contextBridge.exposeInMainWorld('skills', skillsAPI)
     contextBridge.exposeInMainWorld('db', dbAPI)
     contextBridge.exposeInMainWorld('files', filesAPI)
-    contextBridge.exposeInMainWorld('doctor', doctorAPI)
   } catch (error) {
     console.error(error)
   }
@@ -140,8 +124,6 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.appRuntime = appRuntimeAPI
   // @ts-ignore (define in dts)
-  window.clawhub = clawhubAPI
-  // @ts-ignore (define in dts)
   window.harnessclaw = harnessclawAPI
   // @ts-ignore (define in dts)
   window.skills = skillsAPI
@@ -149,6 +131,4 @@ if (process.contextIsolated) {
   window.db = dbAPI
   // @ts-ignore (define in dts)
   window.files = filesAPI
-  // @ts-ignore (define in dts)
-  window.doctor = doctorAPI
 }

@@ -3,11 +3,16 @@ import { useLocation } from 'react-router-dom'
 import {
   Send, Plus, ChevronLeft, ChevronRight, Copy, Check, Trash2,
   Loader2, Wrench, Brain, AlertCircle, RefreshCw, ChevronDown, ChevronUp,
-  FileText, X
+  Paperclip, FileText, X
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import { HarnessclawStatusBadge } from '../common/HarnessclawStatusBadge'
+import {
+  AttachmentPreviewPanel,
+  type LocalAttachmentItem,
+} from '../attachments/AttachmentPreviewPanel'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +50,7 @@ interface Message {
   thinking?: string
   tools?: ToolActivity[]
   toolsUsed?: string[]
+  attachments?: AttachmentItem[]
   contentSegments?: ContentSegment[] // text segments with timestamps for interleaving
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
 }
@@ -77,6 +83,8 @@ interface PermissionResultData {
   message: string
 }
 
+type AttachmentItem = LocalAttachmentItem
+
 // Per-session state
 interface SessionState {
   messages: Message[]
@@ -86,6 +94,64 @@ interface SessionState {
   isPaused: boolean
   isStopping: boolean
   pauseReason?: string
+}
+
+const ATTACHMENT_BLOCK_START = '[HARNESSCLAW_LOCAL_ATTACHMENTS]'
+const ATTACHMENT_BLOCK_END = '[/HARNESSCLAW_LOCAL_ATTACHMENTS]'
+
+function buildMessagePayload(content: string, attachments: AttachmentItem[]): string {
+  const text = content.trim()
+  if (attachments.length === 0) return text
+
+  const attachmentPayload = JSON.stringify({
+    version: 1,
+    items: attachments.map(({ name, path, url, size, extension, kind }) => ({
+      name,
+      path,
+      url,
+      size,
+      extension,
+      kind,
+    })),
+  }, null, 2)
+
+  const instructions = [
+    'Attached local files are listed below.',
+    'Use the local path or file URL with filesystem tools when you need to inspect file contents.',
+  ].join('\n')
+
+  return [
+    text,
+    instructions,
+    ATTACHMENT_BLOCK_START,
+    attachmentPayload,
+    ATTACHMENT_BLOCK_END,
+  ].filter(Boolean).join('\n\n')
+}
+
+function extractAttachments(content: string): { content: string; attachments: AttachmentItem[] } {
+  const startIndex = content.indexOf(ATTACHMENT_BLOCK_START)
+  const endIndex = content.indexOf(ATTACHMENT_BLOCK_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    return { content, attachments: [] }
+  }
+
+  const jsonStart = startIndex + ATTACHMENT_BLOCK_START.length
+  const jsonText = content.slice(jsonStart, endIndex).trim()
+  const body = content.slice(0, startIndex).trim()
+
+  try {
+    const parsed = JSON.parse(jsonText) as { items?: Array<Omit<AttachmentItem, 'id'>> }
+    const attachments = Array.isArray(parsed.items)
+      ? parsed.items.map((item) => ({
+          ...item,
+          id: item.path || item.url || `${item.name}-${item.size}`,
+        }))
+      : []
+    return { content: body, attachments }
+  } catch {
+    return { content, attachments: [] }
+  }
 }
 
 function normalizeSubagent(raw: unknown): SubagentInfo | undefined {
@@ -185,17 +251,24 @@ function parsePermissionResultData(raw: string): PermissionResultData | null {
 
 export function ChatPage() {
   const location = useLocation()
+  const initialMessage = location.state?.initialMessage || ''
+  const initialAttachments = (location.state?.initialAttachments || []) as AttachmentItem[]
   const [sessionMap, setSessionMap] = useState<Record<string, SessionState>>({})
   const [activeSessionId, setActiveSessionId] = useState('')
   const [filePreview, setFilePreview] = useState<FilePreviewData | null>(null)
-  const [input, setInput] = useState(location.state?.initialMessage || '')
+  const [input, setInput] = useState(initialMessage)
+  const [attachments, setAttachments] = useState<AttachmentItem[]>(initialAttachments)
+  const [isDragOver, setIsDragOver] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
   const [harnessclawStatus, setHarnessclawStatus] = useState<HarnessclawStatus>('disconnected')
   const [clientId, setClientId] = useState('')
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const pendingInitialMessage = useRef<string>(location.state?.initialMessage || '')
-  const pendingInitialDispatched = useRef(false)
+  const pendingInitialTurn = useRef<{ content: string; attachments: AttachmentItem[] } | null>(
+    initialMessage || initialAttachments.length > 0
+      ? { content: initialMessage, attachments: initialAttachments }
+      : null
+  )
   // Track pendingAssistantId per session in a ref map
   const pendingAssistantIds = useRef<Record<string, string | null>>({})
   const activeSessionIdRef = useRef(activeSessionId)
@@ -234,9 +307,12 @@ export function ChatPage() {
     return resolvedSessionId
   }, [])
 
-  const sendInitialMessage = useCallback((sid: string, text: string) => {
-    pendingInitialMessage.current = ''
+  const sendInitialMessage = useCallback((sid: string, text: string, initialFiles: AttachmentItem[] = []) => {
+    pendingInitialTurn.current = null
+    const trimmedText = text.trim()
+    const payload = buildMessagePayload(trimmedText, initialFiles)
     setInput('')
+    setAttachments([])
     ensureLocalSession(sid)
     updateSession(sid, (prev) => ({
       ...prev,
@@ -245,9 +321,15 @@ export function ChatPage() {
       isPaused: false,
       isStopping: false,
       pauseReason: undefined,
-      messages: [...prev.messages, { id: `usr-${Date.now()}`, role: 'user', content: text, timestamp: Date.now() }],
+      messages: [...prev.messages, {
+        id: `usr-${Date.now()}`,
+        role: 'user',
+        content: trimmedText,
+        attachments: initialFiles,
+        timestamp: Date.now(),
+      }],
     }))
-    void window.harnessclaw.send(text, sid)
+    void window.harnessclaw.send(payload, sid)
   }, [ensureLocalSession, updateSession])
 
   const respondPermission = useCallback(async (requestId: string, approved: boolean, scope: 'once' | 'session') => {
@@ -284,21 +366,37 @@ export function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeSession.messages, activeSession.currentThinking])
 
+  useEffect(() => {
+    const preventWindowDrop = (event: DragEvent) => {
+      event.preventDefault()
+    }
+
+    window.addEventListener('dragover', preventWindowDrop)
+    window.addEventListener('drop', preventWindowDrop)
+
+    return () => {
+      window.removeEventListener('dragover', preventWindowDrop)
+      window.removeEventListener('drop', preventWindowDrop)
+    }
+  }, [])
+
   // Helper: convert DB rows to Message[]
   const dbRowsToMessages = useCallback((rows: DbMessageRow[]): Message[] => {
     return rows.map((r) => {
+      const parsed = extractAttachments(r.content)
       const contentSegments = r.content_segments
         ? (JSON.parse(r.content_segments) as Array<{ text: string; ts: number; subagent?: unknown }>).map((seg) => ({
             text: seg.text,
             ts: seg.ts,
             subagent: normalizeSubagent(seg.subagent),
           }))
-        : (r.content ? [{ text: r.content, ts: r.created_at }] : [])
+        : (parsed.content ? [{ text: parsed.content, ts: r.created_at }] : [])
 
       return {
         id: r.id,
         role: r.role as MessageRole,
-        content: r.content,
+        content: parsed.content,
+        attachments: parsed.attachments,
         timestamp: r.created_at,
         thinking: r.thinking || undefined,
         toolsUsed: r.tools_used ? JSON.parse(r.tools_used) : undefined,
@@ -372,10 +470,11 @@ export function ChatPage() {
   }, [])
 
   useEffect(() => {
-    if (!pendingInitialMessage.current || pendingInitialDispatched.current) return
-    pendingInitialDispatched.current = true
+    if (!pendingInitialTurn.current) return
     const sid = ensureLocalSession()
-    sendInitialMessage(sid, pendingInitialMessage.current)
+    const next = pendingInitialTurn.current
+    if (!next) return
+    sendInitialMessage(sid, next.content, next.attachments)
   }, [ensureLocalSession, sendInitialMessage])
 
   // Handle Harnessclaw events — route by session_id
@@ -830,9 +929,11 @@ export function ChatPage() {
   const handleSend = () => {
     const message = input.trim()
     console.log('[ChatPage] handleSend activeSessionId:', activeSessionId, 'input:', message.slice(0, 20))
-    if (!message || activeSession.isProcessing) return
+    if ((!message && attachments.length === 0) || activeSession.isProcessing) return
 
     const sid = activeSessionId || ensureLocalSession()
+    const payload = buildMessagePayload(message, attachments)
+    const attachedFiles = [...attachments]
 
     updateSession(sid, (prev) => ({
       ...prev,
@@ -841,10 +942,17 @@ export function ChatPage() {
       isPaused: false,
       isStopping: false,
       pauseReason: undefined,
-      messages: [...prev.messages, { id: `usr-${Date.now()}`, role: 'user', content: message, timestamp: Date.now() }],
+      messages: [...prev.messages, {
+        id: `usr-${Date.now()}`,
+        role: 'user',
+        content: message,
+        attachments: attachedFiles,
+        timestamp: Date.now(),
+      }],
     }))
-    void window.harnessclaw.send(message, sid)
+    void window.harnessclaw.send(payload, sid)
     setInput('')
+    setAttachments([])
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -907,6 +1015,62 @@ export function ChatPage() {
       pauseReason: '正在请求中止当前会话...',
     }))
     void window.harnessclaw.stop(activeSessionId)
+  }
+
+  const appendAttachments = (items: AttachmentItem[]) => {
+    if (!items.length) return
+
+    setAttachments((prev) => {
+      const byId = new Map(prev.map((item) => [item.id, item]))
+      for (const item of items) {
+        byId.set(item.path, { ...item, id: item.path })
+      }
+      return [...byId.values()]
+    })
+  }
+
+  const handlePickFiles = async () => {
+    if (activeSession.isProcessing || harnessclawStatus !== 'connected') return
+
+    const picked = await window.files.pick()
+    if (!picked.length) return
+    appendAttachments(picked.map((item) => ({ ...item, id: item.path })))
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (activeSession.isProcessing || harnessclawStatus !== 'connected') return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy'
+      setIsDragOver(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setIsDragOver(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    if (activeSession.isProcessing || harnessclawStatus !== 'connected') return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const droppedPaths = Array.from(e.dataTransfer.files)
+      .map((file) => (file as File & { path?: string }).path || '')
+      .filter(Boolean)
+
+    if (!droppedPaths.length) return
+    const resolved = await window.files.resolve(droppedPaths)
+    appendAttachments(resolved.map((item) => ({ ...item, id: item.path })))
+  }
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id))
   }
 
   const handleClearHistory = () => {
@@ -1013,12 +1177,15 @@ export function ChatPage() {
               </span>
             )}
           </div>
-          {activeSessionId && (
-            <button onClick={handleClearHistory} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-              <Trash2 size={12} />
-              清空历史
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <HarnessclawStatusBadge />
+            {activeSessionId && (
+              <button onClick={handleClearHistory} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+                <Trash2 size={12} />
+                清空历史
+              </button>
+            )}
+          </div>
         </div>
 
         {!activeSessionId ? (
@@ -1131,7 +1298,21 @@ export function ChatPage() {
                   </span>
                 </div>
               )}
-              <div className="relative rounded-2xl border border-border overflow-hidden shadow-sm bg-card">
+              <div
+                className={cn(
+                  'relative rounded-2xl border overflow-hidden shadow-sm bg-card transition-[border-color,box-shadow]',
+                  isDragOver ? 'border-primary shadow-[0_0_0_3px_rgba(37,99,235,0.16)]' : 'border-border'
+                )}
+                onDragOver={handleDragOver}
+                onDragEnter={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {isDragOver && (
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5 text-sm text-primary">
+                    松开即可添加文件
+                  </div>
+                )}
                 <div className="p-3">
                   <textarea
                     value={input}
@@ -1142,6 +1323,23 @@ export function ChatPage() {
                     className="w-full bg-transparent resize-none outline-none text-sm text-foreground placeholder:text-muted-foreground min-h-[60px] max-h-[150px] disabled:opacity-50"
                     rows={2}
                   />
+                  <AttachmentPreviewPanel
+                    attachments={attachments}
+                    onRemove={handleRemoveAttachment}
+                    removable={!activeSession.isProcessing}
+                  />
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={handlePickFiles}
+                      disabled={activeSession.isProcessing || harnessclawStatus !== 'connected'}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                      title="选择本地文件"
+                    >
+                      <Paperclip size={12} />
+                      <span>添加文件</span>
+                    </button>
+                    <span className="text-xs text-muted-foreground">也可直接拖拽文件到输入框</span>
+                  </div>
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-xs text-muted-foreground">Cmd + Enter 发送</span>
                     <div className="flex items-center gap-2">
@@ -1158,7 +1356,7 @@ export function ChatPage() {
                       ) : (
                         <button
                           onClick={handleSend}
-                          disabled={!input.trim()}
+                          disabled={!input.trim() && attachments.length === 0}
                           className="w-7 h-7 rounded-lg bg-[#555555] disabled:bg-[#C4C4C4] flex items-center justify-center transition-colors hover:bg-[#444444]"
                         >
                           <Send size={13} className="text-white" />
@@ -1296,6 +1494,7 @@ function MessageBubble({
       .map((seg) => seg.subagent?.taskId)
       .filter((taskId): taskId is string => !!taskId)
   ).size
+  const attachments = message.attachments || []
   const lastVisibleActivityTs = segments.reduce((latest, seg) => Math.max(latest, seg.ts), message.timestamp)
   const shouldShowBreathingDot = !isUser
     && !isSystem
@@ -1430,6 +1629,14 @@ function MessageBubble({
             )
           }
         })}
+
+        {attachments.length > 0 && (
+          <div className={cn('mb-1.5', isUser ? 'flex justify-end' : 'flex justify-start')}>
+            <div className="max-w-[420px]">
+              <AttachmentPreviewPanel attachments={attachments} removable={false} />
+            </div>
+          </div>
+        )}
 
         {shouldShowBreathingDot && (
           <div className="mb-1.5 flex justify-end pr-1">

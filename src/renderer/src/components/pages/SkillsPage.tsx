@@ -3,6 +3,7 @@ import { Loader2, Puzzle, FolderOpen, FileText, Terminal, Search, X, Trash2 } fr
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import { HarnessclawStatusBadge } from '../common/HarnessclawStatusBadge'
 
 interface SkillInfo {
   id: string
@@ -110,6 +111,7 @@ export function SkillsPage() {
           <span className="text-sm font-semibold text-foreground">技能</span>
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{skills.length}</span>
           <div className="flex-1" />
+          <HarnessclawStatusBadge />
           <div className="relative">
             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <input

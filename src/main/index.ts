@@ -1,16 +1,13 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
-import { basename, dirname, extname, join } from 'path'
+import { basename, extname, join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
-import { homedir } from 'os'
 import { spawn, ChildProcess } from 'child_process'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
-import { runDoctor } from './doctor'
 import { manuallyCheckForUpdates, setupAutoUpdater } from './updater'
 import {
   HARNESSCLAW_DIR,
-  HARNESSCLAW_CONFIG_PATH,
   ENGINE_CONFIG_PATH,
   resolveBundledBinaryPath,
   ensureDir,
@@ -72,8 +69,6 @@ function getModuleKey(subagent?: PersistedSubagent): string {
 
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
 const HARNESSCLAW_ENGINE_BIN = resolveBundledBinaryPath('harnessclaw-engine')
-const CLAWHUB_BIN = resolveBundledBinaryPath('clawhub')
-const CLAWHUB_WORKDIR = join(HARNESSCLAW_DIR, 'workspace')
 const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
 
 let harnessclawEngineProcess: ChildProcess | null = null
@@ -224,122 +219,6 @@ function buildExportPayload(type: string): { name: string; content: string } {
       })),
     }, null, 2),
   }
-}
-
-async function performDoctorFix(checkId: string): Promise<{ ok: boolean; message: string }> {
-  switch (checkId) {
-    case 'environment.runtime_dirs':
-    case 'config.workspace': {
-      ensureDir(HARNESSCLAW_DIR)
-      ensureDir(join(HARNESSCLAW_DIR, 'db'))
-      ensureDir(LOGS_DIR)
-      ensureDir(join(HARNESSCLAW_DIR, 'workspace'))
-      ensureDir(SKILLS_DIR)
-      return { ok: true, message: 'Runtime directories have been created or refreshed.' }
-    }
-    case 'config.app_exists': {
-      const result = saveHarnessclawConfig(readHarnessclawConfig({}))
-      return result.ok ? { ok: true, message: `App config ready: ${HARNESSCLAW_CONFIG_PATH}` } : { ok: false, message: result.error || 'Failed to write app config' }
-    }
-    case 'config.nanobot_exists': {
-      const result = saveEngineConfig(readEngineConfig({ providers: {} }))
-      return result.ok ? { ok: true, message: `Engine config ready: ${ENGINE_CONFIG_PATH}` } : { ok: false, message: result.error || 'Failed to write engine config' }
-    }
-    case 'runtime.harnessclaw_connection': {
-      harnessclawClient.disconnect()
-      harnessclawClient.connect()
-      return { ok: true, message: 'Requested a websocket reconnect from the app side.' }
-    }
-    default:
-      return { ok: false, message: 'No automatic fix is available for this check yet.' }
-  }
-}
-
-function ensureClawhubBinary(): { ok: boolean; path: string; error?: string } {
-  if (CLAWHUB_BIN && existsSync(CLAWHUB_BIN)) {
-    return { ok: true, path: CLAWHUB_BIN }
-  }
-  return {
-    ok: false,
-    path: CLAWHUB_BIN || '',
-    error: 'Bundled clawhub binary not found in resources/bin',
-  }
-}
-
-function getClawhubStatus(): {
-  installed: boolean
-  bundled: boolean
-  path: string
-  runtimePath: string
-  entryPath: string
-  source: string
-  error?: string
-} {
-  const resolved = ensureClawhubBinary()
-  return {
-    installed: resolved.ok,
-    path: resolved.path,
-    bundled: true,
-    runtimePath: resolved.path ? dirname(resolved.path) : '',
-    entryPath: resolved.path,
-    source: 'resources/bin',
-    error: resolved.error,
-  }
-}
-
-function runClawhub(
-  args: string[],
-  options?: { timeoutMs?: number; cwd?: string }
-): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }> {
-  return new Promise((resolve) => {
-    const resolved = ensureClawhubBinary()
-    if (!resolved.ok) {
-      resolve({ ok: false, stdout: '', stderr: resolved.error || `clawhub not found: ${resolved.path}`, code: null })
-      return
-    }
-
-    const timeoutMs = options?.timeoutMs ?? 30000
-    ensureDir(CLAWHUB_WORKDIR)
-    const finalArgs = ['--workdir', CLAWHUB_WORKDIR, ...args]
-    const commandLine = [resolved.path, ...finalArgs].join(' ')
-    console.log('[ClawHub] Run:', commandLine, options?.cwd ? `(cwd: ${options.cwd})` : '')
-
-    const child = spawn(resolved.path, finalArgs, {
-      env: { ...process.env, HOME: homedir() },
-      cwd: options?.cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-
-    let stdout = ''
-    let stderr = ''
-    let settled = false
-
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      child.kill('SIGTERM')
-      resolve({ ok: false, stdout, stderr: stderr || `Timed out after ${timeoutMs}ms`, code: null })
-    }, timeoutMs)
-
-    child.stdout?.on('data', (chunk) => {
-      stdout += String(chunk)
-    })
-    child.stderr?.on('data', (chunk) => {
-      stderr += String(chunk)
-    })
-    child.on('error', (err) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve({ ok: false, stdout, stderr: String(err), code: null })
-    })
-    child.on('close', (code) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve({ ok: code === 0, stdout, stderr, code })
-    })
-  })
 }
 
 function startHarnessclawEngine(): void {
@@ -506,71 +385,6 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('clawhub:getStatus', () => {
-    return getClawhubStatus()
-  })
-
-  ipcMain.handle('clawhub:install', () => {
-    return ensureClawhubBinary()
-  })
-
-  ipcMain.handle('clawhub:verifyToken', async (_, token: string) => {
-    const trimmed = token.trim()
-    if (!trimmed) {
-      return { ok: false, stdout: '', stderr: 'Token is required', code: null }
-    }
-    const status = getClawhubStatus()
-    if (!status.installed) {
-      const install = ensureClawhubBinary()
-      if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
-      }
-    }
-    return runClawhub(['login', '--token', trimmed])
-  })
-
-  ipcMain.handle('clawhub:explore', async () => {
-    const status = getClawhubStatus()
-    if (!status.installed) {
-      const install = ensureClawhubBinary()
-      if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
-      }
-    }
-    return runClawhub(['explore'])
-  })
-
-  ipcMain.handle('clawhub:search', async (_, query: string) => {
-    const trimmed = query.trim()
-    if (!trimmed) {
-      return { ok: false, stdout: '', stderr: 'Query is required', code: null }
-    }
-    const status = getClawhubStatus()
-    if (!status.installed) {
-      const install = ensureClawhubBinary()
-      if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
-      }
-    }
-    return runClawhub(['search', trimmed])
-  })
-
-  ipcMain.handle('clawhub:installSkill', async (_, slug: string) => {
-    const trimmed = slug.trim()
-    if (!trimmed) {
-      return { ok: false, stdout: '', stderr: 'Skill slug is required', code: null }
-    }
-    const status = getClawhubStatus()
-    if (!status.installed) {
-      const install = ensureClawhubBinary()
-      if (!install.ok) {
-        return { ok: false, stdout: '', stderr: install.error || 'Bundled clawhub binary not found', code: null }
-      }
-    }
-    ensureDir(SKILLS_DIR)
-    return runClawhub(['install', trimmed], { cwd: SKILLS_DIR, timeoutMs: 120000 })
-  })
-
   // Skills reader
   ipcMain.handle('skills:list', () => {
     try {
@@ -694,14 +508,6 @@ app.whenReady().then(() => {
 
   ipcMain.handle('files:resolve', (_, filePaths: string[]) => {
     return buildPickedLocalFiles(Array.isArray(filePaths) ? filePaths : [])
-  })
-
-  ipcMain.handle('doctor:run', async () => {
-    return await runDoctor()
-  })
-
-  ipcMain.handle('doctor:fix', async (_, checkId: string) => {
-    return await performDoctorFix(String(checkId || ''))
   })
 
   // Track pending assistant message IDs per session for DB writes
