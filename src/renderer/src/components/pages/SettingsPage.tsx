@@ -5,10 +5,13 @@ import {
   Eye, EyeOff, Loader2, Check, X,
   FolderOpen, Download, Trash2,
   Search, Plus, Settings2, Cpu,
-  Bot, Radio, Wrench
+  Bot, Radio, Wrench, FileText,
+  Pause, Play, RotateCcw, AlertTriangle,
+  ChevronDown, ChevronRight
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppConfig, useEngineConfig } from '@/hooks/useEngineConfig'
+import { defaultDbDisplayPath, defaultLogsDisplayPath } from '@/lib/runtimePaths'
 
 // ─── Primitives ────────────────────────────────────────────────────────────
 
@@ -398,141 +401,6 @@ function AuthSection() {
         {testState === 'ok' && <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium"><Check size={14} /> 连接成功</span>}
         {testState === 'fail' && <span className="flex items-center gap-1.5 text-sm text-red-500 font-medium"><X size={14} /> 连接失败</span>}
       </div>
-    </div>
-  )
-}
-
-// ─── ClawHub Section ───────────────────────────────────────────────────────
-
-function ClawHubSection() {
-  const { config, loading, updateConfig } = useAppConfig()
-  const clawhub = (config?.clawhub || {}) as { token?: string }
-  const token = clawhub.token ?? ''
-
-  const [showToken, setShowToken] = useState(false)
-  const [binaryStatus, setBinaryStatus] = useState<{ installed: boolean; path: string } | null>(null)
-  const [installState, setInstallState] = useState<'idle' | 'installing' | 'ok' | 'fail'>('idle')
-  const [verifyState, setVerifyState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
-  const [feedback, setFeedback] = useState('')
-
-  const refreshStatus = useCallback(async () => {
-    const status = await window.clawhub.getStatus()
-    setBinaryStatus(status)
-  }, [])
-
-  useEffect(() => {
-    void refreshStatus()
-  }, [refreshStatus])
-
-  const updateClawhub = (patch: Record<string, unknown>) => {
-    updateConfig({ clawhub: { ...clawhub, ...patch } })
-  }
-
-  const handleInstall = async () => {
-    setInstallState('installing')
-    setFeedback('')
-    const res = await window.clawhub.install()
-    await refreshStatus()
-    if (res.ok) {
-      setInstallState('ok')
-      setFeedback(`已更新命令: ${res.path}`)
-    } else {
-      setInstallState('fail')
-      setFeedback(res.error || '安装失败')
-    }
-  }
-
-  const handleVerify = async () => {
-    if (!token.trim()) {
-      setVerifyState('fail')
-      setFeedback('请先输入 Token')
-      return
-    }
-    setVerifyState('testing')
-    setFeedback('')
-    const res = await window.clawhub.verifyToken(token)
-    if (res.ok) {
-      setVerifyState('ok')
-      setFeedback('')
-    } else {
-      setVerifyState('fail')
-      setFeedback((res.stderr || res.stdout || 'Token 验证失败').trim())
-    }
-  }
-
-  if (loading) {
-    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
-  }
-
-  return (
-    <div>
-      <SectionHeader icon={Wrench} title="ClawHub" subtitle="CLI 安装与 Token 验证" />
-
-      <GroupCard title="CLI">
-        <SettingRow label="命令路径" description="ClawHub 命令安装在 ~/.harnessclaw/bin/clawhub">
-          <TextInput value={binaryStatus?.path || '~/.harnessclaw/bin/clawhub'} onChange={() => undefined} className="w-64" mono disabled />
-        </SettingRow>
-        <SettingRow label="安装状态" description="点击下载/更新会写入启动脚本，并在运行时调用最新 clawhub">
-          <div className="flex items-center gap-2">
-            <span className={cn(
-              'text-xs font-medium px-2 py-1 rounded-full',
-              binaryStatus?.installed ? 'text-green-700 bg-green-100' : 'text-yellow-700 bg-yellow-100'
-            )}>
-              {binaryStatus?.installed ? '已安装' : '未安装'}
-            </span>
-            <button
-              onClick={handleInstall}
-              disabled={installState === 'installing'}
-              className="h-8 px-3 text-sm font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors text-foreground flex items-center gap-1.5 disabled:opacity-60"
-            >
-              {installState === 'installing' ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-              {installState === 'installing' ? '下载中' : '下载/更新'}
-            </button>
-          </div>
-        </SettingRow>
-      </GroupCard>
-
-      <GroupCard title="Token">
-        <SettingRow label="访问 Token" description="输入并验证 ClawHub Token">
-          <div className="flex items-center gap-1.5">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={token}
-              onChange={(e) => updateClawhub({ token: e.target.value })}
-              placeholder="输入 ClawHub Token"
-              className="w-64 h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
-            />
-            <button onClick={() => setShowToken(!showToken)} className="p-1.5 rounded text-muted-foreground hover:text-foreground transition-colors">
-              {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
-            <button
-              onClick={handleVerify}
-              disabled={verifyState === 'testing'}
-              className={cn(
-                'h-8 px-3 text-sm font-medium rounded-md border transition-colors flex items-center gap-1.5',
-                verifyState === 'ok' ? 'border-status-connected text-status-connected'
-                  : verifyState === 'fail' ? 'border-status-disconnected text-status-disconnected'
-                    : 'border-border bg-card hover:bg-muted text-foreground'
-              )}
-            >
-              {verifyState === 'testing' && <Loader2 size={12} className="animate-spin" />}
-              {verifyState === 'ok' && <Check size={12} />}
-              {verifyState === 'fail' && <X size={12} />}
-              {verifyState === 'testing' ? '验证中' : verifyState === 'ok' ? '验证成功' : verifyState === 'fail' ? '验证失败' : '验证'}
-            </button>
-          </div>
-        </SettingRow>
-        {feedback && (
-          <div className={cn(
-            'mt-3 rounded-lg border px-3 py-2 text-xs whitespace-pre-wrap',
-            verifyState === 'fail' || installState === 'fail'
-              ? 'border-red-200 bg-red-50 text-red-600'
-              : 'border-border bg-card text-muted-foreground'
-          )}>
-            {feedback}
-          </div>
-        )}
-      </GroupCard>
     </div>
   )
 }
@@ -1339,9 +1207,9 @@ function UISection() {
 function StorageSection() {
   const { config, loading, updateConfig } = useAppConfig()
   const storage = (config?.storage || {}) as { dbPath?: string }
-  const dbPath = storage.dbPath || '~/.clawdbot/data/local.db'
+  const dbPath = storage.dbPath || defaultDbDisplayPath
   const [clearState, setClearState] = useState<'idle' | 'clearing' | 'done'>('idle')
-  const exportRef = useRef<HTMLAnchorElement>(null)
+  const [exportState, setExportState] = useState<{ type: string; text: string; ok: boolean } | null>(null)
 
   const handleClearCache = async () => {
     setClearState('clearing')
@@ -1350,8 +1218,13 @@ function StorageSection() {
     setTimeout(() => setClearState('idle'), 2000)
   }
 
-  const handleExport = (type: string) => {
-    console.log(`[Export] ${type}`)
+  const handleExport = async (type: 'chat' | 'config' | 'logs') => {
+    const result = await window.appRuntime.exportData(type)
+    if (result.ok && result.path) {
+      setExportState({ type, text: `已导出到 ${result.path}`, ok: true })
+    } else {
+      setExportState({ type, text: result.error || '导出失败', ok: false })
+    }
   }
 
   if (loading) {
@@ -1392,21 +1265,396 @@ function StorageSection() {
           { key: 'config', label: '导出配置', description: '导出全部设置为配置文件' },
         ].map((item) => (
           <SettingRow key={item.key} label={item.label} description={item.description}>
-            <button onClick={() => handleExport(item.key)} className="h-7 px-2.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors text-foreground flex items-center gap-1.5">
+            <button onClick={() => void handleExport(item.key as 'chat' | 'config' | 'logs')} className="h-7 px-2.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors text-foreground flex items-center gap-1.5">
               <Download size={12} />导出
             </button>
           </SettingRow>
         ))}
       </GroupCard>
 
-      <a ref={exportRef} className="hidden" />
+      {exportState && (
+        <div className={cn(
+          'mt-3 rounded-lg border px-3 py-2 text-xs',
+          exportState.ok ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-600'
+        )}>
+          {exportState.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+type LogViewerLevel = 'error' | 'info' | 'debug'
+type LogViewerFile = 'all' | 'app' | 'renderer'
+type LogEntry = {
+  cursor: string
+  timestamp: number
+  isoTime: string
+  level: 'debug' | 'info' | 'warn' | 'error'
+  source: string
+  message: string
+  metaText: string
+  file: 'app' | 'renderer'
+  raw: string
+}
+
+function getLogBadgeClass(level: LogEntry['level']): string {
+  if (level === 'error') return 'bg-red-50 text-red-700 border-red-200'
+  if (level === 'warn') return 'bg-amber-50 text-amber-700 border-amber-200'
+  if (level === 'debug') return 'bg-sky-50 text-sky-700 border-sky-200'
+  return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+}
+
+function formatLogTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
+}
+
+function summarizeLog(entry: LogEntry): string {
+  const summary = entry.message || entry.metaText || entry.raw
+  if (summary.length <= 140) return summary
+  return `${summary.slice(0, 140)}...`
+}
+
+function mergeLogEntries(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
+  const merged = new Map<string, LogEntry>()
+  for (const entry of current) {
+    merged.set(entry.cursor, entry)
+  }
+  for (const entry of incoming) {
+    merged.set(entry.cursor, entry)
+  }
+  return [...merged.values()]
+    .sort((left, right) => {
+      if (left.timestamp !== right.timestamp) {
+        return right.timestamp - left.timestamp
+      }
+      return right.cursor.localeCompare(left.cursor)
+    })
+    .slice(0, 500)
+}
+
+function LogsSection() {
+  const { config, loading, updateConfig } = useAppConfig()
+  const logging = (config?.logging || {}) as { level?: LogViewerLevel }
+  const persistedLevel = logging.level || 'info'
+
+  const [selectedLevel, setSelectedLevel] = useState<LogViewerLevel>('info')
+  const [selectedFile, setSelectedFile] = useState<LogViewerFile>('all')
+  const [query, setQuery] = useState('')
+  const [followMode, setFollowMode] = useState(true)
+  const [entries, setEntries] = useState<LogEntry[]>([])
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [loadingLogs, setLoadingLogs] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    if (!loading) {
+      setSelectedLevel(persistedLevel)
+    }
+  }, [loading, persistedLevel])
+
+  useEffect(() => {
+    if (loading) return
+
+    let cancelled = false
+    setLoadingLogs(true)
+
+    void window.appRuntime.getLogs({
+      level: selectedLevel,
+      file: selectedFile,
+      query: query.trim() || undefined,
+      limit: 500,
+    }).then((result) => {
+      if (cancelled) return
+      setEntries(result.items as LogEntry[])
+      setCursor(result.cursor)
+      setLoadError('')
+    }).catch((error) => {
+      if (cancelled) return
+      setLoadError(String(error))
+    }).finally(() => {
+      if (!cancelled) {
+        setLoadingLogs(false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [loading, query, reloadKey, selectedFile, selectedLevel])
+
+  useEffect(() => {
+    if (loading || !followMode || !cursor) return
+
+    let cancelled = false
+    const timer = setInterval(() => {
+      void window.appRuntime.getLogs({
+        after: cursor,
+        level: selectedLevel,
+        file: selectedFile,
+        query: query.trim() || undefined,
+        limit: 200,
+      }).then((result) => {
+        if (cancelled) return
+        if (result.items.length > 0) {
+          setEntries((current) => mergeLogEntries(current, result.items as LogEntry[]))
+        }
+        setCursor(result.cursor)
+        setLoadError('')
+      }).catch((error) => {
+        if (cancelled) return
+        setLoadError(String(error))
+      })
+    }, 1500)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [loading, followMode, cursor, query, selectedFile, selectedLevel])
+
+  const handleLevelChange = (value: string) => {
+    const nextLevel = value as LogViewerLevel
+    setSelectedLevel(nextLevel)
+    updateConfig({ logging: { ...logging, level: nextLevel } })
+  }
+
+  const handleReset = () => {
+    setQuery('')
+    setSelectedFile('all')
+    setSelectedLevel(persistedLevel)
+    setFollowMode(true)
+    setExpandedRows({})
+    setNotice(null)
+    setReloadKey((current) => current + 1)
+  }
+
+  const toggleExpanded = (cursorValue: string) => {
+    setExpandedRows((current) => ({
+      ...current,
+      [cursorValue]: !current[cursorValue],
+    }))
+  }
+
+  const handleOpenLogsDirectory = async () => {
+    const result = await window.appRuntime.openLogsDirectory()
+    setNotice(result.ok
+      ? { ok: true, text: `已打开日志目录：${result.path}` }
+      : { ok: false, text: result.error || '打开日志目录失败。' })
+  }
+
+  const handleExportLogs = async () => {
+    const result = await window.appRuntime.exportData('logs')
+    setNotice(result.ok && result.path
+      ? { ok: true, text: `日志已导出到：${result.path}` }
+      : { ok: false, text: result.error || '导出日志失败。' })
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+  }
+
+  return (
+    <div className="h-full overflow-hidden">
+      <div className="h-full max-w-5xl mx-auto px-8 py-8 flex flex-col">
+        <SectionHeader icon={FileText} title="日志" subtitle="合并查看 app.log 与 renderer.log，支持筛选、搜索与实时跟随。" />
+
+        <div className="rounded-2xl border border-border bg-card shadow-sm p-4 mb-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex-1 min-w-0">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索消息、来源或元数据"
+                  className="w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Segment
+                options={[
+                  { label: '错误', value: 'error' },
+                  { label: '标准', value: 'info' },
+                  { label: '调试', value: 'debug' },
+                ]}
+                value={selectedLevel}
+                onChange={handleLevelChange}
+              />
+              <Segment
+                options={[
+                  { label: '全部', value: 'all' },
+                  { label: 'app.log', value: 'app' },
+                  { label: 'renderer.log', value: 'renderer' },
+                ]}
+                value={selectedFile}
+                onChange={(value) => setSelectedFile(value as LogViewerFile)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1',
+                followMode ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'
+              )}>
+                <span className={cn('w-2 h-2 rounded-full', followMode ? 'bg-emerald-500' : 'bg-amber-500')} />
+                {followMode ? '跟随中' : '已暂停'}
+              </span>
+              <span>日志目录：{defaultLogsDisplayPath}</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setFollowMode((current) => !current)}
+                className="h-9 px-3 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm text-foreground flex items-center gap-1.5"
+              >
+                {followMode ? <Pause size={14} /> : <Play size={14} />}
+                {followMode ? '暂停刷新' : '恢复刷新'}
+              </button>
+              <button
+                onClick={handleReset}
+                className="h-9 px-3 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm text-foreground flex items-center gap-1.5"
+              >
+                <RotateCcw size={14} />
+                重置筛选
+              </button>
+              <button
+                onClick={() => void handleOpenLogsDirectory()}
+                className="h-9 px-3 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm text-foreground flex items-center gap-1.5"
+              >
+                <FolderOpen size={14} />
+                打开日志目录
+              </button>
+              <button
+                onClick={() => void handleExportLogs()}
+                className="h-9 px-3 rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors text-sm font-medium flex items-center gap-1.5"
+              >
+                <Download size={14} />
+                导出日志
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {notice && (
+          <div className={cn(
+            'mb-4 rounded-xl border px-3 py-2 text-sm',
+            notice.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-600'
+          )}>
+            {notice.text}
+          </div>
+        )}
+
+        {loadError && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 flex items-center gap-2">
+            <AlertTriangle size={15} />
+            <span className="flex-1">读取日志失败：{loadError}</span>
+            <button
+              onClick={() => setReloadKey((current) => current + 1)}
+              className="h-7 px-2.5 rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors"
+            >
+              重试
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 min-h-0 rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div>
+              <p className="text-sm font-semibold text-foreground">日志列表</p>
+              <p className="text-xs text-muted-foreground">当前展示 {entries.length} 条合并日志，来源于 app.log 与 renderer.log</p>
+            </div>
+            {(loadingLogs || (followMode && entries.length === 0)) && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 size={14} className="animate-spin" />
+                加载中
+              </div>
+            )}
+          </div>
+
+          <div className="h-full overflow-y-auto">
+            {!loadingLogs && entries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+                <FileText size={28} className="text-muted-foreground mb-3" />
+                <p className="text-sm font-medium text-foreground">
+                  {query.trim() ? '当前筛选条件下没有匹配日志。' : '暂时还没有可显示的日志。'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {query.trim() ? '可以尝试放宽关键词或切换日志等级。' : '新的日志会在这里自动追加显示。'}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {entries.map((entry) => {
+                  const expanded = Boolean(expandedRows[entry.cursor])
+                  return (
+                    <div key={entry.cursor} className="px-4 py-3">
+                      <button onClick={() => toggleExpanded(entry.cursor)} className="w-full text-left">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase', getLogBadgeClass(entry.level))}>
+                                {entry.level}
+                              </span>
+                              <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                                {entry.file === 'app' ? 'app.log' : 'renderer.log'}
+                              </span>
+                              <span className="text-xs font-mono text-muted-foreground break-all">{entry.source}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              {expanded ? <ChevronDown size={15} className="mt-0.5 text-muted-foreground flex-shrink-0" /> : <ChevronRight size={15} className="mt-0.5 text-muted-foreground flex-shrink-0" />}
+                              <div className="min-w-0">
+                                <p className="text-sm text-foreground break-words">{summarizeLog(entry)}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{formatLogTime(entry.timestamp)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+
+                      {expanded && (
+                        <div className="mt-3 ml-6 rounded-xl border border-border bg-background/60 p-3 space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Message</p>
+                            <pre className="whitespace-pre-wrap break-words text-sm text-foreground font-mono">{entry.message || '(empty)'}</pre>
+                          </div>
+
+                          {entry.metaText && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Metadata</p>
+                              <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground font-mono">{entry.metaText}</pre>
+                            </div>
+                          )}
+
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Raw</p>
+                            <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground font-mono">{entry.raw}</pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
 
 // ─── Nav ───────────────────────────────────────────────────────────────────
 
-type SectionKey = 'connection' | 'auth' | 'clawhub' | 'models' | 'agents' | 'channels' | 'tools' | 'ui' | 'storage'
+type SectionKey = 'connection' | 'auth' | 'models' | 'agents' | 'channels' | 'tools' | 'ui' | 'storage' | 'logs'
 
 const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementType; label: string }[] }[] = [
   {
@@ -1423,14 +1671,14 @@ const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementT
     title: '应用配置',
     items: [
       { key: 'auth', icon: Shield, label: '认证设置' },
-      { key: 'clawhub', icon: Wrench, label: 'ClawHub' },
+      { key: 'logs', icon: FileText, label: '日志' },
       { key: 'ui', icon: Palette, label: 'UI 设置' },
       { key: 'storage', icon: HardDrive, label: '数据与存储' },
     ],
   },
 ]
 
-const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'channels'])
+const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'channels', 'logs'])
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 
@@ -1482,12 +1730,12 @@ export function SettingsPage() {
           <>
             {active === 'models' && <ModelSection />}
             {active === 'channels' && <ChannelSection />}
+            {active === 'logs' && <LogsSection />}
           </>
         ) : (
           <div className="max-w-2xl mx-auto px-8 py-8">
             {active === 'connection' && <ConnectionSection />}
             {active === 'auth' && <AuthSection />}
-            {active === 'clawhub' && <ClawHubSection />}
             {active === 'agents' && <AgentSection />}
             {active === 'tools' && <ToolsSection />}
             {active === 'ui' && <UISection />}

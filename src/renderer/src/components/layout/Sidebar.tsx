@@ -4,9 +4,7 @@ import {
   House,
   Zap,
   Puzzle,
-  Store,
   Settings,
-  Shield,
   Moon,
   Sun,
   PanelLeft
@@ -23,8 +21,6 @@ const navItems: NavItem[] = [
   { icon: House, path: '/', label: '首页' },
   { icon: Zap, path: '/chat', label: '对话' },
   { icon: Puzzle, path: '/skills', label: '技能' },
-  { icon: Store, path: '/clawhub', label: 'ClawHub' },
-  { icon: Shield, path: '/doctor', label: 'Doctor' },
 ]
 
 export function Sidebar() {

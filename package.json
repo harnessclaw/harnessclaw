@@ -19,7 +19,6 @@
   "devDependencies": {
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
-    "@types/adm-zip": "^0.5.8",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.14.8",
     "@types/react": "^18.3.3",
@@ -52,7 +51,6 @@
     "@radix-ui/react-toast": "^1.2.1",
     "@radix-ui/react-tooltip": "^1.1.2",
     "@tailwindcss/typography": "^0.5.19",
-    "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.8.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

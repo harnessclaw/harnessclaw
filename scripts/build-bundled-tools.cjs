@@ -4,7 +4,6 @@ const { join } = require('path')
 const root = process.cwd()
 const scripts = [
   join(root, 'scripts', 'build-nanobot-runtime.cjs'),
-  join(root, 'scripts', 'build-clawhub-runtime.cjs'),
 ]
 
 for (const script of scripts) {
