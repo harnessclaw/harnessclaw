@@ -1,13 +1,16 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
-import { readFileSync, mkdirSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { basename, dirname, extname, join } from 'path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
 import { homedir } from 'os'
 import { spawn, ChildProcess } from 'child_process'
+import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
+import { runDoctor } from './doctor'
 import { manuallyCheckForUpdates, setupAutoUpdater } from './updater'
 import {
   HARNESSCLAW_DIR,
+  HARNESSCLAW_CONFIG_PATH,
   ENGINE_CONFIG_PATH,
   resolveBundledBinaryPath,
   ensureDir,
@@ -19,8 +22,30 @@ import {
 import {
   getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent,
-  getMessages, insertToolActivity
+  getMessages, insertToolActivity, insertUsageEvent, listUsageEvents
 } from './db'
+import {
+  APP_LOG_PATH,
+  LOGS_DIR,
+  RENDERER_LOG_PATH,
+  USAGE_LOG_PATH,
+} from './runtime-paths'
+import {
+  type LogLevel,
+  type LogThreshold,
+  type UsageLogEntry,
+  ensureLoggingDirs,
+  getLogThreshold,
+  normalizeLogThreshold,
+  readStructuredLogs,
+  readTextFile,
+  sanitizeForLogging,
+  setLogThreshold,
+  writeAppLog,
+  writeExportFile,
+  writeRendererLog,
+  writeUsageLog,
+} from './logging'
 
 type PersistedSubagent = { taskId: string; label: string; status: string }
 
@@ -53,6 +78,183 @@ const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
 
 let harnessclawEngineProcess: ChildProcess | null = null
 
+interface PickedLocalFile {
+  name: string
+  path: string
+  url: string
+  size: number
+  extension: string
+  kind: 'image' | 'video' | 'audio' | 'archive' | 'code' | 'document' | 'data' | 'other'
+}
+
+interface AppRuntimeStatus {
+  localService: 'starting' | 'ready' | 'degraded'
+  transport: 'disconnected' | 'connecting' | 'connected'
+  llmConfigured: boolean
+  applyingConfig: boolean
+  lastError?: string
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function inferConfiguredProvider(config: Record<string, unknown>): string {
+  const providers = asRecord(config.providers)
+  for (const [key, rawValue] of Object.entries(providers)) {
+    const provider = asRecord(rawValue)
+    if (provider.enabled === false) continue
+    if (typeof provider.api_key === 'string' && provider.api_key.trim()) {
+      return key
+    }
+  }
+  return 'unknown'
+}
+
+function inferAppRuntimeStatus(): AppRuntimeStatus {
+  const harnessStatus = harnessclawClient.getStatus()
+  const config = readEngineConfig({ providers: {} })
+  return {
+    localService: harnessStatus.status === 'disconnected' ? 'degraded' : 'ready',
+    transport: harnessStatus.status as AppRuntimeStatus['transport'],
+    llmConfigured: inferConfiguredProvider(config) !== 'unknown',
+    applyingConfig: false,
+    lastError: harnessStatus.status === 'disconnected' ? 'Harnessclaw websocket disconnected' : undefined,
+  }
+}
+
+function broadcastAppRuntimeStatus(): void {
+  const status = inferAppRuntimeStatus()
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('app-runtime:status', status)
+  })
+}
+
+function classifyFileKind(extension: string): PickedLocalFile['kind'] {
+  const ext = extension.toLowerCase()
+  if (['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg'].includes(ext)) return 'image'
+  if (['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext)) return 'video'
+  if (['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'].includes(ext)) return 'audio'
+  if (['.zip', '.rar', '.7z', '.tar', '.gz'].includes(ext)) return 'archive'
+  if (['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.cpp', '.c', '.cs', '.json', '.yml', '.yaml', '.toml', '.xml', '.md', '.sql', '.sh', '.ps1', '.bat'].includes(ext)) return 'code'
+  if (['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt', '.rtf'].includes(ext)) return 'document'
+  if (['.csv', '.parquet', '.log'].includes(ext)) return 'data'
+  return 'other'
+}
+
+function buildPickedLocalFiles(filePaths: string[]): PickedLocalFile[] {
+  const uniquePaths = [...new Set(filePaths.map((value) => value.trim()).filter(Boolean))]
+  const files: PickedLocalFile[] = []
+
+  for (const filePath of uniquePaths) {
+    try {
+      const stats = statSync(filePath)
+      if (!stats.isFile()) continue
+
+      const extension = extname(filePath)
+      files.push({
+        name: basename(filePath),
+        path: filePath,
+        url: pathToFileURL(filePath).toString(),
+        size: stats.size,
+        extension,
+        kind: classifyFileKind(extension),
+      })
+    } catch (error) {
+      console.warn('[Files] Failed to read file metadata:', filePath, error)
+    }
+  }
+
+  return files
+}
+
+function trackUsage(entry: UsageLogEntry): void {
+  const createdAt = entry.createdAt || Date.now()
+  const details = sanitizeForLogging(entry.details || {})
+  try {
+    insertUsageEvent({
+      category: entry.category,
+      action: entry.action,
+      status: entry.status,
+      detailsJson: JSON.stringify(details),
+      sessionId: entry.sessionId,
+      createdAt,
+    })
+  } catch (error) {
+    writeAppLog('error', 'usage', 'Failed to insert usage event', { entry, error: String(error) })
+  }
+  writeUsageLog({ ...entry, details, createdAt })
+}
+
+function buildExportPayload(type: string): { name: string; content: string } {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  if (type === 'logs') {
+    return {
+      name: `logs-export-${stamp}.json`,
+      content: JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        appLog: readTextFile(APP_LOG_PATH),
+        rendererLog: readTextFile(RENDERER_LOG_PATH),
+        usageLog: readTextFile(USAGE_LOG_PATH),
+        usageEvents: listUsageEvents(1000),
+      }, null, 2),
+    }
+  }
+
+  if (type === 'config') {
+    return {
+      name: `config-export-${stamp}.json`,
+      content: JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        engineConfig: sanitizeForLogging(readEngineConfig({ providers: {} })),
+        appConfig: sanitizeForLogging(readHarnessclawConfig({})),
+      }, null, 2),
+    }
+  }
+
+  return {
+    name: `chat-export-${stamp}.json`,
+    content: JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      sessions: dbListSessions().map((session) => ({
+        ...session,
+        messages: getMessages(session.session_id),
+      })),
+    }, null, 2),
+  }
+}
+
+async function performDoctorFix(checkId: string): Promise<{ ok: boolean; message: string }> {
+  switch (checkId) {
+    case 'environment.runtime_dirs':
+    case 'config.workspace': {
+      ensureDir(HARNESSCLAW_DIR)
+      ensureDir(join(HARNESSCLAW_DIR, 'db'))
+      ensureDir(LOGS_DIR)
+      ensureDir(join(HARNESSCLAW_DIR, 'workspace'))
+      ensureDir(SKILLS_DIR)
+      return { ok: true, message: 'Runtime directories have been created or refreshed.' }
+    }
+    case 'config.app_exists': {
+      const result = saveHarnessclawConfig(readHarnessclawConfig({}))
+      return result.ok ? { ok: true, message: `App config ready: ${HARNESSCLAW_CONFIG_PATH}` } : { ok: false, message: result.error || 'Failed to write app config' }
+    }
+    case 'config.nanobot_exists': {
+      const result = saveEngineConfig(readEngineConfig({ providers: {} }))
+      return result.ok ? { ok: true, message: `Engine config ready: ${ENGINE_CONFIG_PATH}` } : { ok: false, message: result.error || 'Failed to write engine config' }
+    }
+    case 'runtime.harnessclaw_connection': {
+      harnessclawClient.disconnect()
+      harnessclawClient.connect()
+      return { ok: true, message: 'Requested a websocket reconnect from the app side.' }
+    }
+    default:
+      return { ok: false, message: 'No automatic fix is available for this check yet.' }
+  }
+}
+
 function ensureClawhubBinary(): { ok: boolean; path: string; error?: string } {
   if (CLAWHUB_BIN && existsSync(CLAWHUB_BIN)) {
     return { ok: true, path: CLAWHUB_BIN }
@@ -64,11 +266,24 @@ function ensureClawhubBinary(): { ok: boolean; path: string; error?: string } {
   }
 }
 
-function getClawhubStatus(): { installed: boolean; path: string } {
+function getClawhubStatus(): {
+  installed: boolean
+  bundled: boolean
+  path: string
+  runtimePath: string
+  entryPath: string
+  source: string
+  error?: string
+} {
   const resolved = ensureClawhubBinary()
   return {
     installed: resolved.ok,
     path: resolved.path,
+    bundled: true,
+    runtimePath: resolved.path ? dirname(resolved.path) : '',
+    entryPath: resolved.path,
+    source: 'resources/bin',
+    error: resolved.error,
   }
 }
 
@@ -201,6 +416,9 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.iflytek.harnessclaw')
+  ensureLoggingDirs()
+  setLogThreshold(normalizeLogThreshold(asRecord(readHarnessclawConfig({})).logging?.level))
+  writeAppLog('info', 'app.lifecycle', 'Application ready')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -239,7 +457,53 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app-config:save', (_, data: unknown) => {
     ensureDir(HARNESSCLAW_DIR)
-    return saveHarnessclawConfig(data)
+    const result = saveHarnessclawConfig(data)
+    if (result.ok) {
+      setLogThreshold(normalizeLogThreshold(asRecord(asRecord(data).logging).level))
+      broadcastAppRuntimeStatus()
+    }
+    return result
+  })
+
+  ipcMain.handle('app-runtime:getStatus', () => {
+    return inferAppRuntimeStatus()
+  })
+
+  ipcMain.handle('app-runtime:getLogLevel', () => {
+    return getLogThreshold()
+  })
+
+  ipcMain.handle('app-runtime:getLogs', (_, options) => {
+    return readStructuredLogs(options || {})
+  })
+
+  ipcMain.handle('app-runtime:openLogsDirectory', async () => {
+    const error = await shell.openPath(LOGS_DIR)
+    return {
+      ok: !error,
+      path: LOGS_DIR,
+      error: error || undefined,
+    }
+  })
+
+  ipcMain.handle('app-runtime:logRenderer', (_, level: LogLevel, message: string, details?: Record<string, unknown>) => {
+    writeRendererLog(level, message, details)
+    return { ok: true }
+  })
+
+  ipcMain.handle('app-runtime:trackUsage', (_, entry: UsageLogEntry) => {
+    trackUsage(entry)
+    return { ok: true }
+  })
+
+  ipcMain.handle('app-runtime:exportData', (_, type: string) => {
+    try {
+      const payload = buildExportPayload(type)
+      const path = writeExportFile(payload.name, payload.content)
+      return { ok: true, path }
+    } catch (error) {
+      return { ok: false, error: String(error) }
+    }
   })
 
   ipcMain.handle('clawhub:getStatus', () => {
@@ -385,6 +649,7 @@ app.whenReady().then(() => {
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send('harnessclaw:status', status)
     })
+    broadcastAppRuntimeStatus()
   })
 
   // DB IPC handlers
@@ -413,6 +678,30 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, error: String(err) }
     }
+  })
+
+  ipcMain.handle('files:pick', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return []
+    }
+
+    return buildPickedLocalFiles(result.filePaths)
+  })
+
+  ipcMain.handle('files:resolve', (_, filePaths: string[]) => {
+    return buildPickedLocalFiles(Array.isArray(filePaths) ? filePaths : [])
+  })
+
+  ipcMain.handle('doctor:run', async () => {
+    return await runDoctor()
+  })
+
+  ipcMain.handle('doctor:fix', async (_, checkId: string) => {
+    return await performDoctorFix(String(checkId || ''))
   })
 
   // Track pending assistant message IDs per session for DB writes
@@ -755,6 +1044,7 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  broadcastAppRuntimeStatus()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -12,12 +12,68 @@ interface ConfigAPI {
 }
 
 interface ClawHubAPI {
-  getStatus: () => Promise<{ installed: boolean; path: string }>
+  getStatus: () => Promise<{ installed: boolean; bundled?: boolean; path: string; runtimePath?: string; entryPath?: string; source?: string; error?: string }>
   install: () => Promise<{ ok: boolean; path: string; error?: string }>
   verifyToken: (token: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
   explore: () => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
   search: (query: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
   installSkill: (slug: string) => Promise<{ ok: boolean; stdout: string; stderr: string; code: number | null }>
+}
+
+interface AppRuntimeStatus {
+  localService: 'starting' | 'ready' | 'degraded'
+  transport: 'disconnected' | 'connecting' | 'connected'
+  llmConfigured: boolean
+  applyingConfig: boolean
+  lastError?: string
+}
+
+type LogViewerThreshold = 'error' | 'info' | 'debug'
+type LogViewerFile = 'all' | 'app' | 'renderer'
+type RuntimeLogFile = 'app' | 'renderer'
+type RuntimeLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+interface RuntimeLogEntry {
+  cursor: string
+  timestamp: number
+  isoTime: string
+  level: RuntimeLogLevel
+  source: string
+  message: string
+  metaText: string
+  file: RuntimeLogFile
+  raw: string
+}
+
+interface GetLogsOptions {
+  after?: string
+  level?: LogViewerThreshold
+  query?: string
+  file?: LogViewerFile
+  limit?: number
+}
+
+interface GetLogsResult {
+  items: RuntimeLogEntry[]
+  cursor: string | null
+  logDir: string
+}
+
+interface AppRuntimeAPI {
+  getStatus: () => Promise<AppRuntimeStatus>
+  getLogLevel: () => Promise<LogViewerThreshold>
+  getLogs: (options?: GetLogsOptions) => Promise<GetLogsResult>
+  openLogsDirectory: () => Promise<{ ok: boolean; path: string; error?: string }>
+  logRenderer: (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, unknown>) => Promise<{ ok: boolean }>
+  trackUsage: (entry: {
+    category: string
+    action: string
+    status: string
+    details?: Record<string, unknown>
+    sessionId?: string
+  }) => Promise<{ ok: boolean }>
+  exportData: (type: 'logs' | 'chat' | 'config') => Promise<{ ok: boolean; path?: string; error?: string }>
+  onStatus: (callback: (status: AppRuntimeStatus) => void) => () => void
 }
 
 interface HarnessclawAPI {
@@ -91,6 +147,59 @@ interface DbAPI {
   deleteSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>
 }
 
+interface PickedLocalFile {
+  name: string
+  path: string
+  url: string
+  size: number
+  extension: string
+  kind: 'image' | 'video' | 'audio' | 'archive' | 'code' | 'document' | 'data' | 'other'
+}
+
+interface FilesAPI {
+  pick: () => Promise<PickedLocalFile[]>
+  resolve: (paths: string[]) => Promise<PickedLocalFile[]>
+}
+
+type DoctorStatus = 'pass' | 'warn' | 'fail' | 'skip'
+type DoctorStage = 'environment' | 'config' | 'runtime' | 'flow'
+
+interface DoctorCheckResult {
+  id: string
+  stage: DoctorStage
+  title: string
+  status: DoctorStatus
+  summary: string
+  detail?: string
+  impact?: string
+  fixHint?: string
+  durationMs: number
+  data?: Record<string, unknown>
+}
+
+interface DoctorRunResult {
+  ok: boolean
+  startedAt: string
+  finishedAt: string
+  summary: {
+    pass: number
+    warn: number
+    fail: number
+    skip: number
+  }
+  checks: DoctorCheckResult[]
+}
+
+interface DoctorFixResult {
+  ok: boolean
+  message: string
+}
+
+interface DoctorAPI {
+  run: () => Promise<DoctorRunResult>
+  fix: (checkId: string) => Promise<DoctorFixResult>
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -100,9 +209,12 @@ declare global {
     config: ConfigAPI
     nanobotConfig: ConfigAPI
     appConfig: ConfigAPI
+    appRuntime: AppRuntimeAPI
     clawhub: ClawHubAPI
     harnessclaw: HarnessclawAPI
     skills: SkillsAPI
     db: DbAPI
+    files: FilesAPI
+    doctor: DoctorAPI
   }
 }
