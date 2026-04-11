@@ -212,7 +212,7 @@ export class GatewayClient extends EventEmitter {
           auth: {
             token: this.credentials.token
           },
-          userAgent: `Electron/openclaw-nanny (${process.platform})`,
+          userAgent: `Electron/harnessclaw (${process.platform})`,
           locale: 'zh-CN'
         }
       }
