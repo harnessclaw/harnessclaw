@@ -1,6 +1,6 @@
-appId: com.openclaw.nanny
-productName: OpenClaw Nanny
-copyright: Copyright (c) 2026 OpenClaw
+appId: com.iflytek.harnessclaw
+productName: HarnessClaw
+copyright: Copyright (c) 2026 HarnessClaw
 
 directories:
   output: dist
@@ -30,7 +30,7 @@ win:
     - target: nsis
       arch:
         - x64
-  executableName: OpenClaw Nanny
+  executableName: HarnessClaw
 
 nsis:
   oneClick: false
@@ -38,7 +38,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: OpenClaw Nanny
-  uninstallDisplayName: OpenClaw Nanny
+  shortcutName: HarnessClaw
+  uninstallDisplayName: HarnessClaw
 
 artifactName: ${productName}-${version}-${arch}.${ext}
