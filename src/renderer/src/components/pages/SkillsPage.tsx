@@ -106,7 +106,7 @@ export function SkillsPage() {
         selectedId ? 'w-72' : 'w-full'
       )}>
         {/* Header */}
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
+        <div className="titlebar-drag px-4 py-3 border-b border-border flex items-center gap-2 flex-shrink-0">
           <Puzzle size={16} className="text-foreground" aria-hidden="true" />
           <span className="text-sm font-semibold text-foreground">技能</span>
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{skills.length}</span>

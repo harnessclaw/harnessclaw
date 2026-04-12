@@ -59,12 +59,12 @@ export function Sidebar() {
     'flex items-center rounded-lg transition-colors flex-shrink-0',
     expanded ? 'w-full gap-3 px-3 py-2' : 'w-11 h-11 justify-center',
     active
-      ? 'text-primary bg-accent'
-      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+      ? 'bg-accent text-foreground'
+      : 'text-foreground/78 hover:text-foreground hover:bg-accent'
   )
 
   const bottomItemCls = cn(
-    'flex items-center rounded-lg transition-colors text-muted-foreground hover:text-foreground hover:bg-accent',
+    'flex items-center rounded-lg transition-colors text-foreground/78 hover:text-foreground hover:bg-accent',
     expanded ? 'w-full gap-3 px-3 py-2' : 'w-11 h-11 justify-center'
   )
 

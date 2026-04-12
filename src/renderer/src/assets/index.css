@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Retro Pixel Arcade';
+  src: url('./fonts/retro-pixel-thick.ttf.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   :root {
     /* 背景色 - 冷调浅灰，科技感 */
@@ -135,6 +143,19 @@
 }
 .titlebar-no-drag {
   -webkit-app-region: no-drag;
+}
+
+.titlebar-drag button,
+.titlebar-drag input,
+.titlebar-drag textarea,
+.titlebar-drag select,
+.titlebar-drag a {
+  -webkit-app-region: no-drag;
+}
+
+.font-pixel-arcade {
+  font-family: 'Retro Pixel Arcade', 'Courier New', monospace;
+  letter-spacing: 0.08em;
 }
 
 .streaming-breathing-dot {
