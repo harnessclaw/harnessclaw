@@ -9,7 +9,6 @@
     "build": "electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "rebuild:electron-native": "electron-builder install-app-deps",
-    "setup:git-hooks": "git config core.hooksPath .githooks",
     "bundle:tools": "node scripts/build-bundled-tools.cjs",
     "dist": "yarn build && electron-builder --config electron-builder.config.cjs --publish never",
     "dist:mac": "yarn build && electron-builder --config electron-builder.config.cjs --mac --publish never",
