@@ -44,3 +44,6 @@ test_report.json
 
 # Env
 .npmrc
+
+# AI Design
+.impeccable.md
