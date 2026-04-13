@@ -59,6 +59,12 @@ yarn dist
 - Mac: `yarn dist:mac`
 - Windows: `yarn dist:win`
 
+## 📞 Support
+
+- 💬 Community Discussion: [GitHub Discussions](https://github.com/harnessclaw/harnessclaw/discussions)
+- 🐛 Bug Reports: [Issues](https://github.com/harnessclaw/harnessclaw/issues)
+- 👥 WeChat Work Group: [WeCom Group](https://github.com/iflytek/astron-agent/blob/main/docs/imgs/WeCom_Group.png)
+
 ## 许可证
 
 本项目基于 [Apache License 2.0](LICENSE) 许可证开源。
