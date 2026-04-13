@@ -68,6 +68,71 @@ function initTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_usage_events_created_at ON usage_events(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS skill_repositories (
+      id                 TEXT PRIMARY KEY,
+      name               TEXT NOT NULL,
+      provider           TEXT NOT NULL DEFAULT 'github',
+      repo_url           TEXT NOT NULL,
+      owner              TEXT NOT NULL,
+      repo               TEXT NOT NULL,
+      branch             TEXT NOT NULL,
+      base_path          TEXT NOT NULL DEFAULT '',
+      enabled            INTEGER NOT NULL DEFAULT 1,
+      last_discovered_at INTEGER,
+      last_error         TEXT,
+      created_at         INTEGER NOT NULL,
+      updated_at         INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_skill_repositories_enabled
+      ON skill_repositories(enabled, updated_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_repositories_repo_branch_path
+      ON skill_repositories(repo_url, branch, base_path);
+
+    CREATE TABLE IF NOT EXISTS skill_discoveries (
+      key            TEXT PRIMARY KEY,
+      repo_id        TEXT NOT NULL,
+      repo_name      TEXT NOT NULL,
+      repo_url       TEXT NOT NULL,
+      owner          TEXT NOT NULL,
+      repo           TEXT NOT NULL,
+      branch         TEXT NOT NULL,
+      skill_path     TEXT NOT NULL,
+      directory_name TEXT NOT NULL,
+      name           TEXT NOT NULL,
+      description    TEXT NOT NULL DEFAULT '',
+      allowed_tools  TEXT NOT NULL DEFAULT '',
+      has_references INTEGER NOT NULL DEFAULT 0,
+      has_templates  INTEGER NOT NULL DEFAULT 0,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL,
+      FOREIGN KEY (repo_id) REFERENCES skill_repositories(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_skill_discoveries_repo_id
+      ON skill_discoveries(repo_id, name);
+
+    CREATE TABLE IF NOT EXISTS installed_skills (
+      id              TEXT PRIMARY KEY,
+      name            TEXT NOT NULL,
+      description     TEXT NOT NULL DEFAULT '',
+      allowed_tools   TEXT NOT NULL DEFAULT '',
+      has_references  INTEGER NOT NULL DEFAULT 0,
+      has_templates   INTEGER NOT NULL DEFAULT 0,
+      source_key      TEXT,
+      source_repo_id  TEXT,
+      source_repo_name TEXT,
+      source_repo_url TEXT,
+      source_branch   TEXT,
+      source_path     TEXT,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      FOREIGN KEY (source_repo_id) REFERENCES skill_repositories(id) ON DELETE SET NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_skills_source_key
+      ON installed_skills(source_key);
   `)
 
   const messageColumns = db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
