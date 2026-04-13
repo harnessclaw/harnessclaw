@@ -297,6 +297,7 @@ export function ChatPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const messagesViewportRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const isNearBottomRef = useRef(true)
   const pendingInitialTurn = useRef<{ content: string; attachments: AttachmentItem[] } | null>(
     initialMessage || initialAttachments.length > 0
@@ -400,6 +401,22 @@ export function ChatPage() {
   }, [sessionMap, sessions, dbSessions])
   const activeSessionMeta = displayedSessions.find((session) => session.key === activeSessionId)
   const activeSessionLabel = activeSessionMeta?.label || '新对话'
+  const resizeComposerTextarea = useCallback(() => {
+    const textarea = composerTextareaRef.current
+    if (!textarea) return
+
+    const lineHeight = 24
+    const maxHeight = lineHeight * 5
+    textarea.style.height = '0px'
+    const nextHeight = Math.min(textarea.scrollHeight, maxHeight)
+    textarea.style.height = `${nextHeight}px`
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  }, [])
+
+  useEffect(() => {
+    resizeComposerTextarea()
+  }, [input, resizeComposerTextarea])
+
   const composerNotice = useMemo(() => {
     if (activeSession.isStopping) {
       return {
@@ -1233,7 +1250,7 @@ export function ChatPage() {
                   >
                     <div className="flex-1 min-w-0">
                       <span className="block truncate text-sm font-medium">{s.label}</span>
-                      <p className="mt-1 text-[11px] leading-5 text-foreground/62">
+                      <p className="mt-1 text-[11px] leading-5 text-foreground/62 dark:text-foreground/78">
                         {s.updatedAt || '刚刚更新'}
                         {s.msgCount > 0 ? ` · ${s.msgCount} 条消息` : ''}
                       </p>
@@ -1436,6 +1453,7 @@ export function ChatPage() {
                   )}
                   <div className="p-3 sm:p-3.5">
                     <textarea
+                      ref={composerTextareaRef}
                       value={input}
                       onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
                       onKeyDown={handleKeyDown}
@@ -1445,7 +1463,7 @@ export function ChatPage() {
                           ? '+ 想让 HarnessClaw 帮你做什么？'
                           : '+ 先写下你的问题，发送时会自动尝试连接。'
                       }
-                      className="min-h-[26px] max-h-[72px] w-full resize-none bg-transparent text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                      className="min-h-[26px] max-h-[120px] w-full resize-none bg-transparent text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                       rows={1}
                     />
                     <AttachmentPreviewPanel
@@ -1650,15 +1668,15 @@ function MessageBubble({
         !compact && isUser
           ? 'rounded-br-sm bg-foreground text-background dark:bg-primary dark:text-primary-foreground'
           : !compact
-            ? 'w-full rounded-bl-sm border border-border bg-card text-foreground shadow-sm'
-            : 'text-foreground'
+            ? 'w-full rounded-bl-sm border border-border bg-card text-foreground shadow-sm dark:border-[#2b3245] dark:bg-[#161b27] dark:text-[#e8edf5]'
+            : 'text-foreground dark:text-[#dce3ef]'
       )}
     >
       {isUser ? (
         <p className="whitespace-pre-wrap">{text}</p>
       ) : (
         <div className={cn(
-          'prose max-w-none prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground',
+          'prose max-w-none text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground dark:prose-invert dark:text-[#dce3ef] dark:prose-headings:text-[#eef3fb] dark:prose-p:text-[#dce3ef] dark:prose-strong:text-[#f5f8fe] dark:prose-li:text-[#dce3ef] dark:prose-a:text-[#8cb8ff] dark:prose-blockquote:border-l-[#374057] dark:prose-blockquote:text-[#aab4c7] dark:prose-pre:border-[#2a3246] dark:prose-pre:bg-[#111623] dark:prose-pre:text-[#e6edf8] dark:prose-code:bg-[#20283a] dark:prose-code:text-[#f2f6ff]',
           compact ? 'prose-xs' : 'prose-sm'
         )}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
@@ -1672,21 +1690,27 @@ function MessageBubble({
       key={key}
       className={cn(
         'mb-1.5 flex items-center gap-1.5',
-        compact ? 'rounded-lg bg-accent/55 px-2 py-1.5' : 'rounded-full bg-accent/45 px-2.5 py-1'
+        compact
+          ? 'rounded-lg bg-accent/55 px-2 py-1.5 dark:bg-[#1a2131]'
+          : 'rounded-full bg-accent/45 px-2.5 py-1 dark:bg-[#1a2131]'
       )}
     >
-      <Wrench size={10} className="text-muted-foreground" />
-      <span className={cn(compact ? 'text-[11px] text-foreground/80' : 'text-[11px] text-muted-foreground')}>{text}</span>
+      <Wrench size={10} className="text-muted-foreground dark:text-[#a9b3c6]" />
+      <span className={cn(
+        compact
+          ? 'text-[11px] text-foreground/80 dark:text-[#d4dceb]'
+          : 'text-[11px] text-muted-foreground dark:text-[#a9b3c6]'
+      )}>{text}</span>
     </div>
   )
 
   const renderStatus = (text: string, key: string, status?: string) => (
-    <div key={key} className="mb-2 flex items-center gap-2 rounded-xl border border-border/70 bg-background/75 px-2.5 py-2">
+    <div key={key} className="mb-2 flex items-center gap-2 rounded-xl border border-border/70 bg-background/75 px-2.5 py-2 dark:border-[#2a3145] dark:bg-[#131926]">
       <span className={cn(
         'inline-block h-2.5 w-2.5 rounded-sm',
         status === 'error' ? 'bg-red-500' : status === 'running' ? 'bg-amber-500' : 'bg-emerald-500'
       )} />
-      <span className="text-[11px] text-muted-foreground">{text}</span>
+      <span className="text-[11px] text-muted-foreground dark:text-[#aeb7ca]">{text}</span>
     </div>
   )
 
@@ -1811,7 +1835,7 @@ function PixelSubagentIcon({ status }: { status: string }) {
   const tone = status === 'error' ? 'bg-red-500' : 'bg-primary'
 
   return (
-    <div className="grid grid-cols-8 gap-[1px] rounded-md bg-card/80 p-1 shadow-inner">
+    <div className="grid grid-cols-8 gap-[1px] rounded-md bg-card/80 p-1 shadow-inner dark:bg-[#111623]">
       {pixels.flatMap((row, rowIndex) =>
         row.split('').map((cell, colIndex) => (
           <span
@@ -1855,12 +1879,12 @@ function SubagentPanel({
   }, [isRunning])
 
   return (
-    <section className="mb-3 ml-4 overflow-hidden rounded-[1.35rem] border border-border/80 bg-card/85 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+    <section className="mb-3 ml-4 overflow-hidden rounded-[1.35rem] border border-border/80 bg-card/85 shadow-[0_10px_26px_rgba(15,23,42,0.06)] dark:border-[#2b3246] dark:bg-[#161c29] dark:shadow-[0_14px_32px_rgba(0,0,0,0.22)]">
       <button
         onClick={() => setExpanded((prev) => !prev)}
-        className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-muted/40"
+        className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-muted/40 dark:hover:bg-[#1b2332]"
       >
-        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-border bg-card shadow-sm">
+        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-border bg-card shadow-sm dark:border-[#2b3246] dark:bg-[#151b27]">
           <PixelSubagentIcon status={latestTask.status} />
         </div>
         <div className="min-w-0 flex-1">
@@ -1877,20 +1901,20 @@ function SubagentPanel({
               {latestTask.status === 'error' ? '失败' : isRunning ? '运行中' : '已完成'}
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[11px] text-muted-foreground dark:text-[#aab4c7]">
             {isRunning ? '正在补充过程和结果。' : `${visibleItems.length || items.length} 条过程记录已整理完成。`}
           </p>
         </div>
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-card/80">
-          {expanded ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-card/80 dark:border-[#2b3246] dark:bg-[#151b27]">
+          {expanded ? <ChevronUp size={14} className="text-muted-foreground dark:text-[#aab4c7]" /> : <ChevronDown size={14} className="text-muted-foreground dark:text-[#aab4c7]" />}
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t border-border/80 bg-background/45 px-3.5 py-3">
-          <div className="rounded-2xl border border-border/70 bg-background/75 px-3 py-3">
+        <div className="border-t border-border/80 bg-background/45 px-3.5 py-3 dark:border-[#2b3246] dark:bg-[#121824]">
+          <div className="rounded-2xl border border-border/70 bg-background/75 px-3 py-3 dark:border-[#293045] dark:bg-[#131a27]">
             {visibleItems.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">等待更多处理结果…</p>
+              <p className="text-[11px] text-muted-foreground dark:text-[#aab4c7]">等待更多处理结果…</p>
             ) : (
               visibleItems.map((item, index) => {
                 if (item.kind === 'hint') {
@@ -1944,8 +1968,8 @@ function ToolCallCard({
 
   return (
     <div className="mb-1.5">
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex items-start gap-2 px-3 py-2 hover:bg-muted/40 transition-colors">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm dark:border-[#2b3246] dark:bg-[#161b27]">
+        <div className="flex items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/40 dark:hover:bg-[#1a2232]">
           {isRunning ? (
             <Loader2 size={12} className="animate-spin text-yellow-500 flex-shrink-0" />
           ) : result?.isError ? (
@@ -1965,7 +1989,7 @@ function ToolCallCard({
                 {isRunning ? '执行中' : result?.isError ? '失败' : result ? '完成' : ''}
               </span>
             </div>
-            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+            <p className="mt-1 text-[11px] leading-5 text-muted-foreground dark:text-[#aab4c7]">
               {filePreview
                 ? `涉及文件 ${filePreview.fileName}`
                 : isRunning
@@ -1978,16 +2002,16 @@ function ToolCallCard({
             {filePreview && (
               <button
                 onClick={() => onOpenFilePreview(filePreview)}
-                className="mt-2 flex w-full items-center gap-2 rounded-xl border border-border bg-accent/55 px-2.5 py-2 text-left transition-colors hover:bg-accent"
+                className="mt-2 flex w-full items-center gap-2 rounded-xl border border-border bg-accent/55 px-2.5 py-2 text-left transition-colors hover:bg-accent dark:border-[#2b3246] dark:bg-[#1b2332] dark:hover:bg-[#20293b]"
               >
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-card shadow-sm">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-card shadow-sm dark:bg-[#151b27]">
                   <FileText size={15} className="text-primary" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[11px] font-medium text-foreground">{filePreview.fileName}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">{filePreview.path}</div>
+                  <div className="truncate text-[10px] text-muted-foreground dark:text-[#9eabc2]">{filePreview.path}</div>
                 </div>
-                <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[10px] text-muted-foreground">
+                <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[10px] text-muted-foreground dark:border-[#2b3246] dark:bg-[#151b27] dark:text-[#aab4c7]">
                   {filePreview.operation === 'read_file' ? '查看内容' : '查看写入'}
                 </span>
               </button>
@@ -1996,25 +2020,25 @@ function ToolCallCard({
 
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md hover:bg-muted"
+            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md hover:bg-muted dark:hover:bg-[#202738]"
             aria-label={expanded ? '收起工具详情' : '展开工具详情'}
           >
-            {expanded ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
+            {expanded ? <ChevronUp size={12} className="text-muted-foreground dark:text-[#aab4c7]" /> : <ChevronDown size={12} className="text-muted-foreground dark:text-[#aab4c7]" />}
           </button>
         </div>
 
         {expanded && (
-          <div className="border-t border-border px-3 py-2 space-y-2">
+          <div className="space-y-2 border-t border-border px-3 py-2 dark:border-[#2b3246]">
             {call.name && (
               <div>
                 <p className="mb-1 text-[10px] text-muted-foreground">工具名</p>
-                <pre className="rounded-lg bg-muted p-2 text-[11px] font-mono text-foreground/80">{call.name}</pre>
+                <pre className="rounded-lg bg-muted p-2 text-[11px] font-mono text-foreground/80 dark:bg-[#111623] dark:text-[#d9e1ef]">{call.name}</pre>
               </div>
             )}
             {call.content && call.content !== '{}' && (
               <div>
                 <p className="text-[10px] text-muted-foreground mb-1">输入参数</p>
-                <pre className="text-[11px] font-mono bg-muted rounded-lg p-2 overflow-x-auto max-h-40 text-foreground/80">{call.content}</pre>
+                <pre className="max-h-40 overflow-x-auto rounded-lg bg-muted p-2 text-[11px] font-mono text-foreground/80 dark:bg-[#111623] dark:text-[#d9e1ef]">{call.content}</pre>
               </div>
             )}
             {result && (
@@ -2024,7 +2048,9 @@ function ToolCallCard({
                 </p>
                 <pre className={cn(
                   'text-[11px] font-mono rounded-lg p-2 overflow-x-auto max-h-40',
-                  result.isError ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-muted text-foreground/80'
+                  result.isError
+                    ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300'
+                    : 'bg-muted text-foreground/80 dark:bg-[#111623] dark:text-[#d9e1ef]'
                 )}>
                   {result.content?.slice(0, 800)}{(result.content?.length ?? 0) > 800 ? '...' : ''}
                 </pre>
@@ -2033,7 +2059,7 @@ function ToolCallCard({
             {isRunning && !result && (
               <div className="flex items-center gap-1.5 py-0.5">
                 <Loader2 size={10} className="animate-spin text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground">等待返回...</span>
+                <span className="text-[11px] text-muted-foreground dark:text-[#aab4c7]">等待返回...</span>
               </div>
             )}
           </div>
@@ -2084,7 +2110,7 @@ function PermissionRequestCard({
 
   return (
     <div className="mb-1.5">
-      <div className="overflow-hidden rounded-xl border border-amber-200/80 bg-amber-50/80 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
+      <div className="overflow-hidden rounded-xl border border-amber-200/80 bg-amber-50/80 shadow-sm dark:border-amber-900/40 dark:bg-[#221b12]">
         <div className="flex items-start gap-2 px-3 py-2">
           {isResolved ? (
             resultData?.approved ? (
@@ -2104,33 +2130,33 @@ function PermissionRequestCard({
                 'flex-shrink-0 text-[10px]',
                 isResolved
                   ? resultData?.approved ? 'text-green-600' : 'text-red-500'
-                  : 'text-amber-700'
+                  : 'text-amber-700 dark:text-amber-300'
               )}>
                 {resultLabel}
               </span>
             </div>
-            <div className="mt-1 rounded-lg border border-amber-200/70 bg-white/70 px-2.5 py-2 dark:border-amber-900/30 dark:bg-black/10">
+            <div className="mt-1 rounded-lg border border-amber-200/70 bg-white/70 px-2.5 py-2 dark:border-amber-900/30 dark:bg-[#191f2c]">
               {requestData?.command ? (
-                <p className="line-clamp-3 break-all text-[11px] text-foreground/90">
+                <p className="line-clamp-3 break-all text-[11px] text-foreground/90 dark:text-[#e5ebf4]">
                   Agent 想运行一条命令继续处理当前任务。
                 </p>
               ) : (
-                <p className="line-clamp-3 break-all text-[11px] text-foreground/90">
+                <p className="line-clamp-3 break-all text-[11px] text-foreground/90 dark:text-[#e5ebf4]">
                   {requestData?.message || '这个操作需要先得到你的确认。'}
                 </p>
               )}
               {requestData?.description && (
-                <p className="mt-1 line-clamp-2 break-all text-[10px] text-muted-foreground">
+                <p className="mt-1 line-clamp-2 break-all text-[10px] text-muted-foreground dark:text-[#aab4c7]">
                   {requestData.description}
                 </p>
               )}
             </div>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground dark:text-[#aab4c7]">
               <span>{requestData?.isReadOnly ? '只会读取信息' : '可能修改文件或环境'}</span>
               {request.name && <span>{getToolDisplayName(request.name)}</span>}
             </div>
             {requestData?.message && (requestData.command || requestData.description) && (
-              <p className="mt-1 text-[10px] text-muted-foreground">
+              <p className="mt-1 text-[10px] text-muted-foreground dark:text-[#aab4c7]">
                 {requestData.message}
               </p>
             )}
@@ -2148,7 +2174,7 @@ function PermissionRequestCard({
                         ? option.scope === 'session'
                           ? 'bg-blue-600 text-white hover:bg-blue-700'
                           : 'bg-green-600 text-white hover:bg-green-700'
-                        : 'border border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:bg-transparent dark:hover:bg-red-950/20'
+                        : 'border border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:bg-[#191f2c] dark:text-red-300 dark:hover:bg-red-950/30'
                     )}
                   >
                     {submitting === option.label ? '提交中...' : getPermissionOptionLabel(option.label)}
@@ -2163,7 +2189,7 @@ function PermissionRequestCard({
             className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/5"
             aria-label={expanded ? '收起审批详情' : '展开审批详情'}
           >
-            {expanded ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
+            {expanded ? <ChevronUp size={12} className="text-muted-foreground dark:text-[#aab4c7]" /> : <ChevronDown size={12} className="text-muted-foreground dark:text-[#aab4c7]" />}
           </button>
         </div>
 
@@ -2172,7 +2198,7 @@ function PermissionRequestCard({
             {requestData?.toolInput && (
               <div>
                 <p className="mb-1 text-[10px] text-muted-foreground">操作详情</p>
-                <pre className="max-h-40 overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80">
+                <pre className="max-h-40 overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80 dark:bg-[#191f2c] dark:text-[#dce3ef]">
                   {requestData.toolInput}
                 </pre>
               </div>
@@ -2180,7 +2206,7 @@ function PermissionRequestCard({
             {resultData?.message && (
               <div>
                 <p className="mb-1 text-[10px] text-muted-foreground">审批结果</p>
-                <pre className="overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80">
+                <pre className="overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80 dark:bg-[#191f2c] dark:text-[#dce3ef]">
                   {resultData.message}
                 </pre>
               </div>
@@ -2207,13 +2233,13 @@ function FilePreviewDrawer({ preview, onClose }: { preview: FilePreviewData | nu
 
       <aside
         className={cn(
-          'absolute inset-y-0 right-0 z-30 flex w-full max-w-3xl flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-out',
+          'absolute inset-y-0 right-0 z-30 flex w-full max-w-3xl flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-out dark:border-[#2b3246] dark:bg-[#151b27]',
           isOpen ? 'translate-x-0' : 'translate-x-full'
         )}
       >
-        <div className="border-b border-border bg-card/95 px-5 py-4 backdrop-blur-sm">
+        <div className="border-b border-border bg-card/95 px-5 py-4 backdrop-blur-sm dark:border-[#2b3246] dark:bg-[#151b27]">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-accent shadow-sm">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-accent shadow-sm dark:bg-[#1b2332]">
               <FileText size={18} className="text-primary" />
             </div>
             <div className="min-w-0 flex-1">
@@ -2222,42 +2248,42 @@ function FilePreviewDrawer({ preview, onClose }: { preview: FilePreviewData | nu
                   {preview?.fileName || '文件预览'}
                 </h3>
                 {preview && (
-                  <span className="rounded-full border border-border bg-accent/70 px-2 py-0.5 text-[10px] text-muted-foreground">
+                  <span className="rounded-full border border-border bg-accent/70 px-2 py-0.5 text-[10px] text-muted-foreground dark:border-[#2b3246] dark:bg-[#1b2332] dark:text-[#aab4c7]">
                     {preview.operation === 'read_file' ? 'read_file' : 'write_file'}
                   </span>
                 )}
               </div>
-              <p className="mt-1 break-all text-[11px] text-muted-foreground">{preview?.path || ''}</p>
+              <p className="mt-1 break-all text-[11px] text-muted-foreground dark:text-[#aab4c7]">{preview?.path || ''}</p>
               {preview?.operation === 'read_file' && preview.limit != null && (
-                <p className="mt-1 text-[10px] text-muted-foreground">展示读取结果，调用限制为 {preview.limit} 行</p>
+                <p className="mt-1 text-[10px] text-muted-foreground dark:text-[#aab4c7]">展示读取结果，调用限制为 {preview.limit} 行</p>
               )}
               {preview?.operation === 'write_file' && (
-                <p className="mt-1 text-[10px] text-muted-foreground">展示写入文件时提交的内容</p>
+                <p className="mt-1 text-[10px] text-muted-foreground dark:text-[#aab4c7]">展示写入文件时提交的内容</p>
               )}
             </div>
             <button
               onClick={onClose}
-              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-card transition-colors hover:bg-muted"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-card transition-colors hover:bg-muted dark:border-[#2b3246] dark:bg-[#151b27] dark:hover:bg-[#202738]"
               aria-label="关闭文件预览"
             >
-              <X size={15} className="text-muted-foreground" />
+              <X size={15} className="text-muted-foreground dark:text-[#aab4c7]" />
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-background/65 p-5">
+        <div className="min-h-0 flex-1 overflow-auto bg-background/65 p-5 dark:bg-[#101521]">
           {preview?.content ? (
-            <pre className="min-h-full overflow-auto rounded-2xl border border-border bg-card p-4 font-mono text-[12px] leading-6 text-foreground shadow-sm whitespace-pre-wrap break-words">
+            <pre className="min-h-full overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-border bg-card p-4 font-mono text-[12px] leading-6 text-foreground shadow-sm dark:border-[#2b3246] dark:bg-[#151b27] dark:text-[#e3e9f5]">
               {preview.content}
             </pre>
           ) : (
-            <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center">
+            <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center dark:border-[#2b3246] dark:bg-[#151b27]">
               <div>
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent dark:bg-[#1b2332]">
                   <FileText size={18} className="text-primary" />
                 </div>
                 <p className="text-sm font-medium text-foreground">没有可展示的文件内容</p>
-                <p className="mt-1 text-xs text-muted-foreground">这个工具调用没有返回可预览的文本。</p>
+                <p className="mt-1 text-xs text-muted-foreground dark:text-[#aab4c7]">这个工具调用没有返回可预览的文本。</p>
               </div>
             </div>
           )}
@@ -2274,14 +2300,14 @@ function ThinkingIndicator({ content }: { content: string }) {
     <div className="flex justify-start">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="max-w-[80%] rounded-2xl rounded-bl-sm border border-border bg-card px-3.5 py-2 text-left shadow-sm transition-colors hover:bg-muted/50"
+        className="max-w-[80%] rounded-2xl rounded-bl-sm border border-border bg-card px-3.5 py-2 text-left shadow-sm transition-colors hover:bg-muted/50 dark:border-[#2b3246] dark:bg-[#161b27] dark:hover:bg-[#1b2332]"
       >
         <div className="flex items-center gap-2">
           <Brain size={12} className="animate-pulse text-primary" />
-          <span className="text-xs text-muted-foreground">Agent 正在整理答案</span>
+          <span className="text-xs text-muted-foreground dark:text-[#aab4c7]">Agent 正在整理答案</span>
         </div>
         {expanded && (
-          <p className="mt-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-muted-foreground">{content}</p>
+          <p className="mt-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-muted-foreground dark:text-[#d6deec]">{content}</p>
         )}
       </button>
     </div>
