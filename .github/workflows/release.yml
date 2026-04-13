@@ -22,11 +22,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_RELEASE_OWNER: ${{ github.repository_owner }}
       GH_RELEASE_REPO: ${{ github.event.repository.name }}
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
     steps:
       - name: Checkout
@@ -40,6 +35,26 @@ jobs:
 
       - name: Install Dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Prepare macOS signing environment
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.CSC_LINK }}" ]; then
+            echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.CSC_KEY_PASSWORD }}" ]; then
+            echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_ID }}" ]; then
+            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" ]; then
+            echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
+            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Download latest harnessclaw-engine release
         run: node scripts/download-harnessclaw-engine-release.cjs resources/bin
