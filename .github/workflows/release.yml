@@ -22,6 +22,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_RELEASE_OWNER: ${{ github.repository_owner }}
       GH_RELEASE_REPO: ${{ github.event.repository.name }}
+      GH_RELEASE_TYPE: release
 
     steps:
       - name: Checkout
@@ -60,4 +61,19 @@ jobs:
         run: node scripts/download-harnessclaw-engine-release.cjs resources/bin
 
       - name: Build and Publish
-        run: yarn release
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+            yarn build
+            npx electron-builder --config electron-builder.config.cjs --publish always -c.extraMetadata.version="$RELEASE_VERSION"
+          else
+            yarn release
+          fi
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: harnessclaw-${{ matrix.os }}-${{ github.ref_name || github.sha }}
+          path: release/**
+          if-no-files-found: error
