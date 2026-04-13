@@ -41,5 +41,8 @@ jobs:
       - name: Install Dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Download latest harnessclaw-engine release
+        run: node scripts/download-harnessclaw-engine-release.cjs resources/bin
+
       - name: Build and Publish
         run: yarn release

@@ -38,6 +38,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Bundled engine binaries
+resources/bin/harnessclaw-engine
+resources/bin/harnessclaw-engine-*
+
 # Test artifacts
 test_report.json
 *.py
