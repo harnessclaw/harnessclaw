@@ -76,6 +76,22 @@ const skillsAPI = {
   list: () => ipcRenderer.invoke('skills:list'),
   read: (id: string) => ipcRenderer.invoke('skills:read', id),
   delete: (id: string) => ipcRenderer.invoke('skills:delete', id),
+  listRepositories: () => ipcRenderer.invoke('skills:listRepositories'),
+  saveRepository: (input: {
+    id?: string
+    name?: string
+    repoUrl: string
+    branch?: string
+    basePath?: string
+    enabled?: boolean
+  }) => ipcRenderer.invoke('skills:saveRepository', input),
+  removeRepository: (id: string) => ipcRenderer.invoke('skills:removeRepository', id),
+  discover: (repositoryId?: string) => ipcRenderer.invoke('skills:discover', repositoryId),
+  listDiscovered: (repositoryId?: string) => ipcRenderer.invoke('skills:listDiscovered', repositoryId),
+  previewDiscovered: (repositoryId: string, skillPath: string) =>
+    ipcRenderer.invoke('skills:previewDiscovered', repositoryId, skillPath),
+  installDiscovered: (repositoryId: string, skillPath: string) =>
+    ipcRenderer.invoke('skills:installDiscovered', repositoryId, skillPath),
 }
 
 const dbAPI = {

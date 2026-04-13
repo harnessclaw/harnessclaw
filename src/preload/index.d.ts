@@ -90,12 +90,67 @@ interface SkillInfo {
   allowedTools: string
   hasReferences: boolean
   hasTemplates: boolean
+  source?: SkillSourceInfo
+}
+
+interface SkillSourceInfo {
+  key: string
+  repoId: string
+  repoName: string
+  repoUrl: string
+  branch: string
+  path: string
+}
+
+interface SkillRepository {
+  id: string
+  name: string
+  provider: 'github'
+  repoUrl: string
+  owner: string
+  repo: string
+  branch: string
+  basePath: string
+  enabled: boolean
+  lastDiscoveredAt?: number
+  lastError?: string
+}
+
+interface DiscoveredSkill {
+  key: string
+  repoId: string
+  repoName: string
+  repoUrl: string
+  owner: string
+  repo: string
+  branch: string
+  skillPath: string
+  directoryName: string
+  name: string
+  description: string
+  allowedTools: string
+  hasReferences: boolean
+  hasTemplates: boolean
 }
 
 interface SkillsAPI {
   list: () => Promise<SkillInfo[]>
   read: (id: string) => Promise<string>
   delete: (id: string) => Promise<{ ok: boolean; error?: string }>
+  listRepositories: () => Promise<SkillRepository[]>
+  saveRepository: (input: {
+    id?: string
+    name?: string
+    repoUrl: string
+    branch?: string
+    basePath?: string
+    enabled?: boolean
+  }) => Promise<{ ok: boolean; repo?: SkillRepository; error?: string }>
+  removeRepository: (id: string) => Promise<{ ok: boolean; error?: string }>
+  discover: (repositoryId?: string) => Promise<DiscoveredSkill[]>
+  listDiscovered: (repositoryId?: string) => Promise<DiscoveredSkill[]>
+  previewDiscovered: (repositoryId: string, skillPath: string) => Promise<string>
+  installDiscovered: (repositoryId: string, skillPath: string) => Promise<{ ok: boolean; id?: string; error?: string }>
 }
 
 interface DbSessionRow {

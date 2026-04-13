@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
 import { basename, extname, join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
 import { spawn, ChildProcess } from 'child_process'
@@ -43,6 +43,18 @@ import {
   writeRendererLog,
   writeUsageLog,
 } from './logging'
+import {
+  deleteInstalledSkill,
+  discoverSkills,
+  installDiscoveredSkill,
+  listDiscoveredSkills,
+  listInstalledSkills,
+  listSkillRepositories,
+  previewDiscoveredSkill,
+  readInstalledSkill,
+  removeSkillRepository,
+  saveSkillRepository,
+} from './skills-market'
 
 type PersistedSubagent = { taskId: string; label: string; status: string }
 
@@ -69,9 +81,30 @@ function getModuleKey(subagent?: PersistedSubagent): string {
 
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
 const HARNESSCLAW_ENGINE_BIN = resolveBundledBinaryPath('harnessclaw-engine')
-const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
-
 let harnessclawEngineProcess: ChildProcess | null = null
+
+function resolveDevIconPath(): string | undefined {
+  const candidates = [
+    join(process.cwd(), 'resources', 'icon.png'),
+    join(app.getAppPath(), 'resources', 'icon.png'),
+  ]
+
+  return candidates.find((candidate) => existsSync(candidate))
+}
+
+function applyDevAppIcon(): string | undefined {
+  const iconPath = resolveDevIconPath()
+  if (!iconPath) return undefined
+
+  if (process.platform === 'darwin') {
+    const image = nativeImage.createFromPath(iconPath)
+    if (!image.isEmpty()) {
+      app.dock.setIcon(image)
+    }
+  }
+
+  return iconPath
+}
 
 interface PickedLocalFile {
   name: string
@@ -256,6 +289,7 @@ function stopHarnessclawEngine(): void {
 }
 
 function createWindow(): BrowserWindow {
+  const devIconPath = is.dev ? applyDevAppIcon() : undefined
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -266,6 +300,7 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#F5F5F7',
+    ...(process.platform === 'darwin' ? {} : devIconPath ? { icon: devIconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -385,73 +420,56 @@ app.whenReady().then(() => {
     }
   })
 
-  // Skills reader
+  // Skills reader and market
   ipcMain.handle('skills:list', () => {
-    try {
-      if (!existsSync(SKILLS_DIR)) return []
-      const dirs = readdirSync(SKILLS_DIR).filter((name) => {
-        const full = join(SKILLS_DIR, name)
-        return statSync(full).isDirectory() && existsSync(join(full, 'SKILL.md'))
-      })
-      return dirs.map((dirName) => {
-        const md = readFileSync(join(SKILLS_DIR, dirName, 'SKILL.md'), 'utf-8')
-        // Parse YAML frontmatter
-        const match = md.match(/^---\n([\s\S]*?)\n---/)
-        const meta: Record<string, string> = {}
-        if (match) {
-          match[1].split('\n').forEach((line) => {
-            const idx = line.indexOf(':')
-            if (idx > 0) {
-              meta[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
-            }
-          })
-        }
-        // Check for references and templates dirs
-        const hasRefs = existsSync(join(SKILLS_DIR, dirName, 'references'))
-        const hasTemplates = existsSync(join(SKILLS_DIR, dirName, 'templates'))
-        return {
-          id: dirName,
-          name: meta.name || dirName,
-          description: meta.description || '',
-          allowedTools: meta['allowed-tools'] || '',
-          hasReferences: hasRefs,
-          hasTemplates: hasTemplates,
-        }
-      })
-    } catch (err) {
-      console.error('[Skills] Failed to list:', err)
-      return []
-    }
+    return listInstalledSkills()
   })
 
   ipcMain.handle('skills:read', (_, id: string) => {
-    try {
-      const filePath = join(SKILLS_DIR, id, 'SKILL.md')
-      if (!existsSync(filePath)) return ''
-      return readFileSync(filePath, 'utf-8')
-    } catch (err) {
-      console.error('[Skills] Failed to read:', err)
-      return ''
-    }
+    return readInstalledSkill(id)
   })
 
   ipcMain.handle('skills:delete', (_, id: string) => {
-    try {
-      const trimmed = id.trim()
-      if (!trimmed || trimmed.includes('..') || trimmed.includes('/')) {
-        return { ok: false, error: 'Invalid skill id' }
-      }
-      const skillDir = join(SKILLS_DIR, trimmed)
-      if (!existsSync(skillDir)) {
-        return { ok: false, error: 'Skill not found' }
-      }
-      rmSync(skillDir, { recursive: true, force: true })
-      console.log('[Skills] Deleted:', trimmed)
-      return { ok: true }
-    } catch (err) {
-      console.error('[Skills] Failed to delete:', err)
-      return { ok: false, error: String(err) }
-    }
+    return deleteInstalledSkill(id)
+  })
+
+  ipcMain.handle('skills:listRepositories', () => {
+    return listSkillRepositories()
+  })
+
+  ipcMain.handle('skills:saveRepository', (_, input: {
+    id?: string
+    name?: string
+    repoUrl: string
+    branch?: string
+    basePath?: string
+    enabled?: boolean
+  }) => {
+    return saveSkillRepository(input)
+  })
+
+  ipcMain.handle('skills:removeRepository', (_, id: string) => {
+    return removeSkillRepository(id)
+  })
+
+  ipcMain.handle('skills:discover', (_, repositoryId?: string) => {
+    return discoverSkills(repositoryId)
+  })
+
+  ipcMain.handle('skills:listDiscovered', (_, repositoryId?: string) => {
+    return listDiscoveredSkills(repositoryId)
+  })
+
+  ipcMain.handle('skills:previewDiscovered', (_, repositoryId: string, skillPath: string) => {
+    return previewDiscoveredSkill(repositoryId, skillPath)
+      .catch((error) => {
+        console.error('[Skills] Failed to preview discovered skill:', error)
+        return ''
+      })
+  })
+
+  ipcMain.handle('skills:installDiscovered', (_, repositoryId: string, skillPath: string) => {
+    return installDiscoveredSkill(repositoryId, skillPath)
   })
 
   // Start bundled harnessclaw engine, then connect Harnessclaw (auto-retries until engine is ready)
