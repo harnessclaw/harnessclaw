@@ -63,7 +63,7 @@ To build for specific platforms:
 
 - 💬 Community Discussion: [GitHub Discussions](https://github.com/harnessclaw/harnessclaw/discussions)
 - 🐛 Bug Reports: [Issues](https://github.com/harnessclaw/harnessclaw/issues)
-- 👥 WeChat Work Group: [WeCom Group](https://github.com/iflytek/astron-agent/blob/main/docs/imgs/WeCom_Group.png)
+- 👥 WeChat Work Group: ![WeCom Group](https://github.com/iflytek/astron-agent/raw/main/docs/imgs/WeCom_Group.png)
 
 ## License
 
