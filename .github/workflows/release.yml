@@ -14,9 +14,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - runner: macos-15
+            platform: mac
+            arch: arm64
+            build_args: --mac --arm64
+          - runner: macos-15-intel
+            platform: mac
+            arch: x64
+            build_args: --mac --x64
+          - runner: windows-latest
+            platform: win
+            arch: x64
+            build_args: --win --x64
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -75,17 +87,86 @@ jobs:
       - name: Build and Publish
         shell: bash
         run: |
+          BUILD_ARGS="${{ matrix.build_args }}"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             RELEASE_VERSION="${GITHUB_REF_NAME#v}"
             yarn build
-            npx electron-builder --config electron-builder.config.cjs --publish always -c.extraMetadata.version="$RELEASE_VERSION"
+            npx electron-builder --config electron-builder.config.cjs $BUILD_ARGS --publish always -c.extraMetadata.version="$RELEASE_VERSION"
           else
-            yarn release
+            yarn build
+            npx electron-builder --config electron-builder.config.cjs $BUILD_ARGS --publish always
           fi
+
+      - name: Generate Homebrew metadata
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP_PATH="release/HarnessClaw-${VERSION}-mac-${{ matrix.arch }}.zip"
+          SHA256="$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
+          mkdir -p homebrew-metadata
+          cat > "homebrew-metadata/${{ matrix.arch }}.json" <<JSON
+          {
+            "version": "${VERSION}",
+            "arch": "${{ matrix.arch }}",
+            "sha256": "${SHA256}",
+            "asset": "$(basename "$ZIP_PATH")"
+          }
+          JSON
+
+      - name: Upload Homebrew metadata
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-metadata-${{ matrix.arch }}
+          path: homebrew-metadata/${{ matrix.arch }}.json
+          if-no-files-found: error
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: harnessclaw-${{ matrix.os }}-${{ github.ref_name || github.sha }}
+          name: harnessclaw-${{ matrix.runner }}-${{ github.ref_name || github.sha }}
           path: release/**
           if-no-files-found: error
+
+  update-homebrew-tap:
+    needs: release
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Download Homebrew metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: homebrew-metadata-*
+          merge-multiple: true
+          path: homebrew-metadata
+
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: harnessclaw/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update cask
+        run: |
+          node scripts/sync-homebrew-tap.cjs \
+            --metadata-dir homebrew-metadata \
+            --tap-dir homebrew-tap \
+            --source-repo "${{ github.repository }}"
+
+      - name: Commit and push tap changes
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/harnessclaw.rb
+          if git diff --cached --quiet; then
+            echo "No Homebrew tap changes to commit"
+            exit 0
+          fi
+          git commit -m "harnessclaw ${GITHUB_REF_NAME#v}"
+          git push
