@@ -1214,7 +1214,7 @@ export function ChatPage() {
     <div className="relative flex h-full overflow-hidden bg-background">
       {/* Left: Session sidebar */}
       {showSidebar && (
-        <aside className="flex w-64 flex-shrink-0 flex-col border-r border-border/80 bg-card">
+        <aside className="flex w-64 min-w-64 flex-shrink-0 flex-col border-r border-border/80 bg-card">
           <div className="border-b border-border/80 px-3 py-3">
             <button
               onClick={handleNewSession}
@@ -1328,9 +1328,9 @@ export function ChatPage() {
             <div
               ref={messagesViewportRef}
               onScroll={updateScrollState}
-              className="flex-1 overflow-y-auto px-4 py-5"
+              className="flex-1 overflow-x-hidden overflow-y-auto px-4 py-5"
             >
-              <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+              <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5">
                 {activeSession.messages.map((message) => (
                   <MessageBubble
                     key={message.id}
@@ -1665,6 +1665,7 @@ function MessageBubble({
         compact
           ? 'mb-1.5 rounded-xl bg-transparent px-0 py-0 text-[13px]'
           : 'mb-1.5 rounded-2xl px-3.5 py-2.5 text-sm',
+        'min-w-0 max-w-full overflow-hidden',
         !compact && isUser
           ? 'rounded-br-sm bg-foreground text-background dark:bg-primary dark:text-primary-foreground'
           : !compact
@@ -1676,7 +1677,7 @@ function MessageBubble({
         <p className="whitespace-pre-wrap">{text}</p>
       ) : (
         <div className={cn(
-          'prose max-w-none text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground dark:prose-invert dark:text-[#dce3ef] dark:prose-headings:text-[#eef3fb] dark:prose-p:text-[#dce3ef] dark:prose-strong:text-[#f5f8fe] dark:prose-li:text-[#dce3ef] dark:prose-a:text-[#8cb8ff] dark:prose-blockquote:border-l-[#374057] dark:prose-blockquote:text-[#aab4c7] dark:prose-pre:border-[#2a3246] dark:prose-pre:bg-[#111623] dark:prose-pre:text-[#e6edf8] dark:prose-code:bg-[#20283a] dark:prose-code:text-[#f2f6ff]',
+          'prose max-w-none break-words [overflow-wrap:anywhere] text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:break-all prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground dark:prose-invert dark:text-[#dce3ef] dark:prose-headings:text-[#eef3fb] dark:prose-p:text-[#dce3ef] dark:prose-strong:text-[#f5f8fe] dark:prose-li:text-[#dce3ef] dark:prose-a:text-[#8cb8ff] dark:prose-blockquote:border-l-[#374057] dark:prose-blockquote:text-[#aab4c7] dark:prose-pre:border-[#2a3246] dark:prose-pre:bg-[#111623] dark:prose-pre:text-[#e6edf8] dark:prose-code:bg-[#20283a] dark:prose-code:text-[#f2f6ff]',
           compact ? 'prose-xs' : 'prose-sm'
         )}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
@@ -1715,10 +1716,10 @@ function MessageBubble({
   )
 
   return (
-    <div className={cn('flex group', isUser ? 'justify-end' : 'justify-start')}>
+    <div className={cn('flex min-w-0 max-w-full group', isUser ? 'justify-end' : 'justify-start')}>
       <div
         className={cn(
-          'relative',
+          'relative min-w-0 max-w-full',
           isUser ? 'max-w-[80%] items-end' : 'w-[min(80%,56rem)] items-start'
         )}
       >
