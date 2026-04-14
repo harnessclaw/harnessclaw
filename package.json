@@ -1,6 +1,6 @@
 {
   "name": "harnessclaw",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "harnessclaw,your agent is ready",
   "license": "Apache-2.0",
   "main": "out/main/index.js",
