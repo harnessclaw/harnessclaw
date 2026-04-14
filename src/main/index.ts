@@ -11,6 +11,8 @@ import {
   ENGINE_CONFIG_PATH,
   resolveBundledBinaryPath,
   ensureDir,
+  ensureHarnessclawConfigInitialized,
+  ensureEngineConfigInitialized,
   readEngineConfig,
   saveEngineConfig,
   readHarnessclawConfig,
@@ -130,14 +132,37 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function inferConfiguredProvider(config: Record<string, unknown>): string {
-  const providers = asRecord(config.providers)
-  for (const [key, rawValue] of Object.entries(providers)) {
-    const provider = asRecord(rawValue)
-    if (provider.enabled === false) continue
-    if (typeof provider.api_key === 'string' && provider.api_key.trim()) {
-      return key
+  const llm = asRecord(config.llm)
+  const providerGroups = [asRecord(config.providers), asRecord(llm.providers)]
+
+  for (const providers of providerGroups) {
+    for (const [key, rawValue] of Object.entries(providers)) {
+      const provider = asRecord(rawValue)
+      if (provider.enabled === false) continue
+
+      const apiKey = typeof provider.api_key === 'string'
+        ? provider.api_key
+        : typeof provider.apiKey === 'string'
+          ? provider.apiKey
+          : ''
+      const baseUrl = typeof provider.base_url === 'string'
+        ? provider.base_url
+        : typeof provider.apiBase === 'string'
+          ? provider.apiBase
+          : typeof provider.baseUrl === 'string'
+            ? provider.baseUrl
+            : ''
+
+      if (apiKey.trim()) {
+        return key
+      }
+
+      if ((key === 'ollama' || key === 'lmstudio' || key === 'vllm') && baseUrl.trim()) {
+        return key
+      }
     }
   }
+
   return 'unknown'
 }
 
@@ -288,6 +313,12 @@ function stopHarnessclawEngine(): void {
   harnessclawEngineProcess = null
 }
 
+function startHarnessclawRuntime(): void {
+  startHarnessclawEngine()
+  harnessclawClient.connect()
+  broadcastAppRuntimeStatus()
+}
+
 function createWindow(): BrowserWindow {
   const devIconPath = is.dev ? applyDevAppIcon() : undefined
   const mainWindow = new BrowserWindow({
@@ -331,6 +362,19 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.iflytek.harnessclaw')
   ensureLoggingDirs()
+  const appConfigInit = ensureHarnessclawConfigInitialized()
+  const engineConfigInit = ensureEngineConfigInitialized()
+  if (!appConfigInit.ok) {
+    writeAppLog('error', 'app.config', 'Failed to initialize app config', {
+      error: appConfigInit.error || 'unknown error',
+    })
+  }
+  if (!engineConfigInit.ok) {
+    writeAppLog('error', 'engine.config', 'Failed to initialize engine config', {
+      path: ENGINE_CONFIG_PATH,
+      error: engineConfigInit.error || 'unknown error',
+    })
+  }
   setLogThreshold(normalizeLogThreshold(asRecord(readHarnessclawConfig({})).logging?.level))
   writeAppLog('info', 'app.lifecycle', 'Application ready')
 
@@ -349,6 +393,9 @@ app.whenReady().then(() => {
         mkdirSync(HARNESSCLAW_DIR, { recursive: true })
       }
       writeFileSync(HARNESSCLAW_LAUNCHED_FLAG, new Date().toISOString(), 'utf-8')
+      if (engineConfigInit.ok) {
+        startHarnessclawRuntime()
+      }
       return { ok: true }
     } catch (err) {
       return { ok: false, error: String(err) }
@@ -472,10 +519,10 @@ app.whenReady().then(() => {
     return installDiscoveredSkill(repositoryId, skillPath)
   })
 
-  // Start bundled harnessclaw engine, then connect Harnessclaw (auto-retries until engine is ready)
-  startHarnessclawEngine()
   getDb() // Initialize DB on startup
-  harnessclawClient.connect()
+  if (engineConfigInit.ok && existsSync(HARNESSCLAW_LAUNCHED_FLAG)) {
+    startHarnessclawRuntime()
+  }
 
   harnessclawClient.on('statusChange', (status) => {
     BrowserWindow.getAllWindows().forEach((win) => {
