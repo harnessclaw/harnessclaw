@@ -49,6 +49,9 @@ jobs:
       - name: Install Dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Build generated changelog files
+        run: yarn changelog:build
+
       - name: Prepare macOS signing environment
         if: runner.os == 'macOS'
         shell: bash
@@ -83,6 +86,19 @@ jobs:
 
       - name: Download latest harnessclaw-engine release
         run: node scripts/download-harnessclaw-engine-release.cjs resources/bin
+
+      - name: Prepare GitHub release notes
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/extract-changelog.cjs --version "$VERSION" --locale bilingual > release-notes.md
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          fi
 
       - name: Build and Publish
         shell: bash
