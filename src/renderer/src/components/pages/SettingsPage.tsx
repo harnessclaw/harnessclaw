@@ -496,7 +496,6 @@ interface ProviderConfig {
   apiKey: string
   apiBase: string | null
   extraHeaders: Record<string, string> | null
-  model?: string
 }
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
@@ -562,106 +561,12 @@ function getDisplayName(key: string): string {
   return PROVIDER_DISPLAY_NAMES[key] || key
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function normalizeProviderConfig(value: unknown): ProviderConfig {
-  const provider = isRecord(value) ? value : {}
-  return {
-    apiKey: typeof provider.apiKey === 'string' ? provider.apiKey : '',
-    apiBase: typeof provider.apiBase === 'string' ? provider.apiBase : null,
-    extraHeaders: isRecord(provider.extraHeaders) ? provider.extraHeaders as Record<string, string> : null,
-    model: typeof provider.model === 'string' ? provider.model : '',
-  }
-}
-
-function getInitialDefaultProvider(
-  data: Record<string, unknown>,
-  availableProviders: Record<string, ProviderConfig>
-): string | null {
-  const agentDefaults = isRecord(data.agents) && isRecord(data.agents.defaults)
-    ? data.agents.defaults
-    : {}
-  const preferredUiProvider = typeof agentDefaults.provider === 'string' ? agentDefaults.provider : ''
-  if (preferredUiProvider && availableProviders[preferredUiProvider]) {
-    return preferredUiProvider
-  }
-
-  const llm = isRecord(data.llm) ? data.llm : {}
-  const runtimeProvider = typeof llm.default_provider === 'string' ? llm.default_provider : ''
-  if (runtimeProvider === 'anthropic' && availableProviders.anthropic) {
-    return 'anthropic'
-  }
-  if (runtimeProvider === 'openai') {
-    if (availableProviders.custom && availableProviders.custom.apiKey) return 'custom'
-    if (availableProviders.openai) return 'openai'
-  }
-
-  const keys = Object.keys(availableProviders)
-  const enabledKey = keys.find((key) => availableProviders[key].apiKey)
-  return enabledKey || keys[0] || null
-}
-
-function getRuntimeProviderKey(providerKey: string | null): 'openai' | 'anthropic' {
-  return providerKey === 'anthropic' ? 'anthropic' : 'openai'
-}
-
-function buildEngineConfigForProviders(
-  baseConfig: Record<string, unknown>,
-  providers: Record<string, ProviderConfig>,
-  defaultProviderKey: string | null
-): Record<string, unknown> {
-  const runtimeProvider = getRuntimeProviderKey(defaultProviderKey)
-  const selectedKey = defaultProviderKey || 'openai'
-  const selectedProvider = providers[selectedKey] || providers.openai || providers.custom || {
-    apiKey: '',
-    apiBase: null,
-    extraHeaders: null,
-    model: '',
-  }
-  const selectedBase = selectedProvider.apiBase || PROVIDER_DEFAULT_BASES[selectedKey] || ''
-  const selectedModel = selectedProvider.model?.trim() || 'xopglm5'
-  const llm = isRecord(baseConfig.llm) ? baseConfig.llm : {}
-  const llmProviders = isRecord(llm.providers) ? llm.providers : {}
-  const currentRuntimeProvider = isRecord(llmProviders[runtimeProvider]) ? llmProviders[runtimeProvider] : {}
-  const agents = isRecord(baseConfig.agents) ? baseConfig.agents : {}
-  const agentDefaults = isRecord(agents.defaults) ? agents.defaults : {}
-
-  return {
-    ...baseConfig,
-    providers,
-    llm: {
-      ...llm,
-      default_provider: runtimeProvider,
-      providers: {
-        ...llmProviders,
-        [runtimeProvider]: {
-          ...currentRuntimeProvider,
-          api_key: selectedProvider.apiKey,
-          base_url: selectedBase,
-          model: selectedModel,
-        },
-      },
-    },
-    agents: {
-      ...agents,
-      defaults: {
-        ...agentDefaults,
-        provider: selectedKey,
-        model: selectedModel,
-      },
-    },
-  }
-}
-
 // ─── Model Section ──────────────────────────────────────────────────────────
 
 function ModelSection() {
   const [config, setConfig] = useState<Record<string, unknown> | null>(null)
   const [providers, setProviders] = useState<Record<string, ProviderConfig>>({})
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
-  const [defaultProvider, setDefaultProvider] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -672,15 +577,12 @@ function ModelSection() {
     ;(async () => {
       try {
         const data = await window.engineConfig.read()
-        const rawProviders = isRecord(data.providers) ? data.providers : {}
-        const normalizedProviders = Object.fromEntries(
-          Object.entries(rawProviders).map(([key, value]) => [key, normalizeProviderConfig(value)])
-        ) as Record<string, ProviderConfig>
-        const initialDefaultProvider = getInitialDefaultProvider(data, normalizedProviders)
-        setConfig(buildEngineConfigForProviders(data, normalizedProviders, initialDefaultProvider))
-        setProviders(normalizedProviders)
-        setDefaultProvider(initialDefaultProvider)
-        setSelectedProvider(initialDefaultProvider || Object.keys(normalizedProviders)[0] || null)
+        setConfig(data)
+        const p = (data.providers || {}) as Record<string, ProviderConfig>
+        setProviders(p)
+        const keys = Object.keys(p)
+        const enabledKey = keys.find((k) => p[k].apiKey)
+        setSelectedProvider(enabledKey || keys[0] || null)
       } catch {
         setProviders({})
       } finally {
@@ -689,21 +591,15 @@ function ModelSection() {
     })()
   }, [])
 
-  const scheduleSave = useCallback((nextConfig: Record<string, unknown>) => {
-    setConfig(nextConfig)
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(async () => {
-      await window.engineConfig.save(nextConfig)
-    }, 500)
-  }, [])
-
   const debouncedSave = useCallback(
-    (updatedProviders: Record<string, ProviderConfig>, nextDefaultProvider: string | null) => {
-      if (!config) return
-      const nextConfig = buildEngineConfigForProviders(config, updatedProviders, nextDefaultProvider)
-      scheduleSave(nextConfig)
+    (updatedProviders: Record<string, ProviderConfig>) => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = setTimeout(async () => {
+        if (!config) return
+        await window.engineConfig.save({ ...config, providers: updatedProviders })
+      }, 500)
     },
-    [config, scheduleSave]
+    [config]
   )
 
   useEffect(() => {
@@ -712,26 +608,16 @@ function ModelSection() {
 
   const updateProvider = (key: string, patch: Partial<ProviderConfig>) => {
     setProviders((prev) => {
-      const updated = { ...prev, [key]: { ...normalizeProviderConfig(prev[key]), ...patch } }
-      debouncedSave(updated, defaultProvider)
+      const updated = { ...prev, [key]: { ...prev[key], ...patch } }
+      debouncedSave(updated)
       return updated
     })
-  }
-
-  const handleSetDefaultProvider = (key: string) => {
-    setDefaultProvider(key)
-    setSelectedProvider(key)
-    setShowApiKey(false)
-    setTestState('idle')
-    if (!config) return
-    const nextConfig = buildEngineConfigForProviders(config, providers, key)
-    scheduleSave(nextConfig)
   }
 
   const handleTest = async () => {
     setTestState('testing')
     await new Promise((r) => setTimeout(r, 1200))
-    if (selectedProvider && providers[selectedProvider]?.apiKey && (providers[selectedProvider]?.model || '').trim()) {
+    if (selectedProvider && providers[selectedProvider]?.apiKey) {
       setTestState('ok')
     } else {
       setTestState('fail')
@@ -748,7 +634,6 @@ function ModelSection() {
   const selected = selectedProvider ? providers[selectedProvider] : null
   const selectedBase = selected?.apiBase || (selectedProvider ? PROVIDER_DEFAULT_BASES[selectedProvider] : '') || ''
   const previewUrl = selectedBase ? `${selectedBase}/v1/chat/completions` : ''
-  const isSelectedDefaultProvider = !!selectedProvider && selectedProvider === defaultProvider
 
   if (loading) {
     return <div className="flex items-center justify-center h-full"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
@@ -808,23 +693,8 @@ function ModelSection() {
               <div className="flex items-center gap-2.5">
                 <h2 className="text-lg font-semibold text-foreground">{getDisplayName(selectedProvider)}</h2>
                 <Settings2 size={14} className="text-muted-foreground" />
-                {isSelectedDefaultProvider && (
-                  <span className="text-[10px] font-semibold text-status-connected bg-status-connected/15 px-2 py-0.5 rounded-full">
-                    Default
-                  </span>
-                )}
               </div>
-              <div className="flex items-center gap-2">
-                {!isSelectedDefaultProvider && (
-                  <button
-                    onClick={() => handleSetDefaultProvider(selectedProvider)}
-                    className="h-8 px-3 text-sm font-medium rounded-md border border-border bg-card hover:bg-muted text-foreground transition-colors"
-                  >
-                    设为默认
-                  </button>
-                )}
-                <Toggle checked={!!selected.apiKey} onChange={(v) => { if (!v) updateProvider(selectedProvider, { apiKey: '' }) }} />
-              </div>
+              <Toggle checked={!!selected.apiKey} onChange={(v) => { if (!v) updateProvider(selectedProvider, { apiKey: '' }) }} />
             </div>
 
             <div className="mb-6">
@@ -878,16 +748,6 @@ function ModelSection() {
             <div className="mb-6">
               <h3 className="text-sm font-semibold text-foreground mb-2">模型</h3>
               <div className="bg-card border border-border rounded-xl px-4 py-4 shadow-sm">
-                <input
-                  type="text"
-                  value={selected.model || ''}
-                  onChange={(e) => updateProvider(selectedProvider, { model: e.target.value })}
-                  placeholder="xopglm5"
-                  className="w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono mb-3"
-                />
-                <p className="text-xs text-muted-foreground mb-3">
-                  当前默认 provider 会把这里的模型名同步写入 engine 运行配置。
-                </p>
                 <div className="flex items-center justify-center py-6 border border-dashed border-border rounded-lg">
                   <p className="text-xs text-muted-foreground">模型列表将自动从 API 地址获取</p>
                 </div>
