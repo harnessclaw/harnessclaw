@@ -402,6 +402,10 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('app:getVersion', () => {
+    return app.getVersion()
+  })
+
   // Config file read/write
   ipcMain.handle('config:read', () => {
     return readEngineConfig({ providers: {} })

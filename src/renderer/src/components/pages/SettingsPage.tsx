@@ -84,7 +84,7 @@ function SettingRow({
           <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         )}
       </div>
-      <div className="flex-shrink-0">{children}</div>
+      <div className="min-w-0 max-w-full flex-shrink-0">{children}</div>
     </div>
   )
 }
@@ -413,7 +413,6 @@ function AgentSection() {
   const agents = (config?.agents || {}) as { defaults?: Record<string, unknown> }
   const defaults = agents.defaults || {}
   const workspace = (defaults.workspace as string) ?? '~/.harnessclaw/workspace'
-  const model = (defaults.model as string) ?? ''
   const provider = (defaults.provider as string) ?? 'auto'
   const maxTokens = (defaults.maxTokens as number) ?? 8192
   const contextWindowTokens = (defaults.contextWindowTokens as number) ?? 65536
@@ -434,9 +433,6 @@ function AgentSection() {
       <SectionHeader icon={Bot} title="Agent 默认设置" subtitle="新建 Agent 的默认参数" />
 
       <GroupCard title="模型">
-        <SettingRow label="默认模型" description="格式: provider/model-name">
-          <TextInput value={model} onChange={(v) => updateDefaults({ model: v })} placeholder="anthropic/claude-opus-4-5" className="w-60" mono />
-        </SettingRow>
         <SettingRow label="Provider 策略" description="选择模型提供方的路由策略">
           <SelectInput
             value={provider}
@@ -495,7 +491,9 @@ function AgentSection() {
 interface ProviderConfig {
   apiKey: string
   apiBase: string | null
+  model: string | null
   extraHeaders: Record<string, string> | null
+  raw: Record<string, unknown>
 }
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
@@ -561,6 +559,34 @@ function getDisplayName(key: string): string {
   return PROVIDER_DISPLAY_NAMES[key] || key
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function normalizeProviderConfig(rawValue: unknown): ProviderConfig {
+  const raw = asRecord(rawValue)
+
+  return {
+    apiKey: typeof raw.apiKey === 'string'
+      ? raw.apiKey
+      : typeof raw.api_key === 'string'
+        ? raw.api_key
+        : '',
+    apiBase: typeof raw.apiBase === 'string'
+      ? raw.apiBase
+      : typeof raw.base_url === 'string'
+        ? raw.base_url
+        : typeof raw.baseUrl === 'string'
+          ? raw.baseUrl
+          : null,
+    model: typeof raw.model === 'string' ? raw.model : null,
+    extraHeaders: (raw.extraHeaders as Record<string, string> | null) ?? null,
+    raw,
+  }
+}
+
 // ─── Model Section ──────────────────────────────────────────────────────────
 
 function ModelSection() {
@@ -578,7 +604,9 @@ function ModelSection() {
       try {
         const data = await window.engineConfig.read()
         setConfig(data)
-        const p = (data.providers || {}) as Record<string, ProviderConfig>
+        const p = Object.fromEntries(
+          Object.entries(asRecord(data.providers)).map(([key, value]) => [key, normalizeProviderConfig(value)])
+        ) as Record<string, ProviderConfig>
         setProviders(p)
         const keys = Object.keys(p)
         const enabledKey = keys.find((k) => p[k].apiKey)
@@ -596,7 +624,10 @@ function ModelSection() {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(async () => {
         if (!config) return
-        await window.engineConfig.save({ ...config, providers: updatedProviders })
+        const serializedProviders = Object.fromEntries(
+          Object.entries(updatedProviders).map(([key, value]) => [key, value.raw])
+        )
+        await window.engineConfig.save({ ...config, providers: serializedProviders })
       }, 500)
     },
     [config]
@@ -608,7 +639,23 @@ function ModelSection() {
 
   const updateProvider = (key: string, patch: Partial<ProviderConfig>) => {
     setProviders((prev) => {
-      const updated = { ...prev, [key]: { ...prev[key], ...patch } }
+      const current = prev[key]
+      const next = { ...current, ...patch }
+      const updated = {
+        ...prev,
+        [key]: {
+          ...next,
+          raw: {
+            ...current.raw,
+            apiKey: next.apiKey,
+            api_key: next.apiKey,
+            apiBase: next.apiBase,
+            base_url: next.apiBase,
+            model: next.model,
+            extraHeaders: next.extraHeaders,
+          },
+        },
+      }
       debouncedSave(updated)
       return updated
     })
@@ -633,14 +680,12 @@ function ModelSection() {
 
   const selected = selectedProvider ? providers[selectedProvider] : null
   const selectedBase = selected?.apiBase || (selectedProvider ? PROVIDER_DEFAULT_BASES[selectedProvider] : '') || ''
-  const previewUrl = selectedBase ? `${selectedBase}/v1/chat/completions` : ''
-
   if (loading) {
     return <div className="flex items-center justify-center h-full"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-w-0">
       <div className="w-56 flex-shrink-0 border-r border-border bg-card flex flex-col">
         <div className="p-2.5">
           <div className="relative">
@@ -686,9 +731,9 @@ function ModelSection() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-w-0 overflow-y-auto">
         {selectedProvider && selected ? (
-          <div className="px-8 py-6 max-w-2xl">
+          <div className="px-8 py-6 max-w-[40rem] min-w-0">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-lg font-semibold text-foreground">{getDisplayName(selectedProvider)}</h2>
@@ -699,14 +744,14 @@ function ModelSection() {
 
             <div className="mb-6">
               <h3 className="text-sm font-semibold text-foreground mb-2">API 密钥</h3>
-              <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm">
-                <div className="flex items-center gap-2">
+              <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm max-w-[34rem]">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <input
                     type={showApiKey ? 'text' : 'password'}
                     value={selected.apiKey}
                     onChange={(e) => updateProvider(selectedProvider, { apiKey: e.target.value })}
                     placeholder="输入 API 密钥"
-                    className="flex-1 h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
+                    className="w-[20rem] max-w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
                   />
                   <button onClick={() => setShowApiKey(!showApiKey)} className="p-1.5 rounded text-muted-foreground hover:text-foreground transition-colors">
                     {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -715,7 +760,7 @@ function ModelSection() {
                     onClick={handleTest}
                     disabled={testState === 'testing'}
                     className={cn(
-                      'h-8 px-3 text-sm font-medium rounded-md border transition-colors flex items-center gap-1.5 flex-shrink-0',
+                      'ml-auto h-8 px-3 text-sm font-medium rounded-md border transition-colors flex items-center gap-1.5 flex-shrink-0',
                       testState === 'ok' ? 'border-status-connected text-status-connected'
                         : testState === 'fail' ? 'border-status-disconnected text-status-disconnected'
                           : 'border-border bg-card hover:bg-muted text-foreground'
@@ -727,27 +772,35 @@ function ModelSection() {
                     {testState === 'testing' ? '检测中' : testState === 'ok' ? '可用' : testState === 'fail' ? '失败' : '检测'}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">多个密钥使用逗号分隔</p>
               </div>
             </div>
 
             <div className="mb-6">
               <h3 className="text-sm font-semibold text-foreground mb-2">API 地址</h3>
-              <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm">
+              <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm max-w-[34rem]">
                 <input
                   type="text"
                   value={selected.apiBase || ''}
                   onChange={(e) => updateProvider(selectedProvider, { apiBase: e.target.value || null })}
                   placeholder={PROVIDER_DEFAULT_BASES[selectedProvider] || 'https://api.example.com'}
-                  className="w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
+                  className="w-[24rem] max-w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
                 />
-                {previewUrl && <p className="text-xs text-muted-foreground mt-2 font-mono truncate">预览：{previewUrl}</p>}
               </div>
             </div>
 
             <div className="mb-6">
               <h3 className="text-sm font-semibold text-foreground mb-2">模型</h3>
-              <div className="bg-card border border-border rounded-xl px-4 py-4 shadow-sm">
+              <div className="bg-card border border-border rounded-xl px-4 py-4 shadow-sm max-w-[34rem]">
+                <div className="mb-4">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Model ID</p>
+                  <input
+                    type="text"
+                    value={selected.model || ''}
+                    onChange={(e) => updateProvider(selectedProvider, { model: e.target.value || null })}
+                    placeholder="输入默认使用的 Model ID"
+                    className="w-[18rem] max-w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
+                  />
+                </div>
                 <div className="flex items-center justify-center py-6 border border-dashed border-border rounded-lg">
                   <p className="text-xs text-muted-foreground">模型列表将自动从 API 地址获取</p>
                 </div>
@@ -1295,8 +1348,26 @@ function UpdateSection() {
   const [status, setStatus] = useState<'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'>('idle')
   const [message, setMessage] = useState('应用启动后会在 10 秒后自动检查更新，并每 6 小时轮询一次。')
   const [version, setVersion] = useState('')
+  const [currentVersion, setCurrentVersion] = useState('')
   const [progress, setProgress] = useState<number | null>(null)
   const [isChecking, setIsChecking] = useState(false)
+
+  useEffect(() => {
+    let disposed = false
+
+    const loadVersion = async () => {
+      const nextVersion = await window.appBridge.getVersion()
+      if (!disposed) {
+        setCurrentVersion(nextVersion)
+      }
+    }
+
+    void loadVersion()
+
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   useEffect(() => {
     return window.appBridge.onUpdateEvent((event) => {
@@ -1385,6 +1456,12 @@ function UpdateSection() {
             {isChecking ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
             {isChecking ? '检查中...' : '检查更新'}
           </button>
+        </SettingRow>
+
+        <SettingRow label="当前版本" description="当前安装在本机上的应用版本。">
+          <div className="text-right">
+            <p className="text-sm font-medium text-foreground">{currentVersion || '--'}</p>
+          </div>
         </SettingRow>
 
         <SettingRow label="当前状态" description="这里展示最近一次更新检查或下载结果。">
@@ -1809,7 +1886,6 @@ const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementT
       { key: 'connection', icon: Wifi, label: '连接设置' },
       { key: 'models', icon: Cpu, label: '模型配置' },
       { key: 'agents', icon: Bot, label: 'Agent 设置' },
-      { key: 'channels', icon: Radio, label: '渠道配置' },
       { key: 'tools', icon: Wrench, label: '工具配置' },
     ],
   },
@@ -1825,18 +1901,18 @@ const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementT
   },
 ]
 
-const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'channels', 'logs'])
+const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'logs'])
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 
 export function SettingsPage() {
   const location = useLocation()
   const initialSection = location.state?.initialSection as SectionKey | undefined
-  const [active, setActive] = useState<SectionKey>(initialSection || 'connection')
+  const [active, setActive] = useState<SectionKey>(initialSection === 'channels' ? 'connection' : (initialSection || 'connection'))
 
   useEffect(() => {
     if (initialSection) {
-      setActive(initialSection)
+      setActive(initialSection === 'channels' ? 'connection' : initialSection)
     }
   }, [initialSection])
 
@@ -1876,7 +1952,6 @@ export function SettingsPage() {
         {FULL_WIDTH_SECTIONS.has(active) ? (
           <>
             {active === 'models' && <ModelSection />}
-            {active === 'channels' && <ChannelSection />}
             {active === 'logs' && <LogsSection />}
           </>
         ) : (

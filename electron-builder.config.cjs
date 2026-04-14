@@ -26,7 +26,7 @@ function resolveMacNotarize() {
 
 const config = {
   appId: 'com.iflytek.harnessclaw',
-  productName: 'Harnessclaw',
+  productName: 'HarnessClaw',
   directories: {
     output: 'release',
     buildResources: 'build',

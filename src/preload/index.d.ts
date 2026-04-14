@@ -3,6 +3,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 interface AppBridgeAPI {
   isFirstLaunch: () => Promise<boolean>
   markLaunched: () => Promise<{ ok: boolean; error?: string }>
+  getVersion: () => Promise<string>
   checkForUpdates: () => Promise<{ ok: boolean; version?: string; error?: string }>
   onUpdateEvent: (callback: (event: AppUpdateEvent) => void) => () => void
 }
