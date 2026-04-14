@@ -59,6 +59,8 @@ To build for specific platforms:
 - Mac: `yarn dist:mac`
 - Windows: `yarn dist:win`
 
+Commit, release, and changelog rules are documented in [docs/release-rules.md](./docs/release-rules.md).
+
 ## 📞 Support
 
 - 💬 Community Discussion: [GitHub Discussions](https://github.com/harnessclaw/harnessclaw/discussions)

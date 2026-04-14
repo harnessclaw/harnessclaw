@@ -59,6 +59,8 @@ yarn dist
 - Mac: `yarn dist:mac`
 - Windows: `yarn dist:win`
 
+提交、版本与更新日志规则请见 [docs/release-rules.md](./docs/release-rules.md)。
+
 ## 📞 Support
 
 - 💬 Community Discussion: [GitHub Discussions](https://github.com/harnessclaw/harnessclaw/discussions)
