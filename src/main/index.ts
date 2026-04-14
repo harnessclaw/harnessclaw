@@ -11,6 +11,7 @@ import {
   ENGINE_CONFIG_PATH,
   resolveBundledBinaryPath,
   ensureDir,
+  ensureHarnessclawHomeInitialized,
   readEngineConfig,
   saveEngineConfig,
   readHarnessclawConfig,
@@ -330,6 +331,7 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.iflytek.harnessclaw')
+  ensureHarnessclawHomeInitialized()
   ensureLoggingDirs()
   setLogThreshold(normalizeLogThreshold(asRecord(readHarnessclawConfig({})).logging?.level))
   writeAppLog('info', 'app.lifecycle', 'Application ready')
