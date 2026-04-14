@@ -20,6 +20,10 @@ extraResources:
     to: bundled-tools/nanobot
     filter:
       - '**/*'
+  - from: resources/templates
+    to: templates
+    filter:
+      - '**/*'
 
 asarUnpack:
   - node_modules/better-sqlite3/**/*

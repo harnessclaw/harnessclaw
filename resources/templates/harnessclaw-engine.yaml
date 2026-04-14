@@ -1,0 +1,106 @@
+# =============================================================================
+# HarnessClaw Engine — Configuration
+# =============================================================================
+
+# --- Server ---
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# --- Logging ---
+log:
+  level: "info"          # debug, info, warn, error
+  format: "console"      # json, console
+  output: "stdout"       # stdout, file
+  # file_path: "/var/log/harnessclaw-engine/service.log"
+
+# --- LLM Provider (all providers are routed through Bifrost SDK) ---
+llm:
+  default_provider: "anthropic"              # Switch to "openai" to use OpenAI
+  max_retries: 3
+  api_timeout: "120s"
+  # proxy_url: "http://proxy:8888"
+  # custom_headers:
+  #   X-Custom: "value"
+  providers:
+    anthropic:
+      base_url: ""
+      api_key: ""
+      model: ""
+      max_tokens: 16384
+#    openai:
+#      base_url: "https://api.openai.com"
+#      api_key: "your-openai-api-key"
+#      model: "gpt-4o"
+#      max_tokens: 4096
+
+# --- Query Engine ---
+engine:
+  max_turns: 50
+  auto_compact_threshold: 0.8
+  tool_timeout: "120s"
+
+# --- Session ---
+session:
+  max_messages: 200
+  idle_timeout: "30m"
+  storage: "memory"      # memory, sqlite
+
+# --- Channels ---
+channels:
+  websocket:
+    enabled: true
+    host: "0.0.0.0"
+    port: 8081
+    path: "/ws"
+    write_buffer: 256
+    ping_interval: "30s"
+    write_timeout: "10s"
+    max_message_size: 524288   # 512KB
+    client_tools: true
+  http:
+    enabled: true
+    host: "0.0.0.0"
+    port: 8080
+    path: "/api/v1"
+  feishu:
+    enabled: false
+    host: "0.0.0.0"
+    port: 8082
+    # app_id: ""
+    # app_secret: ""
+
+# --- Tools ---
+tools:
+  bash:
+    enabled: true
+    timeout: "60s"
+    sandbox: false
+  file_read:
+    enabled: true
+  file_edit:
+    enabled: true
+  file_write:
+    enabled: true
+  grep:
+    enabled: true
+  glob:
+    enabled: true
+  web_fetch:
+    enabled: true
+
+# --- Skills ---
+# Skills are loaded from the directories listed below, in order.
+# Earlier directories have higher priority on name conflicts.
+# Each directory is scanned for:
+#   - skill-name/SKILL.md  (directory format)
+#   - skill-name.md        (flat file format)
+skills:
+  dirs:
+    # - "${HOME}/.harnessclaw/workspace/skills/"
+
+# --- Permission ---
+permission:
+  mode: "default"        # default, plan, bypass, acceptEdits, dontAsk
+  allowed_tools: []
+  denied_tools: []

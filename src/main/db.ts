@@ -4,6 +4,9 @@ import { DB_DIR, DB_PATH } from './runtime-paths'
 
 let db: Database.Database | null = null
 
+export type ConfigScope = 'app' | 'engine'
+export type ConfigStorageFormat = 'json' | 'yaml'
+
 export function getDb(): Database.Database {
   if (db) return db
   if (!existsSync(DB_DIR)) {
@@ -18,6 +21,15 @@ export function getDb(): Database.Database {
 
 function initTables(db: Database.Database): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS config_documents (
+      scope          TEXT PRIMARY KEY CHECK (scope IN ('app', 'engine')),
+      storage_format TEXT NOT NULL CHECK (storage_format IN ('json', 'yaml')),
+      schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version >= 1),
+      payload_text   TEXT NOT NULL,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
       title      TEXT NOT NULL DEFAULT '',
@@ -215,6 +227,52 @@ export interface UsageEventRow {
   details_json: string
   session_id: string | null
   created_at: number
+}
+
+export interface ConfigDocumentRow {
+  scope: ConfigScope
+  storage_format: ConfigStorageFormat
+  schema_version: number
+  payload_text: string
+  created_at: number
+  updated_at: number
+}
+
+export function getConfigDocument(scope: ConfigScope): ConfigDocumentRow | null {
+  return getDb().prepare(`
+    SELECT scope, storage_format, schema_version, payload_text, created_at, updated_at
+    FROM config_documents
+    WHERE scope = ?
+  `).get(scope) as ConfigDocumentRow | null
+}
+
+export function saveConfigDocument(input: {
+  scope: ConfigScope
+  storageFormat: ConfigStorageFormat
+  payloadText: string
+  schemaVersion?: number
+}): void {
+  const now = Date.now()
+  getDb().prepare(`
+    INSERT INTO config_documents (scope, storage_format, schema_version, payload_text, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(scope) DO UPDATE SET
+      storage_format = excluded.storage_format,
+      schema_version = excluded.schema_version,
+      payload_text = excluded.payload_text,
+      updated_at = excluded.updated_at
+  `).run(
+    input.scope,
+    input.storageFormat,
+    input.schemaVersion || 1,
+    input.payloadText,
+    now,
+    now
+  )
+}
+
+export function deleteConfigDocument(scope: ConfigScope): void {
+  getDb().prepare(`DELETE FROM config_documents WHERE scope = ?`).run(scope)
 }
 
 export function insertMessage(msg: {

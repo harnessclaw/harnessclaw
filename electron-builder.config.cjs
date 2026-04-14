@@ -41,6 +41,11 @@ const config = {
       to: 'bin',
       filter: ['**/*'],
     },
+    {
+      from: 'resources/templates',
+      to: 'templates',
+      filter: ['**/*'],
+    },
   ],
   artifactName: '${productName}-${version}-${os}-${arch}.${ext}',
   mac: {
