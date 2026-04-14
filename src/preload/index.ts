@@ -8,6 +8,11 @@ const appAPI = {
   isFirstLaunch: () => ipcRenderer.invoke('app:isFirstLaunch'),
   markLaunched: () => ipcRenderer.invoke('app:markLaunched'),
   checkForUpdates: () => ipcRenderer.invoke('app:update:check'),
+  onUpdateEvent: (callback: (event: Record<string, unknown>) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, event: Record<string, unknown>): void => callback(event)
+    ipcRenderer.on('app:update-event', handler)
+    return () => ipcRenderer.removeListener('app:update-event', handler)
+  },
 }
 
 const configAPI = {

@@ -4,6 +4,26 @@ interface AppBridgeAPI {
   isFirstLaunch: () => Promise<boolean>
   markLaunched: () => Promise<{ ok: boolean; error?: string }>
   checkForUpdates: () => Promise<{ ok: boolean; version?: string; error?: string }>
+  onUpdateEvent: (callback: (event: AppUpdateEvent) => void) => () => void
+}
+
+interface AppUpdateEvent {
+  type:
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'download-started'
+    | 'download-deferred'
+    | 'download-progress'
+    | 'downloaded'
+    | 'error'
+  version?: string
+  releaseNotes?: unknown
+  percent?: number
+  transferred?: number
+  total?: number
+  bytesPerSecond?: number
+  message?: string
 }
 
 interface ConfigAPI {

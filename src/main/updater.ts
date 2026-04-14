@@ -66,16 +66,26 @@ async function showInstallPrompt(window: BrowserWindow, version: string): Promis
   }
 }
 
-async function checkForUpdates(window: BrowserWindow): Promise<void> {
-  if (!app.isPackaged || checkInFlight || window.isDestroyed()) return
+async function checkForUpdates(window: BrowserWindow): Promise<{ ok: boolean; error?: string }> {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Auto update is disabled in development mode' }
+  }
+  if (checkInFlight) {
+    return { ok: false, error: 'Update check already in progress' }
+  }
+  if (window.isDestroyed()) {
+    return { ok: false, error: 'No active window' }
+  }
   checkInFlight = true
   try {
     sendUpdateEvent(window, 'checking')
     await autoUpdater.checkForUpdates()
+    return { ok: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.error('[AutoUpdater] check failed:', message)
     sendUpdateEvent(window, 'error', { message })
+    return { ok: false, error: message }
   } finally {
     checkInFlight = false
   }
@@ -159,13 +169,10 @@ export async function manuallyCheckForUpdates(window: BrowserWindow): Promise<{ 
     return { ok: false, error: 'Auto update is disabled in development mode' }
   }
 
-  try {
-    await checkForUpdates(window)
-    return { ok: true, version: downloadedVersion || undefined }
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }
+  const result = await checkForUpdates(window)
+  if (!result.ok) {
+    return result
   }
+
+  return { ok: true, version: downloadedVersion || undefined }
 }

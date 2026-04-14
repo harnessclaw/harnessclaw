@@ -56,6 +56,18 @@ jobs:
           if [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
             echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
           fi
+          if [ -n "${{ secrets.APPLE_API_KEY }}" ]; then
+            echo "APPLE_API_KEY=${{ secrets.APPLE_API_KEY }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_API_KEY_ID }}" ]; then
+            echo "APPLE_API_KEY_ID=${{ secrets.APPLE_API_KEY_ID }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_API_ISSUER }}" ]; then
+            echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${{ secrets.APPLE_KEYCHAIN_PROFILE }}" ]; then
+            echo "APPLE_KEYCHAIN_PROFILE=${{ secrets.APPLE_KEYCHAIN_PROFILE }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Download latest harnessclaw-engine release
         run: node scripts/download-harnessclaw-engine-release.cjs resources/bin

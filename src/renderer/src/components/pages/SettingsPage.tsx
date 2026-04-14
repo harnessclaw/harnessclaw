@@ -1284,6 +1284,152 @@ function StorageSection() {
   )
 }
 
+type AppUpdateEvent = {
+  type: 'checking' | 'available' | 'not-available' | 'download-started' | 'download-deferred' | 'download-progress' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  message?: string
+}
+
+function UpdateSection() {
+  const [status, setStatus] = useState<'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'>('idle')
+  const [message, setMessage] = useState('应用启动后会在 10 秒后自动检查更新，并每 6 小时轮询一次。')
+  const [version, setVersion] = useState('')
+  const [progress, setProgress] = useState<number | null>(null)
+  const [isChecking, setIsChecking] = useState(false)
+
+  useEffect(() => {
+    return window.appBridge.onUpdateEvent((event) => {
+      const updateEvent = event as AppUpdateEvent
+
+      switch (updateEvent.type) {
+        case 'checking':
+          setStatus('checking')
+          setIsChecking(true)
+          setProgress(null)
+          setMessage('正在检查更新源...')
+          break
+        case 'available':
+          setStatus('available')
+          setIsChecking(false)
+          setVersion(updateEvent.version || '')
+          setMessage(updateEvent.version ? `发现新版本 ${updateEvent.version}。系统弹窗会提示是否下载。` : '发现新版本。')
+          break
+        case 'not-available':
+          setStatus('not-available')
+          setIsChecking(false)
+          setVersion(updateEvent.version || '')
+          setMessage(updateEvent.version ? `当前已经是最新版本 (${updateEvent.version})。` : '当前已经是最新版本。')
+          break
+        case 'download-started':
+          setStatus('downloading')
+          setIsChecking(false)
+          setVersion(updateEvent.version || '')
+          setProgress(0)
+          setMessage(updateEvent.version ? `开始下载版本 ${updateEvent.version}。` : '开始下载更新。')
+          break
+        case 'download-progress':
+          setStatus('downloading')
+          setIsChecking(false)
+          setProgress(typeof updateEvent.percent === 'number' ? updateEvent.percent : null)
+          setMessage(typeof updateEvent.percent === 'number'
+            ? `正在下载更新，进度 ${updateEvent.percent.toFixed(1)}%。`
+            : '正在下载更新。')
+          break
+        case 'downloaded':
+          setStatus('downloaded')
+          setIsChecking(false)
+          setVersion(updateEvent.version || '')
+          setProgress(100)
+          setMessage(updateEvent.version ? `版本 ${updateEvent.version} 已下载完成，系统弹窗会提示重启安装。` : '更新已下载完成。')
+          break
+        case 'download-deferred':
+          setStatus('available')
+          setIsChecking(false)
+          setVersion(updateEvent.version || '')
+          setProgress(null)
+          setMessage(updateEvent.version ? `已暂缓下载版本 ${updateEvent.version}。你可以稍后再次检查。` : '已暂缓下载更新。')
+          break
+        case 'error':
+          setStatus('error')
+          setIsChecking(false)
+          setProgress(null)
+          setMessage(updateEvent.message || '检查更新失败。')
+          break
+      }
+    })
+  }, [])
+
+  const handleCheck = async () => {
+    setIsChecking(true)
+    const result = await window.appBridge.checkForUpdates()
+    if (!result.ok) {
+      setStatus('error')
+      setIsChecking(false)
+      setProgress(null)
+      setMessage(result.error || '检查更新失败。')
+    }
+  }
+
+  return (
+    <div>
+      <SectionHeader icon={RotateCcw} title="应用更新" subtitle="检查新版本、下载进度与安装状态。" />
+
+      <GroupCard title="更新">
+        <SettingRow label="检查更新" description="正式构建会自动检查，也可以手动触发一次。">
+          <button
+            onClick={() => void handleCheck()}
+            disabled={isChecking}
+            className="h-7 px-2.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted transition-colors text-foreground flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {isChecking ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+            {isChecking ? '检查中...' : '检查更新'}
+          </button>
+        </SettingRow>
+
+        <SettingRow label="当前状态" description="这里展示最近一次更新检查或下载结果。">
+          <div className="text-right">
+            <p className="text-sm font-medium text-foreground">
+              {status === 'idle' && '尚未手动检查'}
+              {status === 'checking' && '正在检查'}
+              {status === 'available' && '发现新版本'}
+              {status === 'not-available' && '已是最新'}
+              {status === 'downloading' && '下载中'}
+              {status === 'downloaded' && '已下载'}
+              {status === 'error' && '检查失败'}
+            </p>
+            {version && <p className="mt-0.5 text-xs text-muted-foreground">版本：{version}</p>}
+          </div>
+        </SettingRow>
+
+        {status === 'downloading' && (
+          <div className="py-4 border-b border-border last:border-0">
+            <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span>下载进度</span>
+              <span>{progress != null ? `${progress.toFixed(1)}%` : '--'}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-foreground transition-[width] duration-200 dark:bg-primary"
+                style={{ width: `${progress ?? 0}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </GroupCard>
+
+      <div className={cn(
+        'mt-3 rounded-lg border px-3 py-2 text-xs',
+        status === 'error'
+          ? 'border-red-200 bg-red-50 text-red-600'
+          : 'border-border bg-card text-muted-foreground'
+      )}>
+        {message}
+      </div>
+    </div>
+  )
+}
+
 type LogViewerLevel = 'error' | 'info' | 'debug'
 type LogViewerFile = 'all' | 'app' | 'renderer'
 type LogEntry = {
@@ -1654,7 +1800,7 @@ function LogsSection() {
 
 // ─── Nav ───────────────────────────────────────────────────────────────────
 
-type SectionKey = 'connection' | 'auth' | 'models' | 'agents' | 'channels' | 'tools' | 'ui' | 'storage' | 'logs'
+type SectionKey = 'connection' | 'auth' | 'models' | 'agents' | 'channels' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates'
 
 const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementType; label: string }[] }[] = [
   {
@@ -1671,6 +1817,7 @@ const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementT
     title: '应用配置',
     items: [
       { key: 'auth', icon: Shield, label: '认证设置' },
+      { key: 'updates', icon: RotateCcw, label: '应用更新' },
       { key: 'logs', icon: FileText, label: '日志' },
       { key: 'ui', icon: Palette, label: 'UI 设置' },
       { key: 'storage', icon: HardDrive, label: '数据与存储' },
@@ -1738,6 +1885,7 @@ export function SettingsPage() {
             {active === 'auth' && <AuthSection />}
             {active === 'agents' && <AgentSection />}
             {active === 'tools' && <ToolsSection />}
+            {active === 'updates' && <UpdateSection />}
             {active === 'ui' && <UISection />}
             {active === 'storage' && <StorageSection />}
           </div>
