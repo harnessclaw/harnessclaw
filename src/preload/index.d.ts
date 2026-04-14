@@ -132,9 +132,28 @@ interface SkillRepository {
   repo: string
   branch: string
   basePath: string
+  proxy: SkillRepositoryProxy
   enabled: boolean
   lastDiscoveredAt?: number
   lastError?: string
+}
+
+interface SkillRepositoryProxy {
+  enabled: boolean
+  protocol: 'http' | 'https' | 'socks5'
+  host: string
+  port: string
+}
+
+interface SkillDiscoveryEvent {
+  type: 'started' | 'finished' | 'failed'
+  taskId: string
+  repositoryId?: string
+  repositoryCount?: number
+  successCount?: number
+  errorCount?: number
+  skillCount?: number
+  error?: string
 }
 
 interface DiscoveredSkill {
@@ -165,13 +184,15 @@ interface SkillsAPI {
     repoUrl: string
     branch?: string
     basePath?: string
+    proxy?: Partial<SkillRepositoryProxy>
     enabled?: boolean
   }) => Promise<{ ok: boolean; repo?: SkillRepository; error?: string }>
   removeRepository: (id: string) => Promise<{ ok: boolean; error?: string }>
-  discover: (repositoryId?: string) => Promise<DiscoveredSkill[]>
+  discover: (repositoryId?: string) => Promise<{ ok: boolean; started: boolean; taskId?: string; error?: string }>
   listDiscovered: (repositoryId?: string) => Promise<DiscoveredSkill[]>
   previewDiscovered: (repositoryId: string, skillPath: string) => Promise<string>
   installDiscovered: (repositoryId: string, skillPath: string) => Promise<{ ok: boolean; id?: string; error?: string }>
+  onDiscoveryEvent: (callback: (event: SkillDiscoveryEvent) => void) => () => void
 }
 
 interface DbSessionRow {

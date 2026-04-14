@@ -89,6 +89,12 @@ const skillsAPI = {
     repoUrl: string
     branch?: string
     basePath?: string
+    proxy?: {
+      enabled?: boolean
+      protocol?: 'http' | 'https' | 'socks5'
+      host?: string
+      port?: string
+    }
     enabled?: boolean
   }) => ipcRenderer.invoke('skills:saveRepository', input),
   removeRepository: (id: string) => ipcRenderer.invoke('skills:removeRepository', id),
@@ -98,6 +104,11 @@ const skillsAPI = {
     ipcRenderer.invoke('skills:previewDiscovered', repositoryId, skillPath),
   installDiscovered: (repositoryId: string, skillPath: string) =>
     ipcRenderer.invoke('skills:installDiscovered', repositoryId, skillPath),
+  onDiscoveryEvent: (callback: (event: Record<string, unknown>) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, event: Record<string, unknown>): void => callback(event)
+    ipcRenderer.on('skills:discovery-event', handler)
+    return () => ipcRenderer.removeListener('skills:discovery-event', handler)
+  },
 }
 
 const dbAPI = {

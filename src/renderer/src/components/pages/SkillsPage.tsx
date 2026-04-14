@@ -34,7 +34,17 @@ interface RepositoryFormState {
   repoUrl: string
   branch: string
   basePath: string
+  proxy: SkillRepositoryProxy
   enabled: boolean
+}
+
+function createEmptyProxyForm(): SkillRepositoryProxy {
+  return {
+    enabled: false,
+    protocol: 'http',
+    host: '',
+    port: '',
+  }
 }
 
 const EMPTY_REPOSITORY_FORM: RepositoryFormState = {
@@ -42,7 +52,13 @@ const EMPTY_REPOSITORY_FORM: RepositoryFormState = {
   repoUrl: '',
   branch: 'main',
   basePath: '',
+  proxy: createEmptyProxyForm(),
   enabled: true,
+}
+
+function formatRepositoryProxy(proxy: SkillRepositoryProxy): string | null {
+  if (!proxy.enabled || !proxy.host || !proxy.port) return null
+  return `${proxy.protocol}://${proxy.host}:${proxy.port}`
 }
 
 const SKILL_COLORS = [
@@ -474,16 +490,47 @@ function SkillMarketOverlay({
   }, [loadDiscoveredSkills, loadRepositories])
 
   const refreshDiscovery = useCallback(async (repositoryId?: string) => {
-    setRefreshing(true)
-    try {
-      const items = await window.skills.discover(repositoryId)
-      setDiscoveredSkills(items)
-      await loadRepositories()
-      return items
-    } finally {
-      setRefreshing(false)
+    const result = await window.skills.discover(repositoryId)
+    if (!result.ok || !result.started) {
+      pushNotice('error', result.error || '刷新任务启动失败')
+      return result
     }
-  }, [loadRepositories])
+    setRefreshing(true)
+    return result
+  }, [pushNotice])
+
+  useEffect(() => {
+    return window.skills.onDiscoveryEvent((event) => {
+      const typedEvent = event as SkillDiscoveryEvent
+
+      if (typedEvent.type === 'started') {
+        setRefreshing(true)
+        return
+      }
+
+      if (typedEvent.type === 'finished') {
+        setRefreshing(false)
+        void reloadCachedMarketData()
+
+        if ((typedEvent.errorCount || 0) > 0) {
+          pushNotice(
+            'error',
+            `刷新完成：${typedEvent.successCount || 0}/${typedEvent.repositoryCount || 0} 个仓库成功，${typedEvent.errorCount || 0} 个失败`
+          )
+          return
+        }
+
+        pushNotice(
+          'success',
+          `发现结果已刷新：${typedEvent.repositoryCount || 0} 个仓库，${typedEvent.skillCount || 0} 个 skill`
+        )
+        return
+      }
+
+      setRefreshing(false)
+      pushNotice('error', typedEvent.error || '后台刷新失败')
+    })
+  }, [pushNotice, reloadCachedMarketData])
 
   useEffect(() => {
     let active = true
@@ -550,7 +597,6 @@ function SkillMarketOverlay({
         repository,
         skills: groupedMap.get(repository.id) || [],
       }))
-      .filter((group) => group.skills.length > 0 || selectedRepoId === group.repository.id)
   }, [enabledRepositories, filteredDiscoveredSkills, selectedRepoId])
 
   useEffect(() => {
@@ -589,6 +635,12 @@ function SkillMarketOverlay({
         repoUrl: repoForm.repoUrl.trim(),
         branch: repoForm.branch.trim() || 'main',
         basePath: repoForm.basePath.trim(),
+        proxy: {
+          enabled: repoForm.proxy.enabled,
+          protocol: repoForm.proxy.protocol,
+          host: repoForm.proxy.host.trim(),
+          port: repoForm.proxy.port.trim(),
+        },
         enabled: repoForm.enabled,
       })
 
@@ -610,8 +662,7 @@ function SkillMarketOverlay({
 
   const handleRefresh = useCallback(async () => {
     await refreshDiscovery()
-    pushNotice('success', '发现结果已刷新')
-  }, [pushNotice, refreshDiscovery])
+  }, [refreshDiscovery])
 
   const handleDeleteInstalledSkill = useCallback(async (skillId: string, skillName: string) => {
     const result = await window.skills.delete(skillId)
@@ -646,6 +697,7 @@ function SkillMarketOverlay({
       repoUrl: repository.repoUrl,
       branch: repository.branch,
       basePath: repository.basePath,
+      proxy: { ...repository.proxy },
       enabled: repository.enabled,
     })
   }, [])
@@ -659,6 +711,7 @@ function SkillMarketOverlay({
         repoUrl: repository.repoUrl,
         branch: repository.branch,
         basePath: repository.basePath,
+        proxy: repository.proxy,
         enabled: !repository.enabled,
       })
       if (!result.ok) {
@@ -872,45 +925,54 @@ function SkillMarketOverlay({
 
                                 {expanded && (
                                   <div className="mt-3 space-y-2">
-                                    {skills.map((skill) => {
-                                      const installed = installedBySourceKey.get(skill.key)
-                                      return (
-                                        <div
-                                          key={skill.key}
-                                          className="rounded-2xl border border-border bg-card px-4 py-3 transition-colors hover:border-foreground/12"
-                                        >
-                                          <div className="flex items-start gap-3">
-                                            <div className="min-w-0 flex-1">
-                                              <div className="flex flex-wrap items-center gap-2">
-                                                <span className="text-[15px] font-semibold text-foreground">{skill.name}</span>
-                                                <span className="text-[10px] text-muted-foreground">{installed ? '已安装' : '未安装'}</span>
+                                    {skills.length === 0 ? (
+                                      <div className="rounded-2xl border border-dashed border-border bg-card px-4 py-6 text-center">
+                                        <p className="text-sm font-medium text-foreground">仓库已配置</p>
+                                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                                          当前还没有发现到 skill。可以检查分支、扫描路径，或点击“刷新发现”拉取该仓库最新内容。
+                                        </p>
+                                      </div>
+                                    ) : (
+                                      skills.map((skill) => {
+                                        const installed = installedBySourceKey.get(skill.key)
+                                        return (
+                                          <div
+                                            key={skill.key}
+                                            className="rounded-2xl border border-border bg-card px-4 py-3 transition-colors hover:border-foreground/12"
+                                          >
+                                            <div className="flex items-start gap-3">
+                                              <div className="min-w-0 flex-1">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                  <span className="text-[15px] font-semibold text-foreground">{skill.name}</span>
+                                                  <span className="text-[10px] text-muted-foreground">{installed ? '已安装' : '未安装'}</span>
+                                                </div>
+                                                <p className="mt-2 text-[11px] text-muted-foreground">{skill.skillPath}</p>
                                               </div>
-                                              <p className="mt-2 text-[11px] text-muted-foreground">{skill.skillPath}</p>
-                                            </div>
 
-                                            <div className="flex shrink-0 items-center gap-2">
-                                              {installed && (
+                                              <div className="flex shrink-0 items-center gap-2">
+                                                {installed && (
+                                                  <button
+                                                    onClick={() => handleDeleteInstalledSkill(installed.id, skill.name)}
+                                                    className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                                                  >
+                                                    <Trash2 size={12} />
+                                                    删除
+                                                  </button>
+                                                )}
                                                 <button
-                                                  onClick={() => handleDeleteInstalledSkill(installed.id, skill.name)}
-                                                  className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                                                  onClick={() => handleInstallSkill(skill)}
+                                                  disabled={installingKey === skill.key}
+                                                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#4B6BFB] px-3 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                                                 >
-                                                  <Trash2 size={12} />
-                                                  删除
+                                                  {installingKey === skill.key ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                                                  {installed ? '重新安装' : '安装到本机'}
                                                 </button>
-                                              )}
-                                              <button
-                                                onClick={() => handleInstallSkill(skill)}
-                                                disabled={installingKey === skill.key}
-                                                className="inline-flex items-center gap-1.5 rounded-xl bg-[#4B6BFB] px-3 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                                              >
-                                                {installingKey === skill.key ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                                                {installed ? '重新安装' : '安装到本机'}
-                                              </button>
+                                              </div>
                                             </div>
                                           </div>
-                                        </div>
-                                      )
-                                    })}
+                                        )
+                                      })
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -984,6 +1046,10 @@ function RepositorySettingsModal({
     || repoForm.branch.trim() !== 'main'
     || !!repoForm.name.trim()
     || !!repoForm.basePath.trim()
+    || repoForm.proxy.enabled
+    || repoForm.proxy.protocol !== 'http'
+    || !!repoForm.proxy.host.trim()
+    || !!repoForm.proxy.port.trim()
 
   useEffect(() => {
     if (hasAdvancedValues) {
@@ -1009,7 +1075,7 @@ function RepositorySettingsModal({
             <div className="min-w-0">
               <h2 className="text-[18px] font-semibold text-foreground">Skill 仓库</h2>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                启用后的仓库会参与发现。刷新发现只会更新远端仓库索引，不会动你的原始仓库；需要限制扫描范围时，可填写扫描路径。
+                启用后的仓库会参与发现。刷新发现只会更新远端仓库索引，不会动你的原始仓库；需要限制扫描范围时，可填写扫描路径。代理仅作用于 skill 仓库的拉取与刷新。
               </p>
             </div>
             <button
@@ -1026,7 +1092,7 @@ function RepositorySettingsModal({
                 <div>
                   <div className="text-sm font-medium text-foreground">添加仓库</div>
                   <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                    保留一个主输入即可开始添加；分支、显示名称和扫描路径放在高级设置里，避免表单过挤。
+                    保留一个主输入即可开始添加；分支、显示名称、扫描路径和代理放在高级设置里，避免表单过挤。
                   </p>
                 </div>
               </div>
@@ -1092,6 +1158,79 @@ function RepositorySettingsModal({
                       />
                     </label>
                   </div>
+
+                  <div className="mt-3 rounded-2xl border border-border/80 bg-card/85 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-medium text-foreground">代理下载</div>
+                        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                          开启后，Skill 仓库的 clone、fetch、ls-remote 都会通过这里的代理地址访问。
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => onChangeRepoForm((value) => ({
+                          ...value,
+                          proxy: { ...value.proxy, enabled: !value.proxy.enabled },
+                        }))}
+                        className={cn(
+                          'relative inline-flex h-7 w-11 items-center rounded-full transition-colors',
+                          repoForm.proxy.enabled ? 'bg-[#3552D6]' : 'bg-muted'
+                        )}
+                        aria-label={repoForm.proxy.enabled ? '关闭代理' : '开启代理'}
+                      >
+                        <span
+                          className={cn(
+                            'absolute h-5 w-5 rounded-full bg-white transition-transform',
+                            repoForm.proxy.enabled ? 'translate-x-[22px]' : 'translate-x-[2px]'
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {repoForm.proxy.enabled && (
+                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                        <label className="space-y-1.5 text-xs text-muted-foreground">
+                          <span>协议</span>
+                          <select
+                            value={repoForm.proxy.protocol}
+                            onChange={(event) => onChangeRepoForm((value) => ({
+                              ...value,
+                              proxy: { ...value.proxy, protocol: event.target.value as SkillRepositoryProxy['protocol'] },
+                            }))}
+                            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-foreground/25"
+                          >
+                            <option value="http">http</option>
+                            <option value="https">https</option>
+                            <option value="socks5">socks5</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1.5 text-xs text-muted-foreground lg:col-span-2">
+                          <span>主机</span>
+                          <input
+                            value={repoForm.proxy.host}
+                            onChange={(event) => onChangeRepoForm((value) => ({
+                              ...value,
+                              proxy: { ...value.proxy, host: event.target.value },
+                            }))}
+                            placeholder="127.0.0.1"
+                            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-foreground/25"
+                          />
+                        </label>
+                        <label className="space-y-1.5 text-xs text-muted-foreground">
+                          <span>端口</span>
+                          <input
+                            value={repoForm.proxy.port}
+                            onChange={(event) => onChangeRepoForm((value) => ({
+                              ...value,
+                              proxy: { ...value.proxy, port: event.target.value },
+                            }))}
+                            placeholder="7890"
+                            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-foreground/25"
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1120,6 +1259,7 @@ function RepositorySettingsModal({
                             <span>branch: {repository.branch}</span>
                             <span>更新 {formatTimestamp(repository.lastDiscoveredAt)}</span>
                             {repository.basePath ? <span>扫描路径 {repository.basePath}</span> : null}
+                            {formatRepositoryProxy(repository.proxy) ? <span>代理 {formatRepositoryProxy(repository.proxy)}</span> : null}
                           </div>
                           {repository.lastError && (
                             <p className="mt-1 text-[11px] text-destructive">{repository.lastError}</p>

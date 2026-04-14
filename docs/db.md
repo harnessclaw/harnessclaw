@@ -116,6 +116,10 @@ Stores configured external skill repositories.
 | `repo` | `TEXT` | `NOT NULL` | Repository name |
 | `branch` | `TEXT` | `NOT NULL` | Tracked branch |
 | `base_path` | `TEXT` | `NOT NULL DEFAULT ''` | Base path within repository |
+| `proxy_enabled` | `INTEGER` | `NOT NULL DEFAULT 0` | Whether repository fetching uses a proxy |
+| `proxy_protocol` | `TEXT` | `NOT NULL DEFAULT 'http'` | Proxy protocol (`http` / `https` / `socks5`) |
+| `proxy_host` | `TEXT` | `NOT NULL DEFAULT ''` | Proxy hostname |
+| `proxy_port` | `TEXT` | `NOT NULL DEFAULT ''` | Proxy port |
 | `enabled` | `INTEGER` | `NOT NULL DEFAULT 1` | Boolean flag stored as 0/1 |
 | `last_discovered_at` | `INTEGER` |  | Last discovery timestamp |
 | `last_error` | `TEXT` |  | Last discovery error |
@@ -126,6 +130,11 @@ Indexes:
 
 - `idx_skill_repositories_enabled (enabled, updated_at DESC)`
 - `idx_skill_repositories_repo_branch_path UNIQUE (repo_url, branch, base_path)`
+
+Compatibility migrations:
+
+- Add `proxy_enabled`, `proxy_protocol`, `proxy_host`, `proxy_port`, `proxy_username`, `proxy_password` when missing.
+  Runtime currently only uses `proxy_enabled`, `proxy_protocol`, `proxy_host`, `proxy_port`.
 
 ### `skill_discoveries`
 

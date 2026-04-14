@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { basename, dirname, join, posix, relative, resolve } from 'node:path'
+import { Worker } from 'node:worker_threads'
 import {
   copyFileSync,
   existsSync,
@@ -21,6 +22,14 @@ const INSTALL_SOURCE_FILE = '.harnessclaw-source.json'
 
 let storageReady = false
 let legacyRepositoriesMigrated = false
+let activeDiscoveryTask: { id: string; worker: Worker; repositoryId?: string } | null = null
+
+export interface SkillRepositoryProxy {
+  enabled: boolean
+  protocol: 'http' | 'https' | 'socks5'
+  host: string
+  port: string
+}
 
 export interface SkillSourceInfo {
   key: string
@@ -50,6 +59,7 @@ export interface SkillRepository {
   repo: string
   branch: string
   basePath: string
+  proxy: SkillRepositoryProxy
   enabled: boolean
   lastDiscoveredAt?: number
   lastError?: string
@@ -61,6 +71,7 @@ export interface SkillRepositoryDraft {
   repoUrl: string
   branch?: string
   basePath?: string
+  proxy?: Partial<SkillRepositoryProxy>
   enabled?: boolean
 }
 
@@ -81,10 +92,39 @@ export interface DiscoveredSkill {
   hasTemplates: boolean
 }
 
+export interface SkillDiscoveryEvent {
+  type: 'started' | 'finished' | 'failed'
+  taskId: string
+  repositoryId?: string
+  repositoryCount?: number
+  successCount?: number
+  errorCount?: number
+  skillCount?: number
+  error?: string
+}
+
+interface SkillDiscoveryLaunchResult {
+  ok: boolean
+  started: boolean
+  taskId?: string
+  error?: string
+}
+
 interface SkillMarkdownMeta {
   name: string
   description: string
   allowedTools: string
+}
+
+const DEFAULT_PROXY_PROTOCOL: SkillRepositoryProxy['protocol'] = 'http'
+
+function createDefaultRepositoryProxy(): SkillRepositoryProxy {
+  return {
+    enabled: false,
+    protocol: DEFAULT_PROXY_PROTOCOL,
+    host: '',
+    port: '',
+  }
 }
 
 function ensureStorageReady(): void {
@@ -106,6 +146,83 @@ function normalizeRepoPath(input: string): string {
 
 function normalizeRepositoryUrl(input: string): string {
   return input.trim().replace(/\.git$/i, '')
+}
+
+function normalizeProxyProtocol(input: unknown): SkillRepositoryProxy['protocol'] {
+  return input === 'https' || input === 'socks5' ? input : DEFAULT_PROXY_PROTOCOL
+}
+
+function parseLegacyProxyRecord(raw: Record<string, unknown>): Partial<SkillRepositoryProxy> {
+  const nestedProxy = typeof raw.proxy === 'object' && raw.proxy !== null && !Array.isArray(raw.proxy)
+    ? raw.proxy as Record<string, unknown>
+    : null
+  const candidate = nestedProxy || raw
+
+  return {
+    enabled: nestedProxy
+      ? candidate.enabled === true || candidate.proxyEnabled === true
+      : raw.proxyEnabled === true,
+    protocol: normalizeProxyProtocol(candidate.protocol ?? candidate.proxyProtocol),
+    host: typeof candidate.host === 'string'
+      ? candidate.host
+      : typeof candidate.proxyHost === 'string'
+        ? candidate.proxyHost
+        : '',
+    port: typeof candidate.port === 'string'
+      ? candidate.port
+      : typeof candidate.port === 'number'
+        ? String(candidate.port)
+        : typeof candidate.proxyPort === 'string'
+          ? candidate.proxyPort
+          : typeof candidate.proxyPort === 'number'
+            ? String(candidate.proxyPort)
+            : '',
+  }
+}
+
+function normalizeRepositoryProxy(
+  input?: Partial<SkillRepositoryProxy>,
+  fallback?: SkillRepositoryProxy
+): SkillRepositoryProxy {
+  const base = fallback || createDefaultRepositoryProxy()
+
+  return {
+    enabled: input?.enabled ?? base.enabled,
+    protocol: normalizeProxyProtocol(input?.protocol ?? base.protocol),
+    host: (input?.host ?? base.host).trim(),
+    port: String(input?.port ?? base.port).trim(),
+  }
+}
+
+function validateRepositoryProxy(proxy: SkillRepositoryProxy): SkillRepositoryProxy {
+  const normalized = normalizeRepositoryProxy(proxy)
+  if (!normalized.enabled) {
+    return normalized
+  }
+
+  if (!normalized.host) {
+    throw new Error('启用代理时必须填写代理主机')
+  }
+
+  if (!normalized.port) {
+    throw new Error('启用代理时必须填写代理端口')
+  }
+
+  if (!/^\d{1,5}$/.test(normalized.port)) {
+    throw new Error('代理端口格式无效')
+  }
+
+  const port = Number(normalized.port)
+  if (port < 1 || port > 65535) {
+    throw new Error('代理端口必须在 1-65535 之间')
+  }
+
+  return normalized
+}
+
+function buildProxyUrl(proxy: SkillRepositoryProxy): string | null {
+  if (!proxy.enabled || !proxy.host || !proxy.port) return null
+  return `${proxy.protocol}://${proxy.host}:${proxy.port}`
 }
 
 function parseGitHubRepository(inputUrl: string, branchOverride?: string, basePathOverride?: string): {
@@ -220,6 +337,272 @@ function readInstallSource(skillDir: string): SkillSourceInfo | undefined {
   return undefined
 }
 
+function discoveryWorkerMain(): void {
+  const { parentPort, workerData } = require('node:worker_threads')
+  const { execFileSync } = require('node:child_process')
+  const { createHash } = require('node:crypto')
+  const { basename, dirname, join, relative, resolve } = require('node:path')
+  const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } = require('node:fs')
+
+  const cacheDir = workerData.cacheDir
+  const repositories = Array.isArray(workerData.repositories) ? workerData.repositories : []
+
+  const ensureDir = (path: string): void => {
+    if (!existsSync(path)) {
+      mkdirSync(path, { recursive: true })
+    }
+  }
+
+  const normalizeRepoPath = (input: string): string => {
+    const normalized = String(input || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+|\/+$/g, '')
+      .trim()
+    return normalized === '.' ? '' : normalized
+  }
+
+  const normalizeRepositoryUrl = (input: string): string => String(input || '').trim().replace(/\.git$/i, '')
+  const hashString = (input: string): string => createHash('sha1').update(input).digest('hex')
+
+  const buildProxyUrl = (proxy: { enabled?: boolean; protocol?: string; host?: string; port?: string }): string | null => {
+    if (!proxy?.enabled || !proxy.host || !proxy.port) return null
+    return `${proxy.protocol || 'http'}://${proxy.host}:${proxy.port}`
+  }
+
+  const gitEnvForRepository = (repository: { proxy?: { enabled?: boolean; protocol?: string; host?: string; port?: string } }) => {
+    const env = { ...process.env }
+    const proxyUrl = buildProxyUrl(repository.proxy || {})
+    if (!proxyUrl) return env
+    env.HTTP_PROXY = proxyUrl
+    env.HTTPS_PROXY = proxyUrl
+    env.ALL_PROXY = proxyUrl
+    env.http_proxy = proxyUrl
+    env.https_proxy = proxyUrl
+    env.all_proxy = proxyUrl
+    return env
+  }
+
+  const gitArgsForRepository = (args: string[], repository: { proxy?: { enabled?: boolean; protocol?: string; host?: string; port?: string } }) => {
+    const proxyUrl = buildProxyUrl(repository.proxy || {})
+    if (!proxyUrl) return args
+    return ['-c', `http.proxy=${proxyUrl}`, '-c', `https.proxy=${proxyUrl}`, ...args]
+  }
+
+  const runGit = (args: string[], cwd: string | undefined, repository: { proxy?: { enabled?: boolean; protocol?: string; host?: string; port?: string } }) => {
+    try {
+      execFileSync('git', gitArgsForRepository(args, repository), {
+        cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: gitEnvForRepository(repository),
+      })
+    } catch (error) {
+      const err = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string }
+      const stderr = typeof err.stderr === 'string' ? err.stderr : err.stderr?.toString('utf-8')
+      const stdout = typeof err.stdout === 'string' ? err.stdout : err.stdout?.toString('utf-8')
+      const message = stderr?.trim() || stdout?.trim() || err.message || 'git command failed'
+      throw new Error(`SKILL_GIT_ERROR: ${message}`)
+    }
+  }
+
+  const runGitCapture = (args: string[], cwd: string | undefined, repository: { proxy?: { enabled?: boolean; protocol?: string; host?: string; port?: string } }): string => {
+    try {
+      return execFileSync('git', gitArgsForRepository(args, repository), {
+        cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        env: gitEnvForRepository(repository),
+      }).trim()
+    } catch (error) {
+      const err = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string }
+      const stderr = typeof err.stderr === 'string' ? err.stderr : err.stderr?.toString('utf-8')
+      const stdout = typeof err.stdout === 'string' ? err.stdout : err.stdout?.toString('utf-8')
+      const message = stderr?.trim() || stdout?.trim() || err.message || 'git command failed'
+      throw new Error(`SKILL_GIT_ERROR: ${message}`)
+    }
+  }
+
+  const isRemoteBranchNotFound = (message: string): boolean => {
+    const value = String(message).toLowerCase()
+    return (
+      (value.includes('remote branch') && value.includes('not found')) ||
+      value.includes('could not find remote ref') ||
+      value.includes('couldn\'t find remote ref')
+    )
+  }
+
+  const detectRemoteDefaultBranch = (repository: { repoUrl: string; proxy?: { enabled?: boolean; protocol?: string; host?: string; port?: string } }): string | null => {
+    try {
+      const output = runGitCapture(['ls-remote', '--symref', repository.repoUrl, 'HEAD'], undefined, repository)
+      const match = output.match(/ref:\s+refs\/heads\/([^\s]+)\s+HEAD/)
+      return match?.[1]?.trim() || null
+    } catch {
+      return null
+    }
+  }
+
+  const repositoryCacheDir = (repository: { repoUrl: string; branch: string }): string => {
+    const key = `${normalizeRepositoryUrl(repository.repoUrl)}#${String(repository.branch || '').trim()}`
+    return join(cacheDir, hashString(key))
+  }
+
+  const ensureDirectoryWithin = (parentDir: string, targetDir: string): string => {
+    const parent = resolve(parentDir)
+    const target = resolve(targetDir)
+    if (target !== parent && !target.startsWith(`${parent}/`) && !target.startsWith(`${parent}\\`)) {
+      throw new Error('仓库路径无效')
+    }
+    return target
+  }
+
+  const skillRootForRepository = (repository: { basePath?: string }, repoDir: string): string => {
+    const basePath = normalizeRepoPath(repository.basePath || '')
+    if (!basePath) return repoDir
+    return ensureDirectoryWithin(repoDir, join(repoDir, basePath))
+  }
+
+  const readSkillMarkdownMeta = (content: string, fallbackName: string) => {
+    const match = content.match(/^---\n([\s\S]*?)\n---/)
+    const meta: Record<string, string> = {}
+    if (match) {
+      match[1].split('\n').forEach((line: string) => {
+        const index = line.indexOf(':')
+        if (index > 0) {
+          meta[line.slice(0, index).trim()] = line.slice(index + 1).trim()
+        }
+      })
+    }
+    return {
+      name: meta.name || fallbackName,
+      description: meta.description || '',
+      allowedTools: meta['allowed-tools'] || '',
+    }
+  }
+
+  const findSkillMarkdownFiles = (root: string): string[] => {
+    const out: string[] = []
+    const stack = [root]
+    while (stack.length > 0) {
+      const current = stack.pop()
+      if (!current || !existsSync(current)) continue
+      const entries = readdirSync(current, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = join(current, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === '.git') continue
+          stack.push(fullPath)
+          continue
+        }
+        if (entry.isFile() && entry.name.toLowerCase() === 'skill.md') {
+          out.push(fullPath)
+        }
+      }
+    }
+    return out
+  }
+
+  const scanRepositorySkills = (repository: { id: string; name: string; repoUrl: string; owner: string; repo: string; branch: string; basePath?: string }, repoDir: string) => {
+    const root = skillRootForRepository(repository, repoDir)
+    if (!existsSync(root) || !statSync(root).isDirectory()) {
+      throw new Error('仓库扫描路径不存在')
+    }
+
+    return findSkillMarkdownFiles(root).map((skillMdPath) => {
+      const skillDir = dirname(skillMdPath)
+      const skillPath = relative(repoDir, skillDir).replace(/\\/g, '/')
+      const content = readFileSync(skillMdPath, 'utf-8')
+      const meta = readSkillMarkdownMeta(content, basename(skillDir))
+      return {
+        key: `${repository.id}::${skillPath || '.'}`,
+        repoId: repository.id,
+        repoName: repository.name,
+        repoUrl: repository.repoUrl,
+        owner: repository.owner,
+        repo: repository.repo,
+        branch: repository.branch,
+        skillPath,
+        directoryName: basename(skillDir),
+        name: meta.name || basename(skillDir),
+        description: meta.description,
+        allowedTools: meta.allowedTools,
+        hasReferences: existsSync(join(skillDir, 'references')),
+        hasTemplates: existsSync(join(skillDir, 'templates')),
+      }
+    }).sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+  }
+
+  const ensureRepoCache = (repository: { repoUrl: string; branch: string; basePath?: string; proxy?: { enabled?: boolean; protocol?: string; host?: string; port?: string } }, refresh = true) => {
+    ensureDir(cacheDir)
+    const repoDir = repositoryCacheDir(repository)
+    const gitDir = join(repoDir, '.git')
+    let activeBranch = repository.branch
+
+    const performSync = (branch: string): void => {
+      if (!existsSync(gitDir)) {
+        rmSync(repoDir, { recursive: true, force: true })
+        ensureDir(dirname(repoDir))
+        runGit(['clone', '--depth', '1', '--branch', branch, repository.repoUrl, repoDir], undefined, repository)
+        return
+      }
+
+      if (refresh) {
+        runGit(['remote', 'set-url', 'origin', repository.repoUrl], repoDir, repository)
+        runGit(['fetch', '--depth', '1', 'origin', branch], repoDir, repository)
+        runGit(['checkout', '-B', branch, 'FETCH_HEAD'], repoDir, repository)
+        runGit(['clean', '-fd'], repoDir, repository)
+      }
+    }
+
+    try {
+      performSync(activeBranch)
+    } catch (error) {
+      const message = String(error)
+      if (!isRemoteBranchNotFound(message)) {
+        throw error
+      }
+
+      const fallbackBranch = detectRemoteDefaultBranch(repository)
+      if (!fallbackBranch || fallbackBranch === activeBranch) {
+        throw error
+      }
+
+      activeBranch = fallbackBranch
+      performSync(activeBranch)
+    }
+
+    return { repoDir, branch: activeBranch }
+  }
+
+  try {
+    const results = repositories.map((repository: Record<string, unknown>) => {
+      try {
+        const sync = ensureRepoCache(repository as never, true)
+        const effectiveRepository = { ...repository, branch: sync.branch }
+        const items = scanRepositorySkills(effectiveRepository as never, sync.repoDir)
+        return {
+          repositoryId: repository.id,
+          branch: sync.branch,
+          items,
+          lastDiscoveredAt: Date.now(),
+          lastError: null,
+        }
+      } catch (error) {
+        return {
+          repositoryId: repository.id,
+          items: [],
+          lastDiscoveredAt: undefined,
+          lastError: String(error),
+        }
+      }
+    })
+
+    parentPort?.postMessage({ type: 'done', results })
+  } catch (error) {
+    parentPort?.postMessage({ type: 'error', error: String(error) })
+  }
+}
+
+const DISCOVERY_WORKER_SOURCE = `(${discoveryWorkerMain.toString()})()`
+
 function rowToRepository(row: Record<string, unknown>): SkillRepository {
   return {
     id: String(row.id),
@@ -230,6 +613,12 @@ function rowToRepository(row: Record<string, unknown>): SkillRepository {
     repo: String(row.repo),
     branch: String(row.branch),
     basePath: String(row.base_path || ''),
+    proxy: normalizeRepositoryProxy({
+      enabled: Number(row.proxy_enabled) !== 0,
+      protocol: normalizeProxyProtocol(row.proxy_protocol),
+      host: String(row.proxy_host || ''),
+      port: String(row.proxy_port || ''),
+    }),
     enabled: Number(row.enabled) !== 0,
     lastDiscoveredAt: typeof row.last_discovered_at === 'number' ? row.last_discovered_at : undefined,
     lastError: typeof row.last_error === 'string' && row.last_error.trim() ? row.last_error : undefined,
@@ -287,6 +676,7 @@ function normalizeStoredRepository(raw: Record<string, unknown>): SkillRepositor
   const basePath = normalizeRepoPath(typeof raw.basePath === 'string' ? raw.basePath : '')
   const owner = raw.owner.trim()
   const repo = raw.repo.trim()
+  const proxy = normalizeRepositoryProxy(parseLegacyProxyRecord(raw))
 
   return {
     id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : makeRepositoryId(owner, repo, branch, basePath),
@@ -297,6 +687,7 @@ function normalizeStoredRepository(raw: Record<string, unknown>): SkillRepositor
     repo,
     branch,
     basePath,
+    proxy,
     enabled: raw.enabled !== false,
     lastDiscoveredAt: typeof raw.lastDiscoveredAt === 'number' ? raw.lastDiscoveredAt : undefined,
     lastError: typeof raw.lastError === 'string' && raw.lastError.trim() ? raw.lastError.trim() : undefined,
@@ -326,9 +717,11 @@ function migrateLegacyRepositoriesToDb(): void {
   const insert = db.prepare(`
     INSERT OR REPLACE INTO skill_repositories (
       id, name, provider, repo_url, owner, repo, branch, base_path,
+      proxy_enabled, proxy_protocol, proxy_host, proxy_port,
       enabled, last_discovered_at, last_error, created_at, updated_at
     ) VALUES (
       @id, @name, @provider, @repo_url, @owner, @repo, @branch, @base_path,
+      @proxy_enabled, @proxy_protocol, @proxy_host, @proxy_port,
       @enabled, @last_discovered_at, @last_error, @created_at, @updated_at
     )
   `)
@@ -344,6 +737,10 @@ function migrateLegacyRepositoriesToDb(): void {
         repo: repository.repo,
         branch: repository.branch,
         base_path: repository.basePath,
+        proxy_enabled: repository.proxy.enabled ? 1 : 0,
+        proxy_protocol: repository.proxy.protocol,
+        proxy_host: repository.proxy.host,
+        proxy_port: repository.proxy.port,
         enabled: repository.enabled ? 1 : 0,
         last_discovered_at: repository.lastDiscoveredAt ?? null,
         last_error: repository.lastError ?? null,
@@ -435,11 +832,43 @@ function repositoryCacheDir(repository: Pick<SkillRepository, 'repoUrl' | 'branc
   return join(SKILL_REPOS_CACHE_DIR, hashString(key))
 }
 
-function runGit(args: string[], cwd?: string): void {
+function gitEnvForRepository(repository?: Pick<SkillRepository, 'proxy'>): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  const proxyUrl = repository ? buildProxyUrl(repository.proxy) : null
+  if (!proxyUrl) {
+    return env
+  }
+
+  env.HTTP_PROXY = proxyUrl
+  env.HTTPS_PROXY = proxyUrl
+  env.ALL_PROXY = proxyUrl
+  env.http_proxy = proxyUrl
+  env.https_proxy = proxyUrl
+  env.all_proxy = proxyUrl
+  return env
+}
+
+function gitArgsForRepository(args: string[], repository?: Pick<SkillRepository, 'proxy'>): string[] {
+  const proxyUrl = repository ? buildProxyUrl(repository.proxy) : null
+  if (!proxyUrl) {
+    return args
+  }
+
+  return [
+    '-c',
+    `http.proxy=${proxyUrl}`,
+    '-c',
+    `https.proxy=${proxyUrl}`,
+    ...args,
+  ]
+}
+
+function runGit(args: string[], cwd?: string, repository?: Pick<SkillRepository, 'proxy'>): void {
   try {
-    execFileSync('git', args, {
+    execFileSync('git', gitArgsForRepository(args, repository), {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: gitEnvForRepository(repository),
     })
   } catch (error) {
     const err = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string }
@@ -450,12 +879,13 @@ function runGit(args: string[], cwd?: string): void {
   }
 }
 
-function runGitCapture(args: string[], cwd?: string): string {
+function runGitCapture(args: string[], cwd?: string, repository?: Pick<SkillRepository, 'proxy'>): string {
   try {
-    return execFileSync('git', args, {
+    return execFileSync('git', gitArgsForRepository(args, repository), {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       encoding: 'utf-8',
+      env: gitEnvForRepository(repository),
     }).trim()
   } catch (error) {
     const err = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string }
@@ -475,9 +905,9 @@ function isRemoteBranchNotFound(message: string): boolean {
   )
 }
 
-function detectRemoteDefaultBranch(repoUrl: string): string | null {
+function detectRemoteDefaultBranch(repository: Pick<SkillRepository, 'repoUrl' | 'proxy'>): string | null {
   try {
-    const output = runGitCapture(['ls-remote', '--symref', repoUrl, 'HEAD'])
+    const output = runGitCapture(['ls-remote', '--symref', repository.repoUrl, 'HEAD'], undefined, repository)
     const match = output.match(/ref:\s+refs\/heads\/([^\s]+)\s+HEAD/)
     return match?.[1]?.trim() || null
   } catch {
@@ -503,15 +933,15 @@ function ensureRepoCache(repository: SkillRepository, refresh = true): string {
     if (!existsSync(gitDir)) {
       rmSync(repoDir, { recursive: true, force: true })
       ensureDir(dirname(repoDir))
-      runGit(['clone', '--depth', '1', '--branch', branch, repository.repoUrl, repoDir])
+      runGit(['clone', '--depth', '1', '--branch', branch, repository.repoUrl, repoDir], undefined, repository)
       return
     }
 
     if (refresh) {
-      runGit(['remote', 'set-url', 'origin', repository.repoUrl], repoDir)
-      runGit(['fetch', '--depth', '1', 'origin', branch], repoDir)
-      runGit(['checkout', '-B', branch, 'FETCH_HEAD'], repoDir)
-      runGit(['clean', '-fd'], repoDir)
+      runGit(['remote', 'set-url', 'origin', repository.repoUrl], repoDir, repository)
+      runGit(['fetch', '--depth', '1', 'origin', branch], repoDir, repository)
+      runGit(['checkout', '-B', branch, 'FETCH_HEAD'], repoDir, repository)
+      runGit(['clean', '-fd'], repoDir, repository)
     }
   }
 
@@ -523,7 +953,7 @@ function ensureRepoCache(repository: SkillRepository, refresh = true): string {
       throw error
     }
 
-    const fallbackBranch = detectRemoteDefaultBranch(repository.repoUrl)
+    const fallbackBranch = detectRemoteDefaultBranch(repository)
     if (!fallbackBranch || fallbackBranch === activeBranch) {
       throw error
     }
@@ -681,6 +1111,58 @@ function discoverRepository(repository: SkillRepository): {
       items: [],
       lastError: String(error),
     }
+  }
+}
+
+function applyDiscoveryWorkerResults(
+  repositories: SkillRepository[],
+  results: Array<{
+    repositoryId: string
+    branch?: string
+    items: DiscoveredSkill[]
+    lastDiscoveredAt?: number
+    lastError?: string | null
+  }>
+): { repositoryCount: number; successCount: number; errorCount: number; skillCount: number } {
+  let successCount = 0
+  let errorCount = 0
+  let skillCount = 0
+
+  results.forEach((result) => {
+    const repository = repositories.find((item) => item.id === result.repositoryId)
+    if (!repository) return
+
+    const effectiveRepository = result.branch && result.branch !== repository.branch
+      ? { ...repository, branch: result.branch }
+      : repository
+
+    if (result.branch && result.branch !== repository.branch) {
+      updateRepositoryBranch(repository.id, result.branch)
+    }
+
+    if (result.lastError) {
+      errorCount += 1
+      updateRepositoryDiscoveryState(repository.id, {
+        lastDiscoveredAt: result.lastDiscoveredAt,
+        lastError: result.lastError,
+      })
+      return
+    }
+
+    successCount += 1
+    skillCount += result.items.length
+    upsertDiscoveredSkills(effectiveRepository, result.items)
+    updateRepositoryDiscoveryState(repository.id, {
+      lastDiscoveredAt: result.lastDiscoveredAt,
+      lastError: null,
+    })
+  })
+
+  return {
+    repositoryCount: repositories.length,
+    successCount,
+    errorCount,
+    skillCount,
   }
 }
 
@@ -876,6 +1358,7 @@ export function saveSkillRepository(input: SkillRepositoryDraft): { ok: boolean;
       repo: parsed.repo,
       branch: parsed.branch,
       basePath: parsed.basePath,
+      proxy: validateRepositoryProxy(normalizeRepositoryProxy(input.proxy, currentRepository?.proxy)),
       enabled: input.enabled ?? currentRepository?.enabled ?? true,
       lastDiscoveredAt: repositoryIdentityChanged ? undefined : currentRepository?.lastDiscoveredAt,
       lastError: repositoryIdentityChanged ? undefined : currentRepository?.lastError,
@@ -891,8 +1374,9 @@ export function saveSkillRepository(input: SkillRepositoryDraft): { ok: boolean;
     db.prepare(`
       INSERT INTO skill_repositories (
         id, name, provider, repo_url, owner, repo, branch, base_path,
+        proxy_enabled, proxy_protocol, proxy_host, proxy_port,
         enabled, last_discovered_at, last_error, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         provider = excluded.provider,
@@ -901,6 +1385,10 @@ export function saveSkillRepository(input: SkillRepositoryDraft): { ok: boolean;
         repo = excluded.repo,
         branch = excluded.branch,
         base_path = excluded.base_path,
+        proxy_enabled = excluded.proxy_enabled,
+        proxy_protocol = excluded.proxy_protocol,
+        proxy_host = excluded.proxy_host,
+        proxy_port = excluded.proxy_port,
         enabled = excluded.enabled,
         last_discovered_at = excluded.last_discovered_at,
         last_error = excluded.last_error,
@@ -914,6 +1402,10 @@ export function saveSkillRepository(input: SkillRepositoryDraft): { ok: boolean;
       repository.repo,
       repository.branch,
       repository.basePath,
+      repository.proxy.enabled ? 1 : 0,
+      repository.proxy.protocol,
+      repository.proxy.host,
+      repository.proxy.port,
       repository.enabled ? 1 : 0,
       repository.lastDiscoveredAt ?? null,
       repository.lastError ?? null,
@@ -960,6 +1452,124 @@ export async function discoverSkills(repositoryId?: string): Promise<DiscoveredS
   }
 
   return queryDiscoveredSkills(repositoryId)
+}
+
+export function startDiscoverSkills(
+  repositoryId: string | undefined,
+  onEvent?: (event: SkillDiscoveryEvent) => void
+): SkillDiscoveryLaunchResult {
+  ensureStorageReady()
+
+  if (activeDiscoveryTask) {
+    return {
+      ok: false,
+      started: false,
+      taskId: activeDiscoveryTask.id,
+      error: '已有刷新任务正在后台执行',
+    }
+  }
+
+  const repositories = queryRepositories(repositoryId).filter((item) => item.enabled && (!repositoryId || item.id === repositoryId))
+  if (repositories.length === 0) {
+    return {
+      ok: false,
+      started: false,
+      error: repositoryId ? '当前仓库未启用或不存在' : '没有可刷新的已启用仓库',
+    }
+  }
+
+  const taskId = `skills-discovery-${Date.now()}`
+  const worker = new Worker(DISCOVERY_WORKER_SOURCE, {
+    eval: true,
+    workerData: {
+      cacheDir: SKILL_REPOS_CACHE_DIR,
+      repositories: repositories.map((repository) => ({
+        id: repository.id,
+        name: repository.name,
+        repoUrl: repository.repoUrl,
+        owner: repository.owner,
+        repo: repository.repo,
+        branch: repository.branch,
+        basePath: repository.basePath,
+        proxy: repository.proxy,
+      })),
+    },
+  })
+
+  activeDiscoveryTask = { id: taskId, worker, repositoryId }
+  onEvent?.({
+    type: 'started',
+    taskId,
+    repositoryId,
+  })
+
+  const clearActiveTask = (): void => {
+    if (activeDiscoveryTask?.id === taskId) {
+      activeDiscoveryTask = null
+    }
+  }
+
+  worker.on('message', (message: {
+    type: 'done' | 'error'
+    results?: Array<{
+      repositoryId: string
+      branch?: string
+      items: DiscoveredSkill[]
+      lastDiscoveredAt?: number
+      lastError?: string | null
+    }>
+    error?: string
+  }) => {
+    if (message.type === 'done' && message.results) {
+      const summary = applyDiscoveryWorkerResults(repositories, message.results)
+      clearActiveTask()
+      onEvent?.({
+        type: 'finished',
+        taskId,
+        repositoryId,
+        ...summary,
+      })
+      void worker.terminate()
+      return
+    }
+
+    clearActiveTask()
+    onEvent?.({
+      type: 'failed',
+      taskId,
+      repositoryId,
+      error: message.error || '后台刷新失败',
+    })
+    void worker.terminate()
+  })
+
+  worker.on('error', (error) => {
+    clearActiveTask()
+    onEvent?.({
+      type: 'failed',
+      taskId,
+      repositoryId,
+      error: String(error),
+    })
+  })
+
+  worker.on('exit', (code) => {
+    if (code === 0) return
+    if (activeDiscoveryTask?.id !== taskId) return
+    clearActiveTask()
+    onEvent?.({
+      type: 'failed',
+      taskId,
+      repositoryId,
+      error: `后台刷新进程异常退出 (${code})`,
+    })
+  })
+
+  return {
+    ok: true,
+    started: true,
+    taskId,
+  }
 }
 
 export async function previewDiscoveredSkill(repositoryId: string, skillPath: string): Promise<string> {

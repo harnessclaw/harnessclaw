@@ -90,6 +90,12 @@ function initTables(db: Database.Database): void {
       repo               TEXT NOT NULL,
       branch             TEXT NOT NULL,
       base_path          TEXT NOT NULL DEFAULT '',
+      proxy_enabled      INTEGER NOT NULL DEFAULT 0,
+      proxy_protocol     TEXT NOT NULL DEFAULT 'http',
+      proxy_host         TEXT NOT NULL DEFAULT '',
+      proxy_port         TEXT NOT NULL DEFAULT '',
+      proxy_username     TEXT NOT NULL DEFAULT '',
+      proxy_password     TEXT NOT NULL DEFAULT '',
       enabled            INTEGER NOT NULL DEFAULT 1,
       last_discovered_at INTEGER,
       last_error         TEXT,
@@ -158,6 +164,20 @@ function initTables(db: Database.Database): void {
   if (!hasSubagentJson) {
     db.exec(`ALTER TABLE tool_activities ADD COLUMN subagent_json TEXT`)
   }
+
+  const repositoryColumns = db.prepare(`PRAGMA table_info(skill_repositories)`).all() as Array<{ name: string }>
+  const ensureRepositoryColumn = (name: string, sql: string): void => {
+    if (!repositoryColumns.some((col) => col.name === name)) {
+      db.exec(sql)
+    }
+  }
+
+  ensureRepositoryColumn('proxy_enabled', `ALTER TABLE skill_repositories ADD COLUMN proxy_enabled INTEGER NOT NULL DEFAULT 0`)
+  ensureRepositoryColumn('proxy_protocol', `ALTER TABLE skill_repositories ADD COLUMN proxy_protocol TEXT NOT NULL DEFAULT 'http'`)
+  ensureRepositoryColumn('proxy_host', `ALTER TABLE skill_repositories ADD COLUMN proxy_host TEXT NOT NULL DEFAULT ''`)
+  ensureRepositoryColumn('proxy_port', `ALTER TABLE skill_repositories ADD COLUMN proxy_port TEXT NOT NULL DEFAULT ''`)
+  ensureRepositoryColumn('proxy_username', `ALTER TABLE skill_repositories ADD COLUMN proxy_username TEXT NOT NULL DEFAULT ''`)
+  ensureRepositoryColumn('proxy_password', `ALTER TABLE skill_repositories ADD COLUMN proxy_password TEXT NOT NULL DEFAULT ''`)
 }
 
 // ─── Sessions ────────────────────────────────────────────────────────────────

@@ -47,7 +47,6 @@ import {
 } from './logging'
 import {
   deleteInstalledSkill,
-  discoverSkills,
   installDiscoveredSkill,
   listDiscoveredSkills,
   listInstalledSkills,
@@ -56,6 +55,7 @@ import {
   readInstalledSkill,
   removeSkillRepository,
   saveSkillRepository,
+  startDiscoverSkills,
 } from './skills-market'
 
 type PersistedSubagent = { taskId: string; label: string; status: string }
@@ -182,6 +182,21 @@ function broadcastAppRuntimeStatus(): void {
   const status = inferAppRuntimeStatus()
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send('app-runtime:status', status)
+  })
+}
+
+function broadcastSkillDiscoveryEvent(event: {
+  type: 'started' | 'finished' | 'failed'
+  taskId: string
+  repositoryId?: string
+  repositoryCount?: number
+  successCount?: number
+  errorCount?: number
+  skillCount?: number
+  error?: string
+}): void {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('skills:discovery-event', event)
   })
 }
 
@@ -494,6 +509,12 @@ app.whenReady().then(() => {
     repoUrl: string
     branch?: string
     basePath?: string
+    proxy?: {
+      enabled?: boolean
+      protocol?: 'http' | 'https' | 'socks5'
+      host?: string
+      port?: string
+    }
     enabled?: boolean
   }) => {
     return saveSkillRepository(input)
@@ -504,7 +525,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('skills:discover', (_, repositoryId?: string) => {
-    return discoverSkills(repositoryId)
+    return startDiscoverSkills(repositoryId, broadcastSkillDiscoveryEvent)
   })
 
   ipcMain.handle('skills:listDiscovered', (_, repositoryId?: string) => {
