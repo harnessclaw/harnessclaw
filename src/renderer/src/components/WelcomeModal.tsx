@@ -115,31 +115,17 @@ function getProfilePreset(profile: ProfileKey | null): {
 }
 
 function buildEngineConfig(previous: ConfigRecord, draft: SetupDraft): ConfigRecord {
+  const { providers: _legacyProviders, ...rest } = previous
   const llm = asRecord(previous.llm)
   const llmProviders = asRecord(llm.providers)
-  const rootProviders = asRecord(previous.providers)
   const providerKey = getProviderKey(draft.engineMode)
   const apiBase = draft.apiBase.trim() || getDefaultApiBase(draft.engineMode)
   const apiKey = draft.apiKey.trim()
   const modelId = draft.modelId.trim()
-
-  const existingRootProvider = asRecord(rootProviders[providerKey])
   const existingLlmProvider = asRecord(llmProviders[providerKey])
 
   return {
-    ...previous,
-    providers: {
-      ...rootProviders,
-      [providerKey]: {
-        ...existingRootProvider,
-        enabled: true,
-        apiKey,
-        apiBase,
-        model: modelId,
-        api_key: apiKey,
-        base_url: apiBase,
-      },
-    },
+    ...rest,
     llm: {
       ...llm,
       default_provider: providerKey,
@@ -160,13 +146,27 @@ function buildAppConfig(previous: ConfigRecord, draft: SetupDraft): ConfigRecord
   const agents = asRecord(previous.agents)
   const defaults = asRecord(agents.defaults)
   const onboarding = asRecord(previous.onboarding)
+  const modelProviders = asRecord(previous.modelProviders)
   const profilePreset = getProfilePreset(draft.profile)
   const providerKey = getProviderKey(draft.engineMode)
   const modelId = draft.modelId.trim()
   const defaultModel = modelId ? `${providerKey}/${modelId}` : defaults.model
+  const apiBase = draft.apiBase.trim() || getDefaultApiBase(draft.engineMode)
+  const apiKey = draft.apiKey.trim()
 
   return {
     ...previous,
+    modelProviders: {
+      ...modelProviders,
+      defaultSelection: providerKey,
+      [providerKey]: {
+        apiKey,
+        apiBase,
+        model: modelId,
+        protocol: providerKey,
+        extraHeaders: null,
+      },
+    },
     agents: {
       ...agents,
       defaults: {

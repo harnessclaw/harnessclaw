@@ -219,6 +219,7 @@ interface DbMessageRow {
   session_id: string
   role: string
   content: string
+  system_notice_json: string | null
   content_segments: string | null
   thinking: string | null
   tools_used: string | null
@@ -233,6 +234,8 @@ interface DbAPI {
   listSessions: () => Promise<DbSessionRow[]>
   getMessages: (sessionId: string) => Promise<DbMessageRow[]>
   deleteSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>
+  updateSessionTitle: (sessionId: string, title: string) => Promise<{ ok: boolean; error?: string }>
+  onSessionsChanged: (callback: () => void) => () => void
 }
 
 interface PickedLocalFile {

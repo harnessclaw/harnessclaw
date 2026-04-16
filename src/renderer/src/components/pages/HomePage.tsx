@@ -12,12 +12,6 @@ const isMac = navigator.platform.toUpperCase().includes('MAC')
 
 type AttachmentItem = LocalAttachmentItem
 
-const quickActions = [
-  { label: '解释一个概念', prompt: '帮我快速学习一个新概念。' },
-  { label: '润色一段文字', prompt: '请帮我润色下面这段文字。' },
-  { label: '生成一张概念图', prompt: '帮我创作一张概念图。' },
-]
-
 const statusMeta = {
   connected: {
     label: '已连接',
@@ -179,8 +173,8 @@ export function HomePage() {
               onKeyDown={handleKeyDown}
               placeholder="+ 输入问题、目标或下一步，我来接手。"
               aria-label="输入你的问题"
-              className="min-h-[128px] max-h-[240px] w-full resize-none bg-transparent text-[15px] leading-7 text-foreground outline-none placeholder:text-muted-foreground"
-              rows={5}
+              className="min-h-[56px] max-h-[112px] w-full resize-none bg-transparent text-[15px] leading-7 text-foreground outline-none placeholder:text-muted-foreground"
+              rows={3}
             />
 
             <AttachmentPreviewPanel
@@ -188,48 +182,34 @@ export function HomePage() {
               onRemove={handleRemoveAttachment}
             />
 
-            <div className="mt-5 border-t border-border pt-4">
-              <div className="flex flex-wrap gap-2">
-                {quickActions.map((action) => (
-                  <button
-                    key={action.label}
-                    onClick={() => setInput(action.prompt)}
-                    className="rounded-full border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
-                  >
-                    {action.label}
-                  </button>
-                ))}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handlePickFiles}
+                  disabled={harnessclawStatus !== 'connected'}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-50"
+                  title="选择本地文件"
+                >
+                  <Paperclip size={12} />
+                  <span>添加文件</span>
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  支持拖拽，{shortcutHint}
+                </span>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={handlePickFiles}
-                    disabled={harnessclawStatus !== 'connected'}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-50"
-                    title="选择本地文件"
-                  >
-                    <Paperclip size={12} />
-                    <span>添加文件</span>
-                  </button>
-                  <span className="text-xs text-muted-foreground">
-                    支持拖拽，{shortcutHint}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2.5">
-                  {input.length > 0 && (
-                    <span className="text-xs text-muted-foreground">{input.length}/{maxLength}</span>
-                  )}
-                  <button
-                    onClick={handleSend}
-                    disabled={!input.trim() && attachments.length === 0}
-                    className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-primary dark:text-primary-foreground"
-                  >
-                    <span>发送</span>
-                    <Send size={14} aria-hidden="true" />
-                  </button>
-                </div>
+              <div className="flex items-center gap-2.5">
+                {input.length > 0 && (
+                  <span className="text-xs text-muted-foreground">{input.length}/{maxLength}</span>
+                )}
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim() && attachments.length === 0}
+                  className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-primary dark:text-primary-foreground"
+                >
+                  <span>发送</span>
+                  <Send size={14} aria-hidden="true" />
+                </button>
               </div>
             </div>
           </div>

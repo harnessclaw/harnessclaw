@@ -59,6 +59,14 @@ import {
 } from './skills-market'
 
 type PersistedSubagent = { taskId: string; label: string; status: string }
+type PersistedSystemNotice = {
+  kind: 'error'
+  title: string
+  message: string
+  reason?: string
+  sessionId?: string
+  hint?: string
+}
 
 function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
@@ -79,6 +87,61 @@ function isSameSubagent(
 
 function getModuleKey(subagent?: PersistedSubagent): string {
   return subagent?.taskId || '__main__'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function buildPersistedErrorHint(reason: string, message: string): string | undefined {
+  if (reason === 'model_error' && message.toLowerCase().includes('not supported')) {
+    return '请切换到当前账号可用的模型，或检查 Codex 使用的账号类型。'
+  }
+  if (message.toLowerCase().includes('websocket')) {
+    return '请检查本地服务是否已启动，以及连接配置是否正确。'
+  }
+  return undefined
+}
+
+function buildPersistedSystemErrorNotice(event: Record<string, unknown>, sessionId?: string): PersistedSystemNotice {
+  const payload = isRecord(event.error)
+    ? event.error
+    : isRecord(event.payload)
+      ? event.payload
+      : {}
+  const message = typeof payload.message === 'string'
+    ? payload.message
+    : typeof event.content === 'string'
+      ? event.content
+      : '请求失败，请稍后重试。'
+  const reason = typeof payload.reason === 'string' ? payload.reason : undefined
+
+  return {
+    kind: 'error',
+    title: '请求失败',
+    message,
+    reason,
+    sessionId,
+    hint: buildPersistedErrorHint(reason || '', message),
+  }
+}
+
+function getEventSessionId(event: Record<string, unknown>): string | undefined {
+  if (typeof event.session_id === 'string' && event.session_id) {
+    return event.session_id
+  }
+
+  const payload = isRecord(event.payload) ? event.payload : undefined
+  if (payload && typeof payload.session_id === 'string' && payload.session_id) {
+    return payload.session_id
+  }
+
+  const error = isRecord(event.error) ? event.error : undefined
+  if (error && typeof error.session_id === 'string' && error.session_id) {
+    return error.session_id
+  }
+
+  return undefined
 }
 
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
@@ -197,6 +260,12 @@ function broadcastSkillDiscoveryEvent(event: {
 }): void {
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send('skills:discovery-event', event)
+  })
+}
+
+function broadcastDbSessionsChanged(): void {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('db:sessionsChanged')
   })
 }
 
@@ -321,17 +390,62 @@ function startHarnessclawEngine(): void {
   })
 }
 
-function stopHarnessclawEngine(): void {
+async function stopHarnessclawEngine(): Promise<void> {
   if (!harnessclawEngineProcess) return
   console.log('[HarnessclawEngine] Stopping engine...')
-  harnessclawEngineProcess.kill('SIGTERM')
-  harnessclawEngineProcess = null
+  const processToStop = harnessclawEngineProcess
+
+  await new Promise<void>((resolve) => {
+    let settled = false
+
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+
+    const timeout = setTimeout(() => {
+      processToStop.removeListener('exit', handleExit)
+      try {
+        processToStop.kill('SIGKILL')
+      } catch {
+        // Ignore kill errors during shutdown.
+      }
+      finish()
+    }, 3000)
+
+    const handleExit = () => {
+      clearTimeout(timeout)
+      finish()
+    }
+
+    processToStop.once('exit', handleExit)
+
+    try {
+      processToStop.kill('SIGTERM')
+    } catch {
+      clearTimeout(timeout)
+      processToStop.removeListener('exit', handleExit)
+      finish()
+    }
+  })
+
+  if (harnessclawEngineProcess === processToStop) {
+    harnessclawEngineProcess = null
+  }
 }
 
 function startHarnessclawRuntime(): void {
   startHarnessclawEngine()
   harnessclawClient.connect()
   broadcastAppRuntimeStatus()
+}
+
+async function restartHarnessclawRuntime(): Promise<void> {
+  harnessclawClient.disconnect()
+  broadcastAppRuntimeStatus()
+  await stopHarnessclawEngine()
+  startHarnessclawRuntime()
 }
 
 function createWindow(): BrowserWindow {
@@ -426,9 +540,13 @@ app.whenReady().then(() => {
     return readEngineConfig({ providers: {} })
   })
 
-  ipcMain.handle('config:save', (_, data: unknown) => {
+  ipcMain.handle('config:save', async (_, data: unknown) => {
     ensureDir(HARNESSCLAW_DIR)
-    return saveEngineConfig(data)
+    const result = saveEngineConfig(data)
+    if (result.ok && existsSync(HARNESSCLAW_LAUNCHED_FLAG)) {
+      await restartHarnessclawRuntime()
+    }
+    return result
   })
 
   ipcMain.handle('app-config:read', () => {
@@ -578,6 +696,17 @@ app.whenReady().then(() => {
   ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
     try {
       dbDeleteSession(sessionId)
+      broadcastDbSessionsChanged()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:updateSessionTitle', (_, sessionId: string, title: string) => {
+    try {
+      updateSessionTitle(sessionId, title)
+      broadcastDbSessionsChanged()
       return { ok: true }
     } catch (err) {
       return { ok: false, error: String(err) }
@@ -614,7 +743,7 @@ app.whenReady().then(() => {
 
     // Write to DB based on event type
     const type = event.type as string
-    const sid = event.session_id as string | undefined
+    const sid = getEventSessionId(event)
     const subagent = normalizeSubagent(event.subagent)
     try {
       const ensureDbAssistantMessage = (sessionId: string, now: number): string => {
@@ -625,6 +754,7 @@ app.whenReady().then(() => {
         pendingDbAssistantIds[sessionId] = aid
         pendingDbSegments[sessionId] = { segments: [], lastToolTsByModule: {} }
         insertMessage({ id: aid, sessionId, role: 'assistant', content: '', contentSegments: [], createdAt: now })
+        broadcastDbSessionsChanged()
         return aid
       }
 
@@ -850,6 +980,23 @@ app.whenReady().then(() => {
           }
           break
         }
+        case 'error': {
+          if (!sid) break
+          const notice = buildPersistedSystemErrorNotice(event, sid)
+          upsertSession(sid)
+          insertMessage({
+            id: `sys-${Date.now()}`,
+            sessionId: sid,
+            role: 'system',
+            content: notice.message,
+            systemNotice: notice,
+            createdAt: Date.now(),
+          })
+          broadcastDbSessionsChanged()
+          delete pendingDbAssistantIds[sid]
+          delete pendingDbSegments[sid]
+          break
+        }
       }
     } catch (err) {
       console.error('[DB] Event write error:', type, err)
@@ -877,6 +1024,7 @@ app.whenReady().then(() => {
         upsertSession(sessionId)
         const msgId = `usr-${Date.now()}`
         insertMessage({ id: msgId, sessionId, role: 'user', content, createdAt: Date.now() })
+        broadcastDbSessionsChanged()
         // Use first user message as session title
         const msgs = getMessages(sessionId)
         const userMsgs = msgs.filter((m) => m.role === 'user')
@@ -884,6 +1032,7 @@ app.whenReady().then(() => {
           const title = content.trim().replace(/\n/g, ' ')
           const truncated = title.length > 50 ? title.slice(0, 50) + '...' : title
           updateSessionTitle(sessionId, truncated)
+          broadcastDbSessionsChanged()
         }
       } catch (err) {
         console.error('[DB] Send write error:', err)

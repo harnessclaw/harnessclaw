@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
-  Send, Plus, ChevronLeft, ChevronRight, Copy, Check, Trash2,
+  Send, Plus, Copy, Check, Trash2,
   Loader2, Wrench, Brain, AlertCircle, RefreshCw, ChevronDown, ChevronUp,
   FileText, X, ArrowDown
 } from 'lucide-react'
@@ -45,6 +45,7 @@ interface Message {
   role: MessageRole
   content: string // kept for compatibility, accumulated text
   timestamp: number
+  systemNotice?: SystemNoticeData
   isStreaming?: boolean
   thinking?: string
   tools?: ToolActivity[]
@@ -80,6 +81,15 @@ interface PermissionResultData {
   approved: boolean
   scope: 'once' | 'session'
   message: string
+}
+
+interface SystemNoticeData {
+  kind: 'error'
+  title: string
+  message: string
+  reason?: string
+  sessionId?: string
+  hint?: string
 }
 
 type AttachmentItem = LocalAttachmentItem
@@ -181,6 +191,67 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
     return null
   }
   return null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function buildErrorHint(reason: string, message: string): string | undefined {
+  if (reason === 'model_error' && message.toLowerCase().includes('not supported')) {
+    return '请切换到当前账号可用的模型，或检查 Codex 使用的账号类型。'
+  }
+  if (message.toLowerCase().includes('websocket')) {
+    return '请检查本地服务是否已启动，以及连接配置是否正确。'
+  }
+  return undefined
+}
+
+function buildSystemErrorNotice(raw: unknown): SystemNoticeData {
+  const root = typeof raw === 'string'
+    ? (parseJsonObject(raw) || raw)
+    : raw
+  const payload = isRecord(root) && isRecord(root.payload) ? root.payload : root
+  const record = isRecord(payload) ? payload : {}
+  const fallbackContent = isRecord(root) && typeof root.content === 'string' ? root.content : ''
+  const message = typeof record.message === 'string'
+    ? record.message
+    : fallbackContent || (typeof root === 'string' ? root : '请求失败，请稍后重试。')
+  const reason = typeof record.reason === 'string'
+    ? record.reason
+    : isRecord(root) && typeof root.reason === 'string'
+      ? root.reason
+      : undefined
+  const sessionId = typeof record.session_id === 'string'
+    ? record.session_id
+    : isRecord(root) && typeof root.session_id === 'string'
+      ? root.session_id
+      : undefined
+
+  return {
+    kind: 'error',
+    title: '请求失败',
+    message: message.trim() || '请求失败，请稍后重试。',
+    reason,
+    sessionId,
+    hint: buildErrorHint(reason || '', message),
+  }
+}
+
+function getHarnessclawEventSessionId(event: Record<string, unknown>): string {
+  if (typeof event.session_id === 'string' && event.session_id) {
+    return event.session_id
+  }
+
+  if (isRecord(event.payload) && typeof event.payload.session_id === 'string' && event.payload.session_id) {
+    return event.payload.session_id
+  }
+
+  if (isRecord(event.error) && typeof event.error.session_id === 'string' && event.error.session_id) {
+    return event.error.session_id
+  }
+
+  return ''
 }
 
 function getFileName(path: string): string {
@@ -285,6 +356,8 @@ export function ChatPage() {
   const location = useLocation()
   const initialMessage = location.state?.initialMessage || ''
   const initialAttachments = (location.state?.initialAttachments || []) as AttachmentItem[]
+  const selectedSessionIdFromRoute = typeof location.state?.sessionId === 'string' ? location.state.sessionId : ''
+  const createSessionOnOpen = location.state?.createSession === true
   const [sessionMap, setSessionMap] = useState<Record<string, SessionState>>({})
   const [activeSessionId, setActiveSessionId] = useState('')
   const [filePreview, setFilePreview] = useState<FilePreviewData | null>(null)
@@ -292,7 +365,6 @@ export function ChatPage() {
   const [attachments, setAttachments] = useState<AttachmentItem[]>(initialAttachments)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [showSidebar, setShowSidebar] = useState(true)
   const [harnessclawStatus, setHarnessclawStatus] = useState<HarnessclawStatus>('disconnected')
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const messagesViewportRef = useRef<HTMLDivElement>(null)
@@ -400,7 +472,7 @@ export function ChatPage() {
     })
   }, [sessionMap, sessions, dbSessions])
   const activeSessionMeta = displayedSessions.find((session) => session.key === activeSessionId)
-  const activeSessionLabel = activeSessionMeta?.label || '新对话'
+  const activeSessionPrompt = activeSessionMeta?.firstMsg || activeSessionMeta?.title || '新对话'
   const resizeComposerTextarea = useCallback(() => {
     const textarea = composerTextareaRef.current
     if (!textarea) return
@@ -516,6 +588,7 @@ export function ChatPage() {
         id: r.id,
         role: r.role as MessageRole,
         content: parsed.content,
+        systemNotice: r.system_notice_json ? JSON.parse(r.system_notice_json) as SystemNoticeData : undefined,
         attachments: parsed.attachments,
         timestamp: r.created_at,
         thinking: r.thinking || undefined,
@@ -539,31 +612,96 @@ export function ChatPage() {
     })
   }, [])
 
+  const loadPersistedSessions = useCallback(async () => {
+    const rows = await window.db.listSessions()
+    if (rows.length === 0) {
+      setDbSessions([])
+      setSessions([])
+      return rows
+    }
+
+    setDbSessions(rows.map((row) => ({ session_id: row.session_id, title: row.title, updated_at: row.updated_at })))
+    setSessions(rows.map((row) => ({ key: row.session_id, updatedAt: new Date(row.updated_at).toLocaleString('zh-CN') })))
+
+    const entries: Record<string, SessionState> = {}
+    for (const row of rows) {
+      const msgs = await window.db.getMessages(row.session_id)
+      entries[row.session_id] = {
+        messages: msgs.length > 0 ? dbRowsToMessages(msgs) : [],
+        pendingAssistantId: null,
+        isProcessing: false,
+        currentThinking: '',
+        isPaused: false,
+        isStopping: false,
+      }
+    }
+
+    setSessionMap((prev) => {
+      const next = { ...prev }
+      for (const [sessionId, state] of Object.entries(entries)) {
+        const existing = prev[sessionId]
+        next[sessionId] = existing && existing.messages.length > 0 ? existing : state
+      }
+      return next
+    })
+
+    return rows
+  }, [dbRowsToMessages])
+
   // Load persisted sessions from DB on mount
   useEffect(() => {
-    window.db.listSessions().then(async (rows) => {
-      if (rows.length === 0) return
-      setDbSessions(rows.map((r) => ({ session_id: r.session_id, title: r.title, updated_at: r.updated_at })))
-      setSessions(rows.map((r) => ({ key: r.session_id, updatedAt: new Date(r.updated_at).toLocaleString('zh-CN') })))
-      // Load messages for all persisted sessions
-      const entries: Record<string, SessionState> = {}
-      for (const row of rows) {
-        const msgs = await window.db.getMessages(row.session_id)
-        entries[row.session_id] = {
-          messages: msgs.length > 0 ? dbRowsToMessages(msgs) : [],
-          pendingAssistantId: null,
-          isProcessing: false,
-          currentThinking: '',
-          isPaused: false,
-          isStopping: false,
-        }
-      }
-      setSessionMap((prev) => ({ ...entries, ...prev }))
+    void loadPersistedSessions().then((rows) => {
+      if (selectedSessionIdFromRoute || createSessionOnOpen) return
       if (!activeSessionIdRef.current && rows[0]?.session_id) {
         setActiveSessionId(rows[0].session_id)
       }
     })
-  }, [])
+  }, [createSessionOnOpen, loadPersistedSessions, selectedSessionIdFromRoute])
+
+  useEffect(() => {
+    const offSessionsChanged = window.db.onSessionsChanged(() => {
+      void loadPersistedSessions()
+    })
+    return () => offSessionsChanged()
+  }, [loadPersistedSessions])
+
+  const handleSwitchSession = useCallback((key: string) => {
+    if (!key) return
+    if (key !== activeSessionIdRef.current) {
+      setActiveSessionId(key)
+    }
+
+    void window.db.getMessages(key).then((rows) => {
+      if (rows.length > 0) {
+        setSessionMap((prev) => ({
+          ...prev,
+          [key]: { messages: dbRowsToMessages(rows), pendingAssistantId: null, isProcessing: false, currentThinking: '', isPaused: false, isStopping: false },
+        }))
+        return
+      }
+
+      setSessionMap((prev) => {
+        if (prev[key]) return prev
+        return {
+          ...prev,
+          [key]: { messages: [], pendingAssistantId: null, isProcessing: false, currentThinking: '', isPaused: false, isStopping: false },
+        }
+      })
+    })
+  }, [dbRowsToMessages])
+
+  useEffect(() => {
+    if (!selectedSessionIdFromRoute) return
+    handleSwitchSession(selectedSessionIdFromRoute)
+  }, [handleSwitchSession, selectedSessionIdFromRoute])
+
+  useEffect(() => {
+    if (!createSessionOnOpen) return
+    if (selectedSessionIdFromRoute) return
+    if (pendingInitialTurn.current) return
+    if (activeSessionIdRef.current) return
+    ensureLocalSession()
+  }, [createSessionOnOpen, selectedSessionIdFromRoute, ensureLocalSession, location.key])
 
   // Sync Harnessclaw status on mount
   useEffect(() => {
@@ -599,7 +737,7 @@ export function ChatPage() {
   // Handle Harnessclaw events — route by session_id
   const handleHarnessclawEvent = useCallback((event: Record<string, unknown>) => {
     const type = event.type as string
-    const eventSessionId = event.session_id as string | undefined
+    const eventSessionId = getHarnessclawEventSessionId(event) || undefined
     const subagent = normalizeSubagent(event.subagent)
 
     const ensureAssistantMessage = (sid: string, now: number): string => {
@@ -1019,16 +1157,48 @@ export function ChatPage() {
       }
 
       case 'error': {
-        // Route to active session or show globally
-        const sid = eventSessionId || ''
+        const sid = eventSessionId || activeSessionIdRef.current || ''
         if (sid) {
+          const pendingAssistantId = pendingAssistantIds.current[sid]
+          const systemNotice = buildSystemErrorNotice(event.error || event.payload || event.content || event)
+          pendingAssistantIds.current[sid] = null
           updateSession(sid, (prev) => ({
-            ...prev,
             isProcessing: false,
             isPaused: false,
             isStopping: false,
             pauseReason: undefined,
-            messages: [...prev.messages, { id: `err-${Date.now()}`, role: 'system', content: `Error: ${event.content}`, timestamp: Date.now() }],
+            messages: (() => {
+              const nextMessages = [...prev.messages]
+
+              if (pendingAssistantId) {
+                const pendingIndex = nextMessages.findIndex((message) => message.id === pendingAssistantId)
+                if (pendingIndex >= 0) {
+                  const pendingMessage = nextMessages[pendingIndex]
+                  const hasVisibleContent = Boolean(
+                    pendingMessage.content.trim()
+                    || pendingMessage.attachments?.length
+                    || pendingMessage.tools?.length
+                    || pendingMessage.contentSegments?.some((segment) => segment.text.trim())
+                  )
+
+                  if (hasVisibleContent) {
+                    nextMessages[pendingIndex] = { ...pendingMessage, isStreaming: false }
+                  } else {
+                    nextMessages.splice(pendingIndex, 1)
+                  }
+                }
+              }
+
+              nextMessages.push({
+                id: `err-${Date.now()}`,
+                role: 'system',
+                content: systemNotice.message,
+                systemNotice,
+                timestamp: Date.now(),
+              })
+
+              return nextMessages
+            })(),
           }))
         }
         break
@@ -1080,44 +1250,10 @@ export function ChatPage() {
     ensureLocalSession()
   }
 
-  const handleSwitchSession = (key: string) => {
-    if (key === activeSessionId) return
-    window.db.getMessages(key).then((rows) => {
-      if (rows.length > 0) {
-        setSessionMap((prev) => ({
-          ...prev,
-          [key]: { messages: dbRowsToMessages(rows), pendingAssistantId: null, isProcessing: false, currentThinking: '', isPaused: false, isStopping: false },
-        }))
-      } else {
-        setSessionMap((prev) => {
-          if (!prev[key]) {
-            return { ...prev, [key]: { messages: [], pendingAssistantId: null, isProcessing: false, currentThinking: '', isPaused: false, isStopping: false } }
-          }
-          return prev
-        })
-      }
-    })
-    setActiveSessionId(key)
-  }
-
   const handleReconnect = () => {
     window.harnessclaw.disconnect().then(() => {
       setTimeout(() => window.harnessclaw.connect(), 300)
     })
-  }
-
-  const handleDeleteSession = (sid: string) => {
-    window.db.deleteSession(sid)
-    setSessionMap((prev) => {
-      const next = { ...prev }
-      delete next[sid]
-      return next
-    })
-    setDbSessions((prev) => prev.filter((d) => d.session_id !== sid))
-    setSessions((prev) => prev.filter((s) => s.key !== sid))
-    if (activeSessionId === sid) {
-      setActiveSessionId('')
-    }
   }
 
   const handleStop = () => {
@@ -1212,88 +1348,16 @@ export function ChatPage() {
 
   return (
     <div className="relative flex h-full overflow-hidden bg-background">
-      {/* Left: Session sidebar */}
-      {showSidebar && (
-        <aside className="flex w-64 min-w-64 flex-shrink-0 flex-col border-r border-border/80 bg-card">
-          <div className="border-b border-border/80 px-3 py-3">
-            <button
-              onClick={handleNewSession}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-3 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90 dark:bg-primary dark:text-primary-foreground"
-            >
-              <Plus size={14} />
-              开始新对话
-            </button>
-          </div>
-
-          {/* Session list */}
-          <div className="flex-1 overflow-y-auto px-2 py-3">
-            {displayedSessions.length === 0 ? (
-              <div className="px-3 py-6 text-center">
-                <p className="text-sm text-foreground">还没有对话记录</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  新建一个会话后，历史记录会出现在这里。
-                </p>
-              </div>
-            ) : (
-              displayedSessions.map((s) => {
-                const isActive = s.key === activeSessionId
-                return (
-                  <div
-                    key={s.key}
-                    className={cn(
-                      'group/item mb-1.5 flex w-full cursor-pointer items-start justify-between rounded-2xl px-3 py-3 text-left transition-all',
-                      isActive
-                        ? 'bg-accent text-foreground shadow-sm ring-1 ring-border/80'
-                        : 'text-foreground hover:bg-muted/70'
-                    )}
-                    onClick={() => handleSwitchSession(s.key)}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <span className="block truncate text-sm font-medium">{s.label}</span>
-                      <p className="mt-1 text-[11px] leading-5 text-foreground/62 dark:text-foreground/78">
-                        {s.updatedAt || '刚刚更新'}
-                        {s.msgCount > 0 ? ` · ${s.msgCount} 条消息` : ''}
-                      </p>
-                    </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.key) }}
-                      className="ml-2 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl opacity-0 transition-all hover:bg-red-100 group-hover/item:opacity-100 dark:hover:bg-red-900/30"
-                      aria-label={`删除会话 ${s.label}`}
-                    >
-                      <Trash2 size={12} className="text-muted-foreground hover:text-red-500" />
-                    </button>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </aside>
-      )}
-
       {/* Main chat area */}
       <div className="relative flex-1 flex min-w-0 flex-col overflow-hidden">
         {/* Top bar */}
         <div className="titlebar-drag border-b border-border/80 bg-card/72 px-4 py-3 backdrop-blur-sm">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <button
-                onClick={() => setShowSidebar(!showSidebar)}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background transition-colors hover:bg-muted"
-                aria-label={showSidebar ? '收起会话列表' : '展开会话列表'}
-              >
-              {showSidebar ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-              </button>
-
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-foreground">Agent Console</span>
-                  <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-                    观察中
-                  </span>
-                </div>
-                <p className="truncate text-xs text-muted-foreground">
-                  {activeSessionId ? activeSessionLabel : '先开始一个对话，Agent 的过程会显示在这里。'}
-                </p>
+                <span className="block truncate text-sm font-semibold text-foreground">
+                  {activeSessionId ? activeSessionPrompt : '新对话'}
+                </span>
               </div>
             </div>
 
@@ -1379,7 +1443,7 @@ export function ChatPage() {
             )}
 
             {/* Input area */}
-            <div className="border-t border-border/80 bg-card/45 px-4 py-2.5 backdrop-blur-sm">
+            <div className="bg-card/45 px-4 py-2.5 backdrop-blur-sm">
               <div className="mx-auto w-full max-w-4xl">
                 {composerNotice && (
                   <div
@@ -1533,6 +1597,7 @@ function MessageBubble({
   const [now, setNow] = useState(() => Date.now())
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
+  const systemNotice = message.systemNotice
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -1541,6 +1606,43 @@ function MessageBubble({
   }
 
   if (isSystem) {
+    if (systemNotice?.kind === 'error') {
+      return (
+        <div className="flex justify-start">
+          <div className="w-[min(80%,56rem)]">
+            <div className="rounded-2xl border border-red-200 bg-white px-4 py-3 shadow-sm dark:border-red-900/40 dark:bg-[#1b1414]">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300">
+                  <AlertCircle size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-red-700 dark:text-red-300">{systemNotice.title}</p>
+                    {systemNotice.reason && (
+                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950/30 dark:text-red-300">
+                        {systemNotice.reason}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-foreground dark:text-[#e8edf5]">{systemNotice.message}</p>
+                  {systemNotice.hint && (
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground dark:text-[#aab4c7]">
+                      建议：{systemNotice.hint}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <p className="mt-1 px-1 text-[10px] text-muted-foreground">
+                {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="flex justify-center">
         <span className="text-[10px] text-muted-foreground bg-muted px-3 py-1 rounded-full">{message.content}</span>
@@ -1643,6 +1745,12 @@ function MessageBubble({
     && !!message.isStreaming
     && segments.length > 0
     && now - lastVisibleActivityTs > 1000
+  const shouldShowTimestamp = !message.isStreaming
+  const hasRenderableAssistantBody = displaySegments.length > 0 || attachments.length > 0
+
+  if (!isUser && !isSystem && !message.isStreaming && !hasRenderableAssistantBody) {
+    return null
+  }
 
   useEffect(() => {
     if (!message.isStreaming || isUser || isSystem) return
@@ -1800,9 +1908,6 @@ function MessageBubble({
 
         {/* Metadata */}
         <div className="flex items-center gap-2 mt-1 px-1">
-          <p className="text-[10px] text-muted-foreground">
-            {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-          </p>
           {toolCalls.length > 0 && (
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Wrench size={9} /> {toolCalls.length} 个工具操作
@@ -1815,6 +1920,11 @@ function MessageBubble({
               </span>
               {subagentCount} 个辅助处理
             </span>
+          )}
+          {shouldShowTimestamp && (
+            <p className="text-[10px] text-muted-foreground">
+              {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+            </p>
           )}
         </div>
       </div>

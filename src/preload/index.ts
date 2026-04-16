@@ -115,6 +115,12 @@ const dbAPI = {
   listSessions: () => ipcRenderer.invoke('db:listSessions'),
   getMessages: (sessionId: string) => ipcRenderer.invoke('db:getMessages', sessionId),
   deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),
+  updateSessionTitle: (sessionId: string, title: string) => ipcRenderer.invoke('db:updateSessionTitle', sessionId, title),
+  onSessionsChanged: (callback: () => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('db:sessionsChanged', handler)
+    return () => ipcRenderer.removeListener('db:sessionsChanged', handler)
+  },
 }
 
 const filesAPI = {

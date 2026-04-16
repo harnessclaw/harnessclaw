@@ -2,7 +2,12 @@ import { app } from 'electron'
 import { dirname, join } from 'path'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { deleteConfigDocument, getConfigDocument, saveConfigDocument, type ConfigScope } from './db'
+import {
+  getConfigDocument,
+  saveConfigDocument,
+  type ConfigScope,
+  type ConfigStorageFormat,
+} from './db'
 
 const yaml = require('js-yaml') as {
   load: (source: string) => unknown
@@ -61,11 +66,7 @@ export function readYamlConfig(path: string, fallback: Record<string, unknown> =
 export function saveYamlConfig(path: string, data: unknown): { ok: boolean; error?: string } {
   try {
     ensureDir(dirname(path))
-    const serialized = yaml.dump(data, {
-      noRefs: true,
-      lineWidth: 120,
-      sortKeys: false,
-    })
+    const serialized = serializeYaml(data)
     writeFileSync(path, serialized, 'utf-8')
     return { ok: true }
   } catch (err) {
@@ -93,9 +94,29 @@ function parseJsonText(text: string, fallback: Record<string, unknown>): Record<
   }
 }
 
+function parseYamlText(text: string, fallback: Record<string, unknown>): Record<string, unknown> {
+  try {
+    const parsed = yaml.load(text)
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : fallback
+  } catch (err) {
+    return { ...fallback, _error: String(err) }
+  }
+}
+
+function serializeYaml(data: unknown): string {
+  const serialized = yaml.dump(data, {
+    noRefs: true,
+    lineWidth: 120,
+    sortKeys: false,
+  })
+  return serialized.endsWith('\n') ? serialized : `${serialized}\n`
+}
+
 function persistConfigDocument(
   scope: ConfigScope,
-  storageFormat: 'json',
+  storageFormat: ConfigStorageFormat,
   payloadText: string,
 ): { ok: boolean; error?: string } {
   try {
@@ -112,7 +133,7 @@ function persistConfigDocument(
 
 function ensureConfigDocumentInitialized(
   scope: ConfigScope,
-  storageFormat: 'json',
+  storageFormat: ConfigStorageFormat,
   seed: () => { ok: boolean; payloadText?: string; error?: string },
 ): { ok: boolean; created?: boolean; error?: string } {
   const existing = getConfigDocument(scope)
@@ -145,32 +166,21 @@ function seedAppConfigDocument(): { ok: boolean; payloadText?: string; error?: s
   }
 }
 
-function migrateLegacyEngineConfigFromDatabase(): { ok: boolean; migrated?: boolean; error?: string } {
+function seedEngineConfigDocument(): { ok: boolean; payloadText?: string; error?: string } {
   try {
     if (existsSync(ENGINE_CONFIG_PATH)) {
-      if (getConfigDocument('engine')) {
-        deleteConfigDocument('engine')
-      }
-      return { ok: true, migrated: false }
+      return { ok: true, payloadText: readText(ENGINE_CONFIG_PATH) }
     }
 
-    const legacyDocument = getConfigDocument('engine')
-    if (!legacyDocument) {
-      return { ok: true, migrated: false }
-    }
-
-    if (legacyDocument.storage_format === 'yaml') {
-      writeText(ENGINE_CONFIG_PATH, legacyDocument.payload_text)
-    } else {
-      const parsed = parseJsonText(legacyDocument.payload_text, {})
-      const result = saveYamlConfig(ENGINE_CONFIG_PATH, parsed)
-      if (!result.ok) {
-        return result
+    if (!existsSync(ENGINE_CONFIG_TEMPLATE_PATH)) {
+      return {
+        ok: false,
+        error: `Engine config template not found at ${ENGINE_CONFIG_TEMPLATE_PATH}`,
       }
     }
 
-    deleteConfigDocument('engine')
-    return { ok: true, migrated: true }
+    copyFileSync(ENGINE_CONFIG_TEMPLATE_PATH, ENGINE_CONFIG_PATH)
+    return { ok: true, payloadText: readText(ENGINE_CONFIG_PATH) }
   } catch (err) {
     return { ok: false, error: String(err) }
   }
@@ -203,35 +213,76 @@ export function readEngineConfig(fallback: Record<string, unknown> = {}): Record
   if (!initialized.ok) {
     return { ...fallback, _error: initialized.error || 'Unable to initialize engine config file' }
   }
-  return readYamlConfig(ENGINE_CONFIG_PATH, fallback)
+
+  const stored = getConfigDocument('engine')
+  if (stored) {
+    if (!existsSync(ENGINE_CONFIG_PATH)) {
+      const syncText = stored.storage_format === 'yaml'
+        ? stored.payload_text
+        : serializeYaml(parseJsonText(stored.payload_text, fallback))
+      writeText(ENGINE_CONFIG_PATH, syncText)
+    }
+
+    return stored.storage_format === 'yaml'
+      ? parseYamlText(stored.payload_text, fallback)
+      : parseJsonText(stored.payload_text, fallback)
+  }
+
+  const fileConfig = readYamlConfig(ENGINE_CONFIG_PATH, fallback)
+  if (existsSync(ENGINE_CONFIG_PATH)) {
+    void persistConfigDocument('engine', 'yaml', readText(ENGINE_CONFIG_PATH))
+  }
+  return fileConfig
 }
 
 export function saveEngineConfig(data: unknown): { ok: boolean; error?: string } {
   const initialized = ensureEngineConfigInitialized()
   if (!initialized.ok) return initialized
+
+  const payloadText = serializeYaml(data)
+  const persisted = persistConfigDocument('engine', 'yaml', payloadText)
+  if (!persisted.ok) return persisted
+
   return saveYamlConfig(ENGINE_CONFIG_PATH, data)
 }
 
 export function ensureEngineConfigInitialized(): { ok: boolean; created?: boolean; error?: string } {
   ensureDir(HARNESSCLAW_DIR)
-  const migrated = migrateLegacyEngineConfigFromDatabase()
-  if (!migrated.ok) {
-    return { ok: false, error: migrated.error }
+  const stored = getConfigDocument('engine')
+
+  if (stored && !existsSync(ENGINE_CONFIG_PATH)) {
+    const payloadText = stored.storage_format === 'yaml'
+      ? stored.payload_text
+      : serializeYaml(parseJsonText(stored.payload_text, {}))
+    writeText(ENGINE_CONFIG_PATH, payloadText)
+    return { ok: true, created: true }
   }
 
-  if (existsSync(ENGINE_CONFIG_PATH)) {
+  if (existsSync(ENGINE_CONFIG_PATH) && stored) {
     return { ok: true, created: false }
   }
 
-  if (!existsSync(ENGINE_CONFIG_TEMPLATE_PATH)) {
+  if (existsSync(ENGINE_CONFIG_PATH) && !stored) {
+    const payloadText = readText(ENGINE_CONFIG_PATH)
+    const persisted = persistConfigDocument('engine', 'yaml', payloadText)
     return {
-      ok: false,
-      error: `Engine config template not found at ${ENGINE_CONFIG_TEMPLATE_PATH}`,
+      ok: persisted.ok,
+      created: false,
+      error: persisted.error,
     }
   }
 
-  copyFileSync(ENGINE_CONFIG_TEMPLATE_PATH, ENGINE_CONFIG_PATH)
-  return { ok: true, created: true }
+  const initialized = ensureConfigDocumentInitialized('engine', 'yaml', seedEngineConfigDocument)
+  if (!initialized.ok) {
+    return initialized
+  }
+
+  const payloadText = getConfigDocument('engine')?.payload_text
+  if (typeof payloadText === 'string') {
+    writeText(ENGINE_CONFIG_PATH, payloadText)
+  }
+
+  return initialized
 }
 
 // Backward-compatible aliases. Renderer and older code may still use the nanobot name.

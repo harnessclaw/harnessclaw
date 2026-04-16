@@ -65,6 +65,22 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function getMessageSessionId(msg: Record<string, unknown>, fallback = ''): string {
+  if (typeof msg.session_id === 'string' && msg.session_id) {
+    return msg.session_id
+  }
+
+  if (isPlainObject(msg.payload) && typeof msg.payload.session_id === 'string' && msg.payload.session_id) {
+    return msg.payload.session_id
+  }
+
+  if (isPlainObject(msg.error) && typeof msg.error.session_id === 'string' && msg.error.session_id) {
+    return msg.error.session_id
+  }
+
+  return fallback
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
@@ -361,7 +377,7 @@ export class HarnessclawClient extends EventEmitter {
 
   private handleMessage(msg: Record<string, unknown>): void {
     const type = typeof msg.type === 'string' ? msg.type : ''
-    const sessionId = typeof msg.session_id === 'string' ? msg.session_id : this.defaultSessionId
+    const sessionId = getMessageSessionId(msg, this.defaultSessionId)
     if (!type) return
 
     switch (type) {
@@ -601,7 +617,10 @@ export class HarnessclawClient extends EventEmitter {
       }
 
       case 'error': {
-        const error = isPlainObject(msg.error) ? msg.error : {}
+        const payload = isPlainObject(msg.payload) ? msg.payload : {}
+        const error = isPlainObject(msg.error)
+          ? msg.error
+          : payload
         const content = typeof error.message === 'string' ? error.message : 'Unknown websocket error'
         if (this.pendingSessionInitId) {
           this.pendingSessionInitId = ''
@@ -614,6 +633,7 @@ export class HarnessclawClient extends EventEmitter {
           request_id: msg.request_id,
           content,
           error,
+          payload,
         })
         break
       }
