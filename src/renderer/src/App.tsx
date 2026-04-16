@@ -5,8 +5,10 @@ import { HomePage } from './components/pages/HomePage'
 import { AgentsPage } from './components/pages/AgentsPage'
 import { SessionsPage } from './components/pages/SessionsPage'
 import { ChatPage } from './components/pages/ChatPage'
+import { ProjectsPage } from './components/pages/ProjectsPage'
 import { SkillsPage } from './components/pages/SkillsPage'
 import { SettingsPage } from './components/pages/SettingsPage'
+import { TeamPage } from './components/pages/TeamPage'
 
 function RouteLogger() {
   const location = useLocation()
@@ -42,8 +44,10 @@ function App() {
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/chat" element={<ChatPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/team" element={<TeamPage />} />
         </Routes>
       </AppLayout>
     </Router>

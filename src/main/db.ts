@@ -42,6 +42,7 @@ function initTables(db: Database.Database): void {
       session_id       TEXT NOT NULL,
       role             TEXT NOT NULL,
       content          TEXT NOT NULL DEFAULT '',
+      system_notice_json TEXT,
       content_segments TEXT,
       thinking         TEXT,
       tools_used       TEXT,
@@ -154,6 +155,10 @@ function initTables(db: Database.Database): void {
   `)
 
   const messageColumns = db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
+  const hasSystemNoticeJson = messageColumns.some((col) => col.name === 'system_notice_json')
+  if (!hasSystemNoticeJson) {
+    db.exec(`ALTER TABLE messages ADD COLUMN system_notice_json TEXT`)
+  }
   const hasContentSegments = messageColumns.some((col) => col.name === 'content_segments')
   if (!hasContentSegments) {
     db.exec(`ALTER TABLE messages ADD COLUMN content_segments TEXT`)
@@ -218,6 +223,7 @@ export interface MessageRow {
   session_id: string
   role: string
   content: string
+  system_notice_json: string | null
   content_segments: string | null
   thinking: string | null
   tools_used: string | null
@@ -300,18 +306,20 @@ export function insertMessage(msg: {
   sessionId: string
   role: string
   content: string
+  systemNotice?: Record<string, unknown>
   contentSegments?: Array<{ text: string; ts: number; subagent?: { taskId: string; label: string; status: string } }>
   thinking?: string
   createdAt: number
 }): void {
   getDb().prepare(`
-    INSERT OR IGNORE INTO messages (id, session_id, role, content, content_segments, thinking, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO messages (id, session_id, role, content, system_notice_json, content_segments, thinking, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     msg.id,
     msg.sessionId,
     msg.role,
     msg.content,
+    msg.systemNotice ? JSON.stringify(msg.systemNotice) : null,
     msg.contentSegments ? JSON.stringify(msg.contentSegments) : null,
     msg.thinking || null,
     msg.createdAt
@@ -370,6 +378,7 @@ export interface FullMessage {
   session_id: string
   role: string
   content: string
+  system_notice_json: string | null
   content_segments: string | null
   thinking: string | null
   tools_used: string | null

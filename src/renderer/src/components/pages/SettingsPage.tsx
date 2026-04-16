@@ -10,6 +10,7 @@ import {
   ChevronDown, ChevronRight
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { NoticeToast } from '../common/NoticeToast'
 import { useAppConfig, useEngineConfig } from '@/hooks/useEngineConfig'
 import { defaultDbDisplayPath, defaultLogsDisplayPath } from '@/lib/runtimePaths'
 
@@ -492,48 +493,27 @@ interface ProviderConfig {
   apiKey: string
   apiBase: string | null
   model: string | null
+  protocol: 'openai' | 'anthropic'
   extraHeaders: Record<string, string> | null
   raw: Record<string, unknown>
 }
 
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  custom: 'Custom',
-  azureOpenai: 'Azure OpenAI',
+type ManagedProviderKey = 'anthropic' | 'openai' | 'custom'
+type ProtocolProviderKey = 'anthropic' | 'openai'
+
+const MANAGED_PROVIDER_KEYS: ManagedProviderKey[] = ['anthropic', 'openai', 'custom']
+const PROTOCOL_PROVIDER_KEYS: ProtocolProviderKey[] = ['anthropic', 'openai']
+
+const PROVIDER_DISPLAY_NAMES: Record<ManagedProviderKey, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
-  openrouter: 'OpenRouter',
-  deepseek: 'DeepSeek',
-  groq: 'Groq',
-  zhipu: '智谱',
-  dashscope: '通义千问',
-  vllm: 'vLLM',
-  ollama: 'Ollama',
-  gemini: 'Google Gemini',
-  moonshot: '月之暗面',
-  minimax: 'MiniMax',
-  aihubmix: 'AIHubMix',
-  siliconflow: '硅基流动',
-  volcengine: '火山引擎',
-  volcengineCodingPlan: '火山 Coding',
-  byteplus: 'BytePlus',
-  byteplusCodingPlan: 'BytePlus Coding',
-  openaiCodex: 'OpenAI Codex',
-  githubCopilot: 'GitHub Copilot',
+  custom: 'Custom',
 }
 
-const PROVIDER_DEFAULT_BASES: Record<string, string> = {
+const PROVIDER_DEFAULT_BASES: Record<ManagedProviderKey, string> = {
   anthropic: 'https://api.anthropic.com',
   openai: 'https://api.openai.com',
-  deepseek: 'https://api.deepseek.com',
-  groq: 'https://api.groq.com/openai',
-  zhipu: 'https://open.bigmodel.cn/api/paas',
-  dashscope: 'https://dashscope.aliyuncs.com/compatible-mode',
-  ollama: 'http://localhost:11434',
-  gemini: 'https://generativelanguage.googleapis.com',
-  moonshot: 'https://api.moonshot.cn',
-  minimax: 'https://api.minimax.chat',
-  siliconflow: 'https://api.siliconflow.cn',
-  openrouter: 'https://openrouter.ai/api',
+  custom: '',
 }
 
 const AVATAR_COLORS = [
@@ -551,12 +531,12 @@ function getProviderColor(name: string): string {
 }
 
 function getProviderInitial(key: string): string {
-  const name = PROVIDER_DISPLAY_NAMES[key] || key
+  const name = isManagedProviderKey(key) ? PROVIDER_DISPLAY_NAMES[key] : key
   return name.charAt(0).toUpperCase()
 }
 
-function getDisplayName(key: string): string {
-  return PROVIDER_DISPLAY_NAMES[key] || key
+function getDisplayName(key: ManagedProviderKey): string {
+  return PROVIDER_DISPLAY_NAMES[key]
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -567,6 +547,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function normalizeProviderConfig(rawValue: unknown): ProviderConfig {
   const raw = asRecord(rawValue)
+  const protocol = typeof raw.protocol === 'string'
+    ? raw.protocol
+    : typeof raw.apiProtocol === 'string'
+      ? raw.apiProtocol
+      : typeof raw.compatibility === 'string'
+        ? raw.compatibility
+        : 'openai'
 
   return {
     apiKey: typeof raw.apiKey === 'string'
@@ -582,89 +569,405 @@ function normalizeProviderConfig(rawValue: unknown): ProviderConfig {
           ? raw.baseUrl
           : null,
     model: typeof raw.model === 'string' ? raw.model : null,
+    protocol: protocol === 'anthropic' ? 'anthropic' : 'openai',
     extraHeaders: (raw.extraHeaders as Record<string, string> | null) ?? null,
     raw,
   }
 }
 
+function isManagedProviderKey(value: string): value is ManagedProviderKey {
+  return MANAGED_PROVIDER_KEYS.includes(value as ManagedProviderKey)
+}
+
+function createEmptyProviderConfig(key: ManagedProviderKey): ProviderConfig {
+  return {
+    apiKey: '',
+    apiBase: PROVIDER_DEFAULT_BASES[key] || null,
+    model: null,
+    protocol: key === 'anthropic' ? 'anthropic' : 'openai',
+    extraHeaders: null,
+    raw: {},
+  }
+}
+
+function mergeProviderSource(
+  rootValue: unknown,
+  llmValue: unknown,
+): Record<string, unknown> {
+  return {
+    ...asRecord(llmValue),
+    ...asRecord(rootValue),
+  }
+}
+
+function getAppModelProvidersConfig(appConfig: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(appConfig.modelProviders)
+}
+
+function getManagedProviders(
+  engineConfig: Record<string, unknown>,
+  appConfig: Record<string, unknown>,
+): Record<ManagedProviderKey, ProviderConfig> {
+  const rootProviders = asRecord(engineConfig.providers)
+  const llmProviders = asRecord(asRecord(engineConfig.llm).providers)
+  const appProviders = getAppModelProvidersConfig(appConfig)
+
+  const protocolProviders = PROTOCOL_PROVIDER_KEYS.reduce((acc, key) => {
+    const appProvider = asRecord(appProviders[key])
+    const merged = mergeProviderSource(rootProviders[key], llmProviders[key])
+    const normalized = normalizeProviderConfig(Object.keys(appProvider).length > 0 ? appProvider : merged)
+    acc[key] = {
+      ...createEmptyProviderConfig(key),
+      ...normalized,
+      apiBase: normalized.apiBase ?? (PROVIDER_DEFAULT_BASES[key] || null),
+      raw: appProvider,
+    }
+    return acc
+  }, {} as Record<ProtocolProviderKey, ProviderConfig>)
+
+  const customProvider = (() => {
+    const raw = asRecord(appProviders.custom)
+    const fallback = mergeProviderSource(rootProviders.custom, llmProviders.custom)
+    const source = Object.keys(raw).length > 0 ? raw : fallback
+    const normalized = normalizeProviderConfig(source)
+    return {
+      ...createEmptyProviderConfig('custom'),
+      ...normalized,
+      apiBase: normalized.apiBase ?? null,
+      raw: source,
+    }
+  })()
+
+  return {
+    anthropic: protocolProviders.anthropic,
+    openai: protocolProviders.openai,
+    custom: customProvider,
+  }
+}
+
+function getManagedDefaultProvider(
+  engineConfig: Record<string, unknown>,
+  appConfig: Record<string, unknown>,
+): ManagedProviderKey {
+  const modelProviders = getAppModelProvidersConfig(appConfig)
+  const defaultSelection = modelProviders.defaultSelection
+  if (typeof defaultSelection === 'string' && isManagedProviderKey(defaultSelection)) {
+    return defaultSelection
+  }
+
+  const llmDefault = asRecord(engineConfig.llm).default_provider
+  if (llmDefault === 'custom') {
+    return 'custom'
+  }
+  if (typeof llmDefault === 'string' && (llmDefault === 'anthropic' || llmDefault === 'openai')) {
+    return llmDefault
+  }
+
+  const appDefault = asRecord(asRecord(appConfig.agents).defaults).provider
+  if (typeof appDefault === 'string' && isManagedProviderKey(appDefault)) {
+    return appDefault
+  }
+
+  return 'anthropic'
+}
+
+function buildAppProviderRaw(next: ProviderConfig): Record<string, unknown> {
+  const apiKey = next.apiKey.trim()
+  const apiBase = next.apiBase?.trim() || ''
+  const model = next.model?.trim() || ''
+
+  return {
+    apiKey,
+    apiBase,
+    model,
+    protocol: next.protocol,
+    extraHeaders: next.extraHeaders ?? null,
+  }
+}
+
+function buildEngineProtocolProviderRaw(
+  existingRaw: Record<string, unknown>,
+  next: ProviderConfig,
+): Record<string, unknown> | null {
+  const apiKey = next.apiKey.trim()
+  const apiBase = next.apiBase?.trim() || ''
+  const model = next.model?.trim() || ''
+  const hasValues = Boolean(apiKey || apiBase || model)
+  const maxTokens = typeof existingRaw.max_tokens === 'number' ? existingRaw.max_tokens : undefined
+
+  if (!hasValues && maxTokens === undefined) {
+    return null
+  }
+
+  return {
+    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    base_url: apiBase,
+    api_key: apiKey,
+    model,
+  }
+}
+
+function buildEngineModelConfig(
+  previous: Record<string, unknown>,
+  providers: Record<ManagedProviderKey, ProviderConfig>,
+  defaultProvider: ManagedProviderKey,
+): Record<string, unknown> {
+  const { providers: _legacyProviders, ...rest } = previous
+  const llm = asRecord(previous.llm)
+  const llmProviders = asRecord(llm.providers)
+  const resolvedDefaultProvider: ProtocolProviderKey = defaultProvider === 'custom'
+    ? providers.custom.protocol
+    : defaultProvider
+
+  const resolvedProviders: Record<ProtocolProviderKey, ProviderConfig> = {
+    anthropic: defaultProvider === 'custom' && providers.custom.protocol === 'anthropic'
+      ? providers.custom
+      : providers.anthropic,
+    openai: defaultProvider === 'custom' && providers.custom.protocol === 'openai'
+      ? providers.custom
+      : providers.openai,
+  }
+
+  const nextLlmProviders = PROTOCOL_PROVIDER_KEYS.reduce((acc, key) => {
+    const raw = buildEngineProtocolProviderRaw(asRecord(llmProviders[key]), resolvedProviders[key])
+    if (raw) {
+      acc[key] = raw
+    }
+    return acc
+  }, {} as Record<ProtocolProviderKey, Record<string, unknown>>)
+
+  return {
+    ...rest,
+    llm: {
+      ...llm,
+      default_provider: resolvedDefaultProvider,
+      providers: nextLlmProviders,
+    },
+  }
+}
+
+function buildAppModelConfig(
+  previous: Record<string, unknown>,
+  providers: Record<ManagedProviderKey, ProviderConfig>,
+  defaultProvider: ManagedProviderKey,
+): Record<string, unknown> {
+  const agents = asRecord(previous.agents)
+  const defaults = asRecord(agents.defaults)
+  const modelProviders = getAppModelProvidersConfig(previous)
+  const resolvedDefaultProvider: ProtocolProviderKey = defaultProvider === 'custom'
+    ? providers.custom.protocol
+    : defaultProvider
+  const activeProvider = defaultProvider === 'custom'
+    ? providers.custom
+    : providers[defaultProvider]
+  const modelId = activeProvider.model?.trim() || ''
+
+  return {
+    ...previous,
+    modelProviders: {
+      ...modelProviders,
+      defaultSelection: defaultProvider,
+      anthropic: buildAppProviderRaw(providers.anthropic),
+      openai: buildAppProviderRaw(providers.openai),
+      custom: buildAppProviderRaw(providers.custom),
+    },
+    agents: {
+      ...agents,
+      defaults: {
+        ...defaults,
+        provider: resolvedDefaultProvider,
+        model: modelId ? `${resolvedDefaultProvider}/${modelId}` : null,
+      },
+    },
+  }
+}
+
+function hasPersistedModelProviders(appConfig: Record<string, unknown>): boolean {
+  const modelProviders = getAppModelProvidersConfig(appConfig)
+  return Object.keys(modelProviders).length > 0
+}
+
+function hasLegacyEngineConfig(engineConfig: Record<string, unknown>): boolean {
+  const legacyProviders = asRecord(engineConfig.providers)
+  if (Object.keys(legacyProviders).length > 0) {
+    return true
+  }
+
+  const llmProviders = asRecord(asRecord(engineConfig.llm).providers)
+  if (Object.keys(asRecord(llmProviders.custom)).length > 0) {
+    return true
+  }
+
+  return Object.values(llmProviders).some((value) => {
+    const provider = asRecord(value)
+    return 'apiKey' in provider
+      || 'apiBase' in provider
+      || 'baseUrl' in provider
+      || 'enabled' in provider
+      || 'protocol' in provider
+      || 'apiProtocol' in provider
+      || 'compatibility' in provider
+  })
+}
+
 // ─── Model Section ──────────────────────────────────────────────────────────
 
 function ModelSection() {
-  const [config, setConfig] = useState<Record<string, unknown> | null>(null)
-  const [providers, setProviders] = useState<Record<string, ProviderConfig>>({})
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [engineConfig, setEngineConfig] = useState<Record<string, unknown> | null>(null)
+  const [appConfig, setAppConfig] = useState<Record<string, unknown> | null>(null)
+  const [providers, setProviders] = useState<Record<ManagedProviderKey, ProviderConfig>>({
+    anthropic: createEmptyProviderConfig('anthropic'),
+    openai: createEmptyProviderConfig('openai'),
+    custom: createEmptyProviderConfig('custom'),
+  })
+  const [defaultProvider, setDefaultProvider] = useState<ManagedProviderKey>('anthropic')
+  const [selectedProvider, setSelectedProvider] = useState<ManagedProviderKey>('anthropic')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [persistState, setPersistState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [persistMessage, setPersistMessage] = useState('')
   const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [toastNotice, setToastNotice] = useState<{ tone: 'error' | 'success'; message: string } | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     ;(async () => {
       try {
-        const data = await window.engineConfig.read()
-        setConfig(data)
-        const p = Object.fromEntries(
-          Object.entries(asRecord(data.providers)).map(([key, value]) => [key, normalizeProviderConfig(value)])
-        ) as Record<string, ProviderConfig>
-        setProviders(p)
-        const keys = Object.keys(p)
-        const enabledKey = keys.find((k) => p[k].apiKey)
-        setSelectedProvider(enabledKey || keys[0] || null)
+        const [engineData, appData] = await Promise.all([
+          window.engineConfig.read(),
+          window.appConfig.read(),
+        ])
+        const nextProviders = getManagedProviders(engineData, appData)
+        const nextDefaultProvider = getManagedDefaultProvider(engineData, appData)
+        const shouldNormalize = hasLegacyEngineConfig(engineData) || !hasPersistedModelProviders(appData)
+
+        let normalizedEngineConfig = engineData
+        let normalizedAppConfig = appData
+
+        if (shouldNormalize) {
+          const nextEngineConfig = buildEngineModelConfig(engineData, nextProviders, nextDefaultProvider)
+          const nextAppConfig = buildAppModelConfig(appData, nextProviders, nextDefaultProvider)
+          const [engineResult, appResult] = await Promise.all([
+            window.engineConfig.save(nextEngineConfig),
+            window.appConfig.save(nextAppConfig),
+          ])
+
+          if (engineResult.ok && appResult.ok) {
+            normalizedEngineConfig = nextEngineConfig
+            normalizedAppConfig = nextAppConfig
+          }
+        }
+
+        setEngineConfig(normalizedEngineConfig)
+        setAppConfig(normalizedAppConfig)
+        setProviders(nextProviders)
+        setDefaultProvider(nextDefaultProvider)
+        setSelectedProvider(nextDefaultProvider)
       } catch {
-        setProviders({})
+        setPersistState('error')
+        setPersistMessage('模型配置读取失败')
       } finally {
         setLoading(false)
       }
     })()
   }, [])
 
-  const debouncedSave = useCallback(
-    (updatedProviders: Record<string, ProviderConfig>) => {
+  const queuePersist = useCallback(
+    (
+      nextProviders: Record<ManagedProviderKey, ProviderConfig>,
+      nextDefaultProvider: ManagedProviderKey,
+    ) => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      setPersistState('saving')
+      setPersistMessage('正在同步到 SQLite 和 engine YAML...')
       saveTimerRef.current = setTimeout(async () => {
-        if (!config) return
-        const serializedProviders = Object.fromEntries(
-          Object.entries(updatedProviders).map(([key, value]) => [key, value.raw])
-        )
-        await window.engineConfig.save({ ...config, providers: serializedProviders })
+        if (!engineConfig || !appConfig) return
+
+        const nextEngineConfig = buildEngineModelConfig(engineConfig, nextProviders, nextDefaultProvider)
+        const nextAppConfig = buildAppModelConfig(appConfig, nextProviders, nextDefaultProvider)
+        const [engineResult, appResult] = await Promise.all([
+          window.engineConfig.save(nextEngineConfig),
+          window.appConfig.save(nextAppConfig),
+        ])
+
+        if (!engineResult.ok || !appResult.ok) {
+          setPersistState('error')
+          setPersistMessage(engineResult.error || appResult.error || '模型配置保存失败')
+          return
+        }
+
+        setEngineConfig(nextEngineConfig)
+        setAppConfig(nextAppConfig)
+        setPersistState('saved')
       }, 500)
     },
-    [config]
+    [appConfig, engineConfig]
   )
 
   useEffect(() => {
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
   }, [])
 
-  const updateProvider = (key: string, patch: Partial<ProviderConfig>) => {
+  useEffect(() => {
+    if (!toastNotice) return
+    const timer = window.setTimeout(() => setToastNotice(null), 2600)
+    return () => window.clearTimeout(timer)
+  }, [toastNotice])
+
+  const updateProvider = (key: ManagedProviderKey, patch: Partial<ProviderConfig>) => {
     setProviders((prev) => {
       const current = prev[key]
       const next = { ...current, ...patch }
-      const updated = {
+      const updated: Record<ManagedProviderKey, ProviderConfig> = {
         ...prev,
         [key]: {
           ...next,
-          raw: {
-            ...current.raw,
-            apiKey: next.apiKey,
-            api_key: next.apiKey,
-            apiBase: next.apiBase,
-            base_url: next.apiBase,
-            model: next.model,
-            extraHeaders: next.extraHeaders,
-          },
+          raw: buildAppProviderRaw(next),
         },
       }
-      debouncedSave(updated)
+      queuePersist(updated, defaultProvider)
       return updated
     })
+  }
+
+  const getDefaultProviderValidationError = (key: ManagedProviderKey): string | null => {
+    const provider = providers[key]
+    if (!provider.apiKey.trim()) {
+      return `${getDisplayName(key)} 的 API 密钥不能为空`
+    }
+    if (!(provider.apiBase?.trim() || PROVIDER_DEFAULT_BASES[key])) {
+      return `${getDisplayName(key)} 的 API 地址不能为空`
+    }
+    if (!provider.model?.trim()) {
+      return `${getDisplayName(key)} 的 Model ID 不能为空`
+    }
+    return null
+  }
+
+  const handleDefaultProviderChange = (nextProvider: ManagedProviderKey): boolean => {
+    const validationError = getDefaultProviderValidationError(nextProvider)
+    if (validationError) {
+      setToastNotice({ tone: 'error', message: validationError })
+      return false
+    }
+
+    setDefaultProvider(nextProvider)
+    queuePersist(providers, nextProvider)
+    setToastNotice({ tone: 'success', message: `${getDisplayName(nextProvider)} 已设为当前默认模型` })
+    return true
   }
 
   const handleTest = async () => {
     setTestState('testing')
     await new Promise((r) => setTimeout(r, 1200))
-    if (selectedProvider && providers[selectedProvider]?.apiKey) {
+    const selected = providers[selectedProvider]
+    const hasKey = selected.apiKey.trim().length > 0
+    const hasBase = selectedProvider === 'custom'
+      ? Boolean(selected.apiBase?.trim())
+      : true
+
+    if (hasKey && hasBase) {
       setTestState('ok')
     } else {
       setTestState('fail')
@@ -672,16 +975,15 @@ function ModelSection() {
     setTimeout(() => setTestState('idle'), 2500)
   }
 
-  const providerKeys = Object.keys(providers).filter((key) => {
+  const selected = providers[selectedProvider]
+  const providerKeys = MANAGED_PROVIDER_KEYS.filter((key) => {
     if (!searchQuery) return true
     const q = searchQuery.toLowerCase()
     return key.toLowerCase().includes(q) || getDisplayName(key).toLowerCase().includes(q)
   })
 
-  const selected = selectedProvider ? providers[selectedProvider] : null
-  const selectedBase = selected?.apiBase || (selectedProvider ? PROVIDER_DEFAULT_BASES[selectedProvider] : '') || ''
   if (loading) {
-    return <div className="flex items-center justify-center h-full"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
   }
 
   return (
@@ -701,66 +1003,130 @@ function ModelSection() {
         </div>
         <div className="flex-1 overflow-y-auto px-1.5 pb-2">
           {providerKeys.map((key) => {
-            const p = providers[key]
+            const providerConfig = providers[key]
             const isActive = key === selectedProvider
-            const isEnabled = !!p.apiKey
+            const isEnabled = key === defaultProvider
+
             return (
               <button
                 key={key}
-                onClick={() => { setSelectedProvider(key); setShowApiKey(false); setTestState('idle') }}
+                onClick={() => {
+                  setSelectedProvider(key)
+                  setShowApiKey(false)
+                  setTestState('idle')
+                }}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
                   isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
                 )}
-              >
-                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold" style={{ backgroundColor: getProviderColor(key) }}>
-                  {getProviderInitial(key)}
-                </div>
-                <span className="flex-1 text-sm font-medium truncate">{getDisplayName(key)}</span>
-                {isEnabled && (
-                  <span className="text-[10px] font-semibold text-status-connected bg-status-connected/15 px-1.5 py-0.5 rounded-full flex-shrink-0">ON</span>
-                )}
+                >
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold" style={{ backgroundColor: getProviderColor(key) }}>
+                    {getProviderInitial(key)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{getDisplayName(key)}</span>
+                      {isEnabled && (
+                        <span className="mt-0.5 text-[10px] font-semibold text-status-connected bg-status-connected/15 px-1.5 py-0.5 rounded-full flex-shrink-0">ON</span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {key === 'custom'
+                        ? `Custom / ${providerConfig.protocol === 'anthropic' ? 'Anthropic 协议' : 'OpenAI 协议'}`
+                        : providerConfig.model?.trim() || '未设置 Model ID'}
+                    </p>
+                  </div>
               </button>
             )
           })}
         </div>
         <div className="p-2.5 border-t border-border">
-          <button className="w-full flex items-center justify-center gap-1.5 h-8 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-            <Plus size={14} />添加
+          <button
+            disabled
+            className="w-full flex items-center justify-center gap-1.5 h-8 rounded-lg text-sm text-muted-foreground/70 bg-background border border-border cursor-not-allowed"
+            title="当前内置 Anthropic、OpenAI、Custom"
+          >
+            <Plus size={14} />已内置 3 项
           </button>
         </div>
       </div>
 
       <div className="flex-1 min-w-0 overflow-y-auto">
-        {selectedProvider && selected ? (
-          <div className="px-8 py-6 max-w-[40rem] min-w-0">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-lg font-semibold text-foreground">{getDisplayName(selectedProvider)}</h2>
-                <Settings2 size={14} className="text-muted-foreground" />
-              </div>
-              <Toggle checked={!!selected.apiKey} onChange={(v) => { if (!v) updateProvider(selectedProvider, { apiKey: '' }) }} />
+        <div className="px-8 py-6 max-w-[40rem] min-w-0">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-lg font-semibold text-foreground">{getDisplayName(selectedProvider)}</h2>
+              <Settings2 size={14} className="text-muted-foreground" />
             </div>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">设为当前默认</span>
+                <Toggle
+                  checked={selectedProvider === defaultProvider}
+                  onChange={(checked) => {
+                    if (checked && selectedProvider !== defaultProvider) {
+                      handleDefaultProviderChange(selectedProvider)
+                    }
+                  }}
+                />
+              </div>
+              {persistState === 'error' && persistMessage && (
+                <div
+                  className={cn(
+                    'rounded-lg border px-3 py-2 text-xs',
+                    'border-red-200 bg-red-50 text-red-600'
+                  )}
+                >
+                  {persistMessage}
+                </div>
+              )}
+            </div>
+          </div>
 
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-foreground mb-2">API 密钥</h3>
-              <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm max-w-[34rem]">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    value={selected.apiKey}
-                    onChange={(e) => updateProvider(selectedProvider, { apiKey: e.target.value })}
-                    placeholder="输入 API 密钥"
-                    className="w-[20rem] max-w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
-                  />
-                  <button onClick={() => setShowApiKey(!showApiKey)} className="p-1.5 rounded text-muted-foreground hover:text-foreground transition-colors">
+          <div className="mb-6">
+            {selectedProvider === 'custom' && (
+              <>
+                <h3 className="text-sm font-semibold text-foreground mb-2">协议兼容</h3>
+                <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm max-w-[34rem] mb-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">指定 Custom 网关协议</p>
+                    <Segment
+                      value={selected.protocol}
+                      onChange={(value) => updateProvider(selectedProvider, { protocol: value as ProviderConfig['protocol'] })}
+                      options={[
+                        { label: 'OpenAI 协议', value: 'openai' },
+                        { label: 'Anthropic 协议', value: 'anthropic' },
+                      ]}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-foreground mb-2">API 密钥</h3>
+            <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm w-full max-w-[34rem]">
+              <div className="relative">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={selected.apiKey}
+                  onChange={(e) => updateProvider(selectedProvider, { apiKey: e.target.value })}
+                  placeholder="输入 API 密钥"
+                  className="w-full h-10 rounded-md border border-border bg-background pl-3 pr-[6.9rem] text-sm font-mono text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                />
+                <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                  <button
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                  >
                     {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                   <button
                     onClick={handleTest}
                     disabled={testState === 'testing'}
                     className={cn(
-                      'ml-auto h-8 px-3 text-sm font-medium rounded-md border transition-colors flex items-center gap-1.5 flex-shrink-0',
+                      'inline-flex h-7 min-w-[3.75rem] items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors',
                       testState === 'ok' ? 'border-status-connected text-status-connected'
                         : testState === 'fail' ? 'border-status-disconnected text-status-disconnected'
                           : 'border-border bg-card hover:bg-muted text-foreground'
@@ -774,45 +1140,57 @@ function ModelSection() {
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-foreground mb-2">API 地址</h3>
-              <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm max-w-[34rem]">
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-foreground mb-2">API 地址</h3>
+            <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm w-full max-w-[34rem]">
+              <input
+                type="text"
+                value={selected.apiBase || ''}
+                onChange={(e) => updateProvider(selectedProvider, { apiBase: e.target.value || null })}
+                placeholder={PROVIDER_DEFAULT_BASES[selectedProvider] || 'https://api.example.com'}
+                className="w-full h-10 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
+              />
+              {selectedProvider === 'custom' && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Custom 当前按 {selected.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI'} 协议映射到 `llm.providers`。
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-foreground mb-2">模型</h3>
+            <div className="bg-card border border-border rounded-xl px-4 py-4 shadow-sm w-full max-w-[34rem]">
+              <div className="mb-4">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Model ID</p>
                 <input
                   type="text"
-                  value={selected.apiBase || ''}
-                  onChange={(e) => updateProvider(selectedProvider, { apiBase: e.target.value || null })}
-                  placeholder={PROVIDER_DEFAULT_BASES[selectedProvider] || 'https://api.example.com'}
-                  className="w-[24rem] max-w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
+                  value={selected.model || ''}
+                  onChange={(e) => updateProvider(selectedProvider, { model: e.target.value || null })}
+                  placeholder="输入默认使用的 Model ID"
+                  className="w-full h-10 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
                 />
               </div>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-foreground mb-2">模型</h3>
-              <div className="bg-card border border-border rounded-xl px-4 py-4 shadow-sm max-w-[34rem]">
-                <div className="mb-4">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Model ID</p>
-                  <input
-                    type="text"
-                    value={selected.model || ''}
-                    onChange={(e) => updateProvider(selectedProvider, { model: e.target.value || null })}
-                    placeholder="输入默认使用的 Model ID"
-                    className="w-[18rem] max-w-full h-8 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
-                  />
-                </div>
-                <div className="flex items-center justify-center py-6 border border-dashed border-border rounded-lg">
-                  <p className="text-xs text-muted-foreground">模型列表将自动从 API 地址获取</p>
-                </div>
+              <div className="flex items-center justify-center py-6 border border-dashed border-border rounded-lg">
+                <p className="text-xs text-muted-foreground">
+                  当前默认 provider 为 {getDisplayName(defaultProvider)}
+                  {selectedProvider === defaultProvider ? '，这里修改会同步成为应用默认模型。' : '。'}
+                </p>
               </div>
             </div>
           </div>
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-muted-foreground">选择一个模型平台查看配置</p>
-          </div>
-        )}
+        </div>
       </div>
+      {toastNotice && (
+        <NoticeToast
+          tone={toastNotice.tone}
+          message={toastNotice.message}
+          position="top"
+          anchor="viewport"
+        />
+      )}
     </div>
   )
 }

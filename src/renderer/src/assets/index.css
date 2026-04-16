@@ -167,6 +167,34 @@
   background: var(--muted-foreground);
 }
 
+.recent-session-scroll {
+  scrollbar-width: none;
+}
+
+.recent-session-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.recent-session-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 24%, transparent) transparent;
+}
+
+.recent-session-scroll:hover::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.recent-session-scroll:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground) 22%, transparent);
+  border-radius: 999px;
+}
+
+.recent-session-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-foreground) 34%, transparent);
+}
+
 /* 点状背景模式 */
 .dot-pattern {
   background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);

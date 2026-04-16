@@ -19,9 +19,8 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import { NoticeToast, type NoticeTone } from '../common/NoticeToast'
 import { HarnessclawStatusBadge } from '../common/HarnessclawStatusBadge'
-
-type NoticeTone = 'error' | 'info' | 'success'
 
 interface NoticeState {
   tone: NoticeTone
@@ -92,12 +91,6 @@ function formatTimestamp(value?: number): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-function tipToneClass(tone: NoticeTone): string {
-  if (tone === 'error') return 'border-destructive/30 bg-destructive/5 text-destructive'
-  if (tone === 'success') return 'border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300'
-  return 'border-border bg-muted/60 text-muted-foreground'
 }
 
 export function SkillsPage() {
@@ -989,11 +982,7 @@ function SkillMarketOverlay({
         </div>
 
         {notice && (
-          <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-4">
-            <div className={cn('max-w-[min(36rem,92vw)] rounded-xl border px-4 py-2 text-sm shadow-lg', tipToneClass(notice.tone))}>
-              {notice.message}
-            </div>
-          </div>
+          <NoticeToast tone={notice.tone} message={notice.message} position="top" />
         )}
 
         {manageOpen && (
