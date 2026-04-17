@@ -134,17 +134,20 @@ jobs:
             exit 1
           fi
 
-      - name: Upload update metadata to GitHub release
+      - name: Prepare mac update metadata artifact
         if: runner.os == 'macOS' && github.ref_type == 'tag'
         shell: bash
         run: |
-          shopt -s nullglob
-          files=(release/latest*.yml release/*.blockmap)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No update metadata files found to upload"
-            exit 1
-          fi
-          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          mkdir -p mac-update-metadata
+          cp "release/latest-mac.yml" "mac-update-metadata/latest-${{ matrix.arch }}-mac.yml"
+
+      - name: Upload mac update metadata artifact
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-update-metadata-${{ matrix.arch }}
+          path: mac-update-metadata/latest-${{ matrix.arch }}-mac.yml
+          if-no-files-found: error
 
       - name: Generate Homebrew metadata
         if: runner.os == 'macOS' && github.ref_type == 'tag'
@@ -179,7 +182,9 @@ jobs:
           if-no-files-found: error
 
   update-homebrew-tap:
-    needs: release
+    needs:
+      - release
+      - publish-mac-update-metadata
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
@@ -219,3 +224,46 @@ jobs:
           fi
           git commit -m "harnessclaw ${GITHUB_REF_NAME#v}"
           git push
+
+  publish-mac-update-metadata:
+    needs: release
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Download mac update metadata artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mac-update-metadata-*
+          merge-multiple: true
+          path: mac-update-metadata
+
+      - name: Build merged mac update metadata
+        shell: bash
+        run: |
+          node scripts/merge-mac-update-metadata.cjs \
+            mac-update-metadata/latest-arm64-mac.yml \
+            mac-update-metadata/latest-x64-mac.yml \
+            mac-update-metadata/latest-mac.yml
+
+      - name: Upload mac update metadata to GitHub release
+        shell: bash
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            mac-update-metadata/latest-arm64-mac.yml \
+            mac-update-metadata/latest-x64-mac.yml \
+            mac-update-metadata/latest-mac.yml \
+            --clobber

@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { dirname, join } from 'path'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import {
   getConfigDocument,
@@ -299,12 +299,60 @@ function normalizePlatform(platform: NodeJS.Platform): 'darwin' | 'linux' | 'win
 function normalizeArch(arch: string): string {
   switch (arch) {
     case 'x64':
+    case 'amd64':
       return 'x64'
     case 'arm64':
       return 'arm64'
     default:
       return arch
   }
+}
+
+function getBundledBinaryArchCandidates(arch: string): string[] {
+  const normalized = normalizeArch(arch)
+  if (normalized === 'x64') {
+    return ['x64', 'amd64']
+  }
+  return [normalized]
+}
+
+function resolveBundledBinaryCandidate(
+  candidatePath: string,
+  baseName: string,
+  platform = process.platform,
+  archToken?: string,
+): string | null {
+  if (!existsSync(candidatePath)) {
+    return null
+  }
+
+  const stat = statSync(candidatePath)
+  if (stat.isFile()) {
+    return candidatePath
+  }
+
+  if (!stat.isDirectory()) {
+    return null
+  }
+
+  const normalizedPlatform = normalizePlatform(platform)
+  const extension = normalizedPlatform === 'windows' ? '.exe' : ''
+  const nestedCandidates = [
+    join(candidatePath, `${baseName}${extension}`),
+    archToken ? join(candidatePath, `${baseName}-${normalizedPlatform}-${archToken}${extension}`) : null,
+  ].filter((value): value is string => Boolean(value))
+
+  for (const nestedCandidate of nestedCandidates) {
+    if (existsSync(nestedCandidate) && statSync(nestedCandidate).isFile()) {
+      return nestedCandidate
+    }
+  }
+
+  const discovered = readdirSync(candidatePath)
+    .map((entry) => join(candidatePath, entry))
+    .find((entry) => existsSync(entry) && statSync(entry).isFile())
+
+  return discovered || null
 }
 
 export function getBundledBinaryFileName(baseName: string, platform = process.platform, arch = process.arch): string {
@@ -319,15 +367,21 @@ export function getBundledBinaryPath(baseName: string, platform = process.platfo
 }
 
 export function resolveBundledBinaryPath(baseName: string, platform = process.platform, arch = process.arch): string | null {
-  const exactPath = getBundledBinaryPath(baseName, platform, arch)
-  if (existsSync(exactPath)) {
-    return exactPath
+  const normalizedPlatform = normalizePlatform(platform)
+  const extension = normalizedPlatform === 'windows' ? '.exe' : ''
+
+  for (const archToken of getBundledBinaryArchCandidates(arch)) {
+    const candidate = join(BUNDLED_BIN_DIR, `${baseName}-${normalizedPlatform}-${archToken}${extension}`)
+    const resolved = resolveBundledBinaryCandidate(candidate, baseName, platform, archToken)
+    if (resolved) {
+      return resolved
+    }
   }
 
-  const fallbackExtension = normalizePlatform(platform) === 'windows' ? '.exe' : ''
-  const fallbackPath = join(BUNDLED_BIN_DIR, `${baseName}${fallbackExtension}`)
-  if (existsSync(fallbackPath)) {
-    return fallbackPath
+  const fallbackPath = join(BUNDLED_BIN_DIR, `${baseName}${extension}`)
+  const fallbackResolved = resolveBundledBinaryCandidate(fallbackPath, baseName, platform)
+  if (fallbackResolved) {
+    return fallbackResolved
   }
 
   return null

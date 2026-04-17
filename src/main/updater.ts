@@ -1,20 +1,97 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import electronUpdater from 'electron-updater'
+import { request } from 'node:https'
 
 const { autoUpdater } = electronUpdater
 
 const STARTUP_CHECK_DELAY_MS = 10_000
 const PERIODIC_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+const UPDATE_REPO_OWNER = 'harnessclaw'
+const UPDATE_REPO_NAME = 'harnessclaw'
+const GENERIC_UPDATE_BASE_URL = `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/releases/latest/download/`
 
 let initialized = false
 let checkInFlight = false
 let periodicCheckTimer: ReturnType<typeof setInterval> | null = null
 let promptInFlight = false
 let downloadedVersion = ''
+const releaseNotesCache = new Map<string, string>()
 
 function sendUpdateEvent(window: BrowserWindow, type: string, payload: Record<string, unknown> = {}): void {
   if (window.isDestroyed()) return
   window.webContents.send('app:update-event', { type, ...payload })
+}
+
+function getMacUpdateChannel(): string {
+  return process.arch === 'arm64' ? 'latest-arm64' : 'latest-x64'
+}
+
+function normalizeReleaseNotes(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item
+        if (item && typeof item === 'object' && 'note' in item && typeof item.note === 'string') {
+          return item.note
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n\n')
+      .trim()
+  }
+  return ''
+}
+
+function fetchText(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = request(url, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'HarnessClaw-Updater',
+      },
+    }, (response) => {
+      const statusCode = response.statusCode || 0
+      const chunks: Buffer[] = []
+
+      response.on('data', (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      })
+
+      response.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8')
+        if (statusCode >= 200 && statusCode < 300) {
+          resolve(body)
+          return
+        }
+        reject(new Error(`Request failed: ${statusCode} ${body.trim()}`))
+      })
+    })
+
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+async function fetchReleaseNotes(version: string): Promise<string> {
+  if (!version) return ''
+  if (releaseNotesCache.has(version)) {
+    return releaseNotesCache.get(version) || ''
+  }
+
+  try {
+    const raw = await fetchText(`https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/releases/tags/v${version}`)
+    const parsed = JSON.parse(raw) as { body?: unknown }
+    const notes = typeof parsed.body === 'string' ? parsed.body.trim() : ''
+    if (notes) {
+      releaseNotesCache.set(version, notes)
+    }
+    return notes
+  } catch (error) {
+    console.warn('[AutoUpdater] failed to fetch release notes:', error)
+    return ''
+  }
 }
 
 async function showDownloadPrompt(window: BrowserWindow, version: string): Promise<void> {
@@ -95,6 +172,11 @@ export function setupAutoUpdater(window: BrowserWindow): void {
   if (!app.isPackaged || initialized) return
   initialized = true
 
+  autoUpdater.setFeedURL({
+    provider: 'generic',
+    url: GENERIC_UPDATE_BASE_URL,
+    channel: process.platform === 'darwin' ? getMacUpdateChannel() : 'latest',
+  })
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
 
@@ -102,11 +184,12 @@ export function setupAutoUpdater(window: BrowserWindow): void {
     sendUpdateEvent(window, 'checking')
   })
 
-  autoUpdater.on('update-available', (info) => {
+  autoUpdater.on('update-available', async (info) => {
     downloadedVersion = ''
+    const releaseNotes = normalizeReleaseNotes(info.releaseNotes) || await fetchReleaseNotes(info.version)
     sendUpdateEvent(window, 'available', {
       version: info.version,
-      releaseNotes: info.releaseNotes,
+      releaseNotes,
     })
     void showDownloadPrompt(window, info.version)
   })
