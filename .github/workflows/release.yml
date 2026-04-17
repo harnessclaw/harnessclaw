@@ -102,23 +102,29 @@ jobs:
           printf '%s' "${{ secrets.APPLE_API_KEY }}" > "$api_key_path"
           chmod 600 "$api_key_path"
 
-          if ! grep -q "BEGIN PRIVATE KEY" "$api_key_path" || ! grep -q "END PRIVATE KEY" "$api_key_path"; then
-            echo "APPLE_API_KEY is not a valid .p8 private key. Store the raw AuthKey_*.p8 file contents in the GitHub secret."
-            exit 1
-          fi
-
+          # Normalize common secret storage variants:
+          # 1. GitHub secret saved with escaped '\n' instead of real newlines
+          # 2. CRLF line endings pasted from another environment
           if grep -q '\\n' "$api_key_path"; then
-            echo "APPLE_API_KEY appears to contain escaped newline characters. Store the secret as the original multi-line .p8 content."
+            python3 -c 'from pathlib import Path; import sys; p = Path(sys.argv[1]); t = p.read_text(); t = t.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n"); p.write_text(t)' "$api_key_path"
+          fi
+
+          python3 -c 'from pathlib import Path; import sys; p = Path(sys.argv[1]); t = p.read_text(); t = t.replace("\r\n", "\n"); p.write_text(t)' "$api_key_path"
+
+          if ! grep -q "BEGIN PRIVATE KEY" "$api_key_path" || ! grep -q "END PRIVATE KEY" "$api_key_path"; then
+            echo "::error::APPLE_API_KEY is not a valid .p8 private key after normalization. Store the raw AuthKey_*.p8 file contents in the GitHub secret."
             exit 1
           fi
 
-          profile_name="harnessclaw-notary"
-          xcrun notarytool store-credentials "$profile_name" \
+          if ! xcrun notarytool store-credentials "harnessclaw-notary" \
             --key "$api_key_path" \
             --key-id "${{ secrets.APPLE_API_KEY_ID }}" \
-            --issuer "${{ secrets.APPLE_API_ISSUER }}"
+            --issuer "${{ secrets.APPLE_API_ISSUER }}"; then
+            echo "::error::Failed to validate Apple notarization credentials with notarytool. Check APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER."
+            exit 1
+          fi
 
-          echo "APPLE_KEYCHAIN_PROFILE=$profile_name" >> "$GITHUB_ENV"
+          echo "APPLE_KEYCHAIN_PROFILE=harnessclaw-notary" >> "$GITHUB_ENV"
           echo "MACOS_NOTARIZE_MODE=keychain-profile" >> "$GITHUB_ENV"
 
       - name: Report macOS notarization mode
