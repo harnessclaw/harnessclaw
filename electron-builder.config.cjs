@@ -14,7 +14,27 @@ function optionalFile(path) {
 }
 
 function resolveMacNotarize() {
-  return hasNotarizeCredentials
+  if (!hasNotarizeCredentials) {
+    return false
+  }
+
+  // Use keychain profile if available (API key mode)
+  if (process.env.APPLE_KEYCHAIN_PROFILE) {
+    return {
+      keychainProfile: process.env.APPLE_KEYCHAIN_PROFILE,
+    }
+  }
+
+  // Use Apple ID mode with explicit teamId
+  if (process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD) {
+    return {
+      appleId: process.env.APPLE_ID,
+      appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD,
+      teamId: process.env.APPLE_TEAM_ID,
+    }
+  }
+
+  return false
 }
 
 const config = {
