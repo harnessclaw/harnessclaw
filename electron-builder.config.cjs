@@ -18,20 +18,14 @@ function resolveMacNotarize() {
     return false
   }
 
-  // Use keychain profile if available (API key mode)
+  // Keychain profile mode: electron-builder reads APPLE_KEYCHAIN_PROFILE from env
   if (process.env.APPLE_KEYCHAIN_PROFILE) {
-    return {
-      keychainProfile: process.env.APPLE_KEYCHAIN_PROFILE,
-    }
+    return true
   }
 
-  // Use Apple ID mode with explicit teamId (all three are required)
+  // Apple ID mode: electron-builder reads APPLE_ID & APPLE_APP_SPECIFIC_PASSWORD from env
   if (process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID) {
-    return {
-      appleId: process.env.APPLE_ID,
-      appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD,
-      teamId: process.env.APPLE_TEAM_ID,
-    }
+    return { teamId: process.env.APPLE_TEAM_ID }
   }
 
   return false
