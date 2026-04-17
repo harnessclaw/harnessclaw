@@ -62,27 +62,38 @@ jobs:
           if [ -n "${{ secrets.CSC_KEY_PASSWORD }}" ]; then
             echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
           fi
-          if [ -n "${{ secrets.APPLE_ID }}" ]; then
-            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+
+          has_api_key_secret=false
+          if [ -n "${{ secrets.APPLE_API_KEY }}" ] || [ -n "${{ secrets.APPLE_API_KEY_ID }}" ] || [ -n "${{ secrets.APPLE_API_ISSUER }}" ]; then
+            has_api_key_secret=true
           fi
-          if [ -n "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" ]; then
-            echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> "$GITHUB_ENV"
+
+          if [ "$has_api_key_secret" = true ] && {
+            [ -z "${{ secrets.APPLE_API_KEY }}" ] ||
+            [ -z "${{ secrets.APPLE_API_KEY_ID }}" ] ||
+            [ -z "${{ secrets.APPLE_API_ISSUER }}" ];
+          }; then
+            echo "Incomplete Apple notarization secrets. APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER must be configured together."
+            exit 1
           fi
-          if [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
-            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_API_KEY }}" ]; then
-            echo "APPLE_API_KEY=${{ secrets.APPLE_API_KEY }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_API_KEY_ID }}" ]; then
+
+          if [ "$has_api_key_secret" = true ]; then
+            api_key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
+            printf '%s' "${{ secrets.APPLE_API_KEY }}" > "$api_key_path"
+            chmod 600 "$api_key_path"
+            echo "APPLE_API_KEY=$api_key_path" >> "$GITHUB_ENV"
             echo "APPLE_API_KEY_ID=${{ secrets.APPLE_API_KEY_ID }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_API_ISSUER }}" ]; then
             echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
+            echo "MACOS_NOTARIZE_MODE=api-key" >> "$GITHUB_ENV"
+          else
+            echo "MACOS_NOTARIZE_MODE=disabled" >> "$GITHUB_ENV"
           fi
-          if [ -n "${{ secrets.APPLE_KEYCHAIN_PROFILE }}" ]; then
-            echo "APPLE_KEYCHAIN_PROFILE=${{ secrets.APPLE_KEYCHAIN_PROFILE }}" >> "$GITHUB_ENV"
-          fi
+
+      - name: Report macOS notarization mode
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "Using macOS notarization mode: ${MACOS_NOTARIZE_MODE:-disabled}"
 
       - name: Download latest harnessclaw-engine release
         run: node scripts/download-harnessclaw-engine-release.cjs resources/bin
