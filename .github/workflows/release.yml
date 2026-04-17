@@ -113,6 +113,28 @@ jobs:
             npx electron-builder --config electron-builder.config.cjs $BUILD_ARGS --publish always
           fi
 
+      - name: Verify mac update metadata
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          if [ ! -f "release/latest-mac.yml" ]; then
+            echo "Missing release/latest-mac.yml"
+            ls -la release || true
+            exit 1
+          fi
+
+      - name: Upload update metadata to GitHub release
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(release/latest*.yml release/*.blockmap)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No update metadata files found to upload"
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+
       - name: Generate Homebrew metadata
         if: runner.os == 'macOS' && github.ref_type == 'tag'
         shell: bash
