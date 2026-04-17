@@ -69,63 +69,98 @@ jobs:
         run: |
           set -euo pipefail
 
+          apple_api_key='${{ secrets.APPLE_API_KEY || secrets.APPLE_API_PRIVATE_KEY || secrets.APPLE_API_P8 }}'
+          apple_api_key_id='${{ secrets.APPLE_API_KEY_ID || secrets.APPLE_KEY_ID || secrets.APPLE_APIKEY_ID }}'
+          apple_api_issuer='${{ secrets.APPLE_API_ISSUER || secrets.APPLE_API_ISSUER_ID || secrets.APPLE_ISSUER_ID }}'
+          apple_id='${{ secrets.APPLE_ID }}'
+          apple_app_password='${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || secrets.APPLE_APP_PASSWORD }}'
+          apple_team_id='${{ secrets.APPLE_TEAM_ID }}'
+
           require_notarization=false
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             require_notarization=true
           fi
 
           has_any_api_key_secret=false
-          if [ -n "${{ secrets.APPLE_API_KEY }}" ] || [ -n "${{ secrets.APPLE_API_KEY_ID }}" ] || [ -n "${{ secrets.APPLE_API_ISSUER }}" ]; then
+          if [ -n "$apple_api_key" ] || [ -n "$apple_api_key_id" ] || [ -n "$apple_api_issuer" ]; then
             has_any_api_key_secret=true
           fi
 
           if [ "$has_any_api_key_secret" = true ] && {
-            [ -z "${{ secrets.APPLE_API_KEY }}" ] ||
-            [ -z "${{ secrets.APPLE_API_KEY_ID }}" ] ||
-            [ -z "${{ secrets.APPLE_API_ISSUER }}" ];
+            [ -z "$apple_api_key" ] ||
+            [ -z "$apple_api_key_id" ] ||
+            [ -z "$apple_api_issuer" ];
           }; then
-            echo "Incomplete Apple notarization secrets. APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER must be configured together."
+            echo "::error::Incomplete Apple notarization API key secrets. Provide a full key set via APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER or their supported aliases."
             exit 1
           fi
 
-          if [ "$require_notarization" = true ] && [ "$has_any_api_key_secret" = false ]; then
-            echo "Missing Apple notarization secrets for tagged release. Refusing to publish a macOS release without notarization."
+          has_apple_id_secret=false
+          if [ -n "$apple_id" ] || [ -n "$apple_app_password" ]; then
+            has_apple_id_secret=true
+          fi
+
+          if [ "$has_apple_id_secret" = true ] && {
+            [ -z "$apple_id" ] ||
+            [ -z "$apple_app_password" ];
+          }; then
+            echo "::error::Incomplete Apple ID notarization secrets. APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD must be configured together."
             exit 1
           fi
 
-          if [ "$has_any_api_key_secret" = false ]; then
+          has_any_notarization_secret=false
+          if [ "$has_any_api_key_secret" = true ] || [ "$has_apple_id_secret" = true ]; then
+            has_any_notarization_secret=true
+          fi
+
+          if [ "$require_notarization" = true ] && [ "$has_any_notarization_secret" = false ]; then
+            echo "::error::Missing Apple notarization secrets for tagged release. Supported modes: API key (APPLE_API_*) or Apple ID (APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD)."
+            exit 1
+          fi
+
+          if [ "$has_any_notarization_secret" = false ]; then
             echo "MACOS_NOTARIZE_MODE=disabled" >> "$GITHUB_ENV"
             exit 0
           fi
 
-          api_key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
-          printf '%s' "${{ secrets.APPLE_API_KEY }}" > "$api_key_path"
-          chmod 600 "$api_key_path"
+          if [ "$has_any_api_key_secret" = true ]; then
+            api_key_path="$RUNNER_TEMP/AuthKey_${apple_api_key_id}.p8"
+            printf '%s' "$apple_api_key" > "$api_key_path"
+            chmod 600 "$api_key_path"
 
-          # Normalize common secret storage variants:
-          # 1. GitHub secret saved with escaped '\n' instead of real newlines
-          # 2. CRLF line endings pasted from another environment
-          if grep -q '\\n' "$api_key_path"; then
-            python3 -c 'from pathlib import Path; import sys; p = Path(sys.argv[1]); t = p.read_text(); t = t.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n"); p.write_text(t)' "$api_key_path"
+            # Normalize common secret storage variants:
+            # 1. GitHub secret saved with escaped '\n' instead of real newlines
+            # 2. CRLF line endings pasted from another environment
+            if grep -q '\\n' "$api_key_path"; then
+              python3 -c 'from pathlib import Path; import sys; p = Path(sys.argv[1]); t = p.read_text(); t = t.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n"); p.write_text(t)' "$api_key_path"
+            fi
+
+            python3 -c 'from pathlib import Path; import sys; p = Path(sys.argv[1]); t = p.read_text(); t = t.replace("\r\n", "\n"); p.write_text(t)' "$api_key_path"
+
+            if ! grep -q "BEGIN PRIVATE KEY" "$api_key_path" || ! grep -q "END PRIVATE KEY" "$api_key_path"; then
+              echo "::error::APPLE_API_KEY is not a valid .p8 private key after normalization. Store the raw AuthKey_*.p8 file contents in the GitHub secret."
+              exit 1
+            fi
+
+            if ! xcrun notarytool store-credentials "harnessclaw-notary" \
+              --key "$api_key_path" \
+              --key-id "$apple_api_key_id" \
+              --issuer "$apple_api_issuer"; then
+              echo "::error::Failed to validate Apple notarization API key credentials with notarytool."
+              exit 1
+            fi
+
+            echo "APPLE_KEYCHAIN_PROFILE=harnessclaw-notary" >> "$GITHUB_ENV"
+            echo "MACOS_NOTARIZE_MODE=keychain-profile" >> "$GITHUB_ENV"
+            exit 0
           fi
 
-          python3 -c 'from pathlib import Path; import sys; p = Path(sys.argv[1]); t = p.read_text(); t = t.replace("\r\n", "\n"); p.write_text(t)' "$api_key_path"
-
-          if ! grep -q "BEGIN PRIVATE KEY" "$api_key_path" || ! grep -q "END PRIVATE KEY" "$api_key_path"; then
-            echo "::error::APPLE_API_KEY is not a valid .p8 private key after normalization. Store the raw AuthKey_*.p8 file contents in the GitHub secret."
-            exit 1
+          echo "APPLE_ID=$apple_id" >> "$GITHUB_ENV"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=$apple_app_password" >> "$GITHUB_ENV"
+          if [ -n "$apple_team_id" ]; then
+            echo "APPLE_TEAM_ID=$apple_team_id" >> "$GITHUB_ENV"
           fi
-
-          if ! xcrun notarytool store-credentials "harnessclaw-notary" \
-            --key "$api_key_path" \
-            --key-id "${{ secrets.APPLE_API_KEY_ID }}" \
-            --issuer "${{ secrets.APPLE_API_ISSUER }}"; then
-            echo "::error::Failed to validate Apple notarization credentials with notarytool. Check APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER."
-            exit 1
-          fi
-
-          echo "APPLE_KEYCHAIN_PROFILE=harnessclaw-notary" >> "$GITHUB_ENV"
-          echo "MACOS_NOTARIZE_MODE=keychain-profile" >> "$GITHUB_ENV"
+          echo "MACOS_NOTARIZE_MODE=apple-id" >> "$GITHUB_ENV"
 
       - name: Report macOS notarization mode
         if: runner.os == 'macOS'

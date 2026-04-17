@@ -5,7 +5,8 @@ const owner = process.env.GH_RELEASE_OWNER || process.env.GITHUB_REPOSITORY_OWNE
 const repo = process.env.GH_RELEASE_REPO || (process.env.GITHUB_REPOSITORY || '').split('/')[1] || ''
 const hasNotarizeCredentials = Boolean(
   (process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER) ||
-    process.env.APPLE_KEYCHAIN_PROFILE,
+    process.env.APPLE_KEYCHAIN_PROFILE ||
+    (process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD),
 )
 
 function optionalFile(path) {
