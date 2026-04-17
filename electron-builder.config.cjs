@@ -3,32 +3,8 @@ const { join } = require('path')
 
 const owner = process.env.GH_RELEASE_OWNER || process.env.GITHUB_REPOSITORY_OWNER || ''
 const repo = process.env.GH_RELEASE_REPO || (process.env.GITHUB_REPOSITORY || '').split('/')[1] || ''
-const hasNotarizeCredentials = Boolean(
-  (process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER) ||
-    process.env.APPLE_KEYCHAIN_PROFILE ||
-    (process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD),
-)
-
 function optionalFile(path) {
   return existsSync(path) ? path : undefined
-}
-
-function resolveMacNotarize() {
-  if (!hasNotarizeCredentials) {
-    return false
-  }
-
-  // Keychain profile mode: electron-builder reads APPLE_KEYCHAIN_PROFILE from env
-  if (process.env.APPLE_KEYCHAIN_PROFILE) {
-    return true
-  }
-
-  // Apple ID mode: electron-builder reads APPLE_ID & APPLE_APP_SPECIFIC_PASSWORD from env
-  if (process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID) {
-    return { teamId: process.env.APPLE_TEAM_ID }
-  }
-
-  return false
 }
 
 const config = {
@@ -61,7 +37,7 @@ const config = {
     icon: optionalFile(join('resources', 'icon.icns')),
     hardenedRuntime: true,
     gatekeeperAssess: false,
-    notarize: resolveMacNotarize(),
+    notarize: false,
   },
   win: {
     target: ['nsis'],

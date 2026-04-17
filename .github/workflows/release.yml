@@ -171,17 +171,6 @@ jobs:
         run: |
           echo "Using macOS notarization mode: ${MACOS_NOTARIZE_MODE:-disabled}"
 
-      - name: Validate notarization credentials
-        if: runner.os == 'macOS' && env.MACOS_NOTARIZE_MODE != 'disabled'
-        shell: bash
-        run: |
-          echo "Testing notarization credentials with xcrun notarytool..."
-          xcrun notarytool history \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            2>&1 || echo "::error::Notarization credential validation failed. See output above for details."
-
       - name: Download latest harnessclaw-engine release
         run: node scripts/download-harnessclaw-engine-release.cjs resources/bin
 
@@ -211,6 +200,44 @@ jobs:
             npx electron-builder --config electron-builder.config.cjs $BUILD_ARGS --publish always
           fi
 
+      - name: Notarize macOS app
+        if: runner.os == 'macOS' && env.MACOS_NOTARIZE_MODE != 'disabled'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_path="$(find release -maxdepth 2 -name 'HarnessClaw.app' | head -n 1)"
+          if [ -z "$app_path" ]; then
+            echo "::error::Unable to find HarnessClaw.app in release output"
+            find release -maxdepth 2 -print
+            exit 1
+          fi
+
+          echo "Creating zip for notarization..."
+          zip_path="$RUNNER_TEMP/HarnessClaw-notarize.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_path"
+
+          echo "Submitting to Apple notarization service..."
+          if [ "$MACOS_NOTARIZE_MODE" = "apple-id" ]; then
+            xcrun notarytool submit "$zip_path" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait 2>&1 | tee "$RUNNER_TEMP/notarytool-output.txt"
+          elif [ "$MACOS_NOTARIZE_MODE" = "keychain-profile" ]; then
+            xcrun notarytool submit "$zip_path" \
+              --keychain-profile "$APPLE_KEYCHAIN_PROFILE" \
+              --wait 2>&1 | tee "$RUNNER_TEMP/notarytool-output.txt"
+          fi
+
+          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+            echo "::error::Notarization failed. Full output above."
+            exit 1
+          fi
+
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$app_path"
+
       - name: Verify mac update metadata
         if: runner.os == 'macOS' && github.ref_type == 'tag'
         shell: bash
@@ -220,26 +247,6 @@ jobs:
             ls -la release || true
             exit 1
           fi
-
-      - name: Validate macOS app notarization
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ "${MACOS_NOTARIZE_MODE:-disabled}" = "disabled" ]; then
-            echo "Skipping notarization validation because notarization is disabled."
-            exit 0
-          fi
-
-          app_path="$(find release -maxdepth 2 -name 'HarnessClaw.app' | head -n 1)"
-          if [ -z "$app_path" ]; then
-            echo "Unable to find packaged HarnessClaw.app in release output."
-            find release -maxdepth 2 -print
-            exit 1
-          fi
-
-          xcrun stapler validate "$app_path"
 
       - name: Prepare mac update metadata artifact
         if: runner.os == 'macOS' && github.ref_type == 'tag'
