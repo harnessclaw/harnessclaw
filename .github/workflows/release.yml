@@ -63,12 +63,23 @@ jobs:
             echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
           fi
 
-          has_api_key_secret=false
-          if [ -n "${{ secrets.APPLE_API_KEY }}" ] || [ -n "${{ secrets.APPLE_API_KEY_ID }}" ] || [ -n "${{ secrets.APPLE_API_ISSUER }}" ]; then
-            has_api_key_secret=true
+      - name: Configure macOS notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_notarization=false
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            require_notarization=true
           fi
 
-          if [ "$has_api_key_secret" = true ] && {
+          has_any_api_key_secret=false
+          if [ -n "${{ secrets.APPLE_API_KEY }}" ] || [ -n "${{ secrets.APPLE_API_KEY_ID }}" ] || [ -n "${{ secrets.APPLE_API_ISSUER }}" ]; then
+            has_any_api_key_secret=true
+          fi
+
+          if [ "$has_any_api_key_secret" = true ] && {
             [ -z "${{ secrets.APPLE_API_KEY }}" ] ||
             [ -z "${{ secrets.APPLE_API_KEY_ID }}" ] ||
             [ -z "${{ secrets.APPLE_API_ISSUER }}" ];
@@ -77,17 +88,38 @@ jobs:
             exit 1
           fi
 
-          if [ "$has_api_key_secret" = true ]; then
-            api_key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
-            printf '%s' "${{ secrets.APPLE_API_KEY }}" > "$api_key_path"
-            chmod 600 "$api_key_path"
-            echo "APPLE_API_KEY=$api_key_path" >> "$GITHUB_ENV"
-            echo "APPLE_API_KEY_ID=${{ secrets.APPLE_API_KEY_ID }}" >> "$GITHUB_ENV"
-            echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
-            echo "MACOS_NOTARIZE_MODE=api-key" >> "$GITHUB_ENV"
-          else
-            echo "MACOS_NOTARIZE_MODE=disabled" >> "$GITHUB_ENV"
+          if [ "$require_notarization" = true ] && [ "$has_any_api_key_secret" = false ]; then
+            echo "Missing Apple notarization secrets for tagged release. Refusing to publish a macOS release without notarization."
+            exit 1
           fi
+
+          if [ "$has_any_api_key_secret" = false ]; then
+            echo "MACOS_NOTARIZE_MODE=disabled" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          api_key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
+          printf '%s' "${{ secrets.APPLE_API_KEY }}" > "$api_key_path"
+          chmod 600 "$api_key_path"
+
+          if ! grep -q "BEGIN PRIVATE KEY" "$api_key_path" || ! grep -q "END PRIVATE KEY" "$api_key_path"; then
+            echo "APPLE_API_KEY is not a valid .p8 private key. Store the raw AuthKey_*.p8 file contents in the GitHub secret."
+            exit 1
+          fi
+
+          if grep -q '\\n' "$api_key_path"; then
+            echo "APPLE_API_KEY appears to contain escaped newline characters. Store the secret as the original multi-line .p8 content."
+            exit 1
+          fi
+
+          profile_name="harnessclaw-notary"
+          xcrun notarytool store-credentials "$profile_name" \
+            --key "$api_key_path" \
+            --key-id "${{ secrets.APPLE_API_KEY_ID }}" \
+            --issuer "${{ secrets.APPLE_API_ISSUER }}"
+
+          echo "APPLE_KEYCHAIN_PROFILE=$profile_name" >> "$GITHUB_ENV"
+          echo "MACOS_NOTARIZE_MODE=keychain-profile" >> "$GITHUB_ENV"
 
       - name: Report macOS notarization mode
         if: runner.os == 'macOS'
@@ -133,6 +165,26 @@ jobs:
             ls -la release || true
             exit 1
           fi
+
+      - name: Validate macOS app notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${MACOS_NOTARIZE_MODE:-disabled}" = "disabled" ]; then
+            echo "Skipping notarization validation because notarization is disabled."
+            exit 0
+          fi
+
+          app_path="$(find release -maxdepth 2 -name 'HarnessClaw.app' | head -n 1)"
+          if [ -z "$app_path" ]; then
+            echo "Unable to find packaged HarnessClaw.app in release output."
+            find release -maxdepth 2 -print
+            exit 1
+          fi
+
+          xcrun stapler validate "$app_path"
 
       - name: Prepare mac update metadata artifact
         if: runner.os == 'macOS' && github.ref_type == 'tag'

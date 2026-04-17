@@ -3,8 +3,9 @@ const { join } = require('path')
 
 const owner = process.env.GH_RELEASE_OWNER || process.env.GITHUB_REPOSITORY_OWNER || ''
 const repo = process.env.GH_RELEASE_REPO || (process.env.GITHUB_REPOSITORY || '').split('/')[1] || ''
-const hasApiKeyNotarizeCredentials = Boolean(
-  process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER,
+const hasNotarizeCredentials = Boolean(
+  (process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER) ||
+    process.env.APPLE_KEYCHAIN_PROFILE,
 )
 
 function optionalFile(path) {
@@ -12,7 +13,7 @@ function optionalFile(path) {
 }
 
 function resolveMacNotarize() {
-  return hasApiKeyNotarizeCredentials
+  return hasNotarizeCredentials
 }
 
 const config = {
