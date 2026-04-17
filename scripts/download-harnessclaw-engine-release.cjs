@@ -77,10 +77,11 @@ async function downloadToFile(url, headers, targetPath) {
 
 async function main() {
   const outputDir = resolve(process.argv[2] || join(__dirname, '..', 'resources', 'bin'))
+  const baseName = 'harnessclaw-engine'
   const platform = normalizePlatform(process.env.HARNESSCLAW_ENGINE_PLATFORM || process.platform)
   const arch = normalizeArch(process.env.HARNESSCLAW_ENGINE_ARCH || process.arch)
   const extension = platform === 'windows' ? '.exe' : ''
-  const assetName = `harnessclaw-engine-${platform}-${arch}${extension}`
+  const assetName = `${baseName}-${platform}-${arch}${extension}`
   const repo = process.env.HARNESSCLAW_ENGINE_REPO || 'harnessclaw/harnessclaw-engine'
   const releaseApiUrl = `https://api.github.com/repos/${repo}/releases/latest`
   const token = process.env.HARNESSCLAW_ENGINE_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN
@@ -110,7 +111,7 @@ async function main() {
     }
   }
 
-  const targetPath = join(outputDir, asset.name)
+  const targetPath = join(outputDir, `${baseName}${extension}`)
   await downloadToFile(asset.browser_download_url, headers, targetPath)
   if (platform !== 'windows') {
     chmodSync(targetPath, 0o755)
