@@ -171,6 +171,17 @@ jobs:
         run: |
           echo "Using macOS notarization mode: ${MACOS_NOTARIZE_MODE:-disabled}"
 
+      - name: Validate notarization credentials
+        if: runner.os == 'macOS' && env.MACOS_NOTARIZE_MODE != 'disabled'
+        shell: bash
+        run: |
+          echo "Testing notarization credentials with xcrun notarytool..."
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            2>&1 || echo "::error::Notarization credential validation failed. See output above for details."
+
       - name: Download latest harnessclaw-engine release
         run: node scripts/download-harnessclaw-engine-release.cjs resources/bin
 
