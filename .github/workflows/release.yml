@@ -155,11 +155,14 @@ jobs:
             exit 0
           fi
 
+          if [ -z "$apple_team_id" ]; then
+            echo "::error::APPLE_TEAM_ID is required when using Apple ID notarization. Get your Team ID from https://developer.apple.com/account"
+            exit 1
+          fi
+
           echo "APPLE_ID=$apple_id" >> "$GITHUB_ENV"
           echo "APPLE_APP_SPECIFIC_PASSWORD=$apple_app_password" >> "$GITHUB_ENV"
-          if [ -n "$apple_team_id" ]; then
-            echo "APPLE_TEAM_ID=$apple_team_id" >> "$GITHUB_ENV"
-          fi
+          echo "APPLE_TEAM_ID=$apple_team_id" >> "$GITHUB_ENV"
           echo "MACOS_NOTARIZE_MODE=apple-id" >> "$GITHUB_ENV"
 
       - name: Report macOS notarization mode
