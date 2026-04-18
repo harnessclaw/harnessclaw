@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Paperclip, Send } from 'lucide-react'
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 import { cn } from '../../lib/utils'
@@ -33,6 +33,7 @@ const statusMeta = {
 } as const
 
 export function HomePage() {
+  const location = useLocation()
   const [input, setInput] = useState('')
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkillChip[]>([])
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
@@ -61,6 +62,11 @@ export function HomePage() {
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
+
+  useEffect(() => {
+    if (location.state?.focusComposer !== true) return
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [location.key, location.state])
 
   const appendAttachments = (items: AttachmentItem[]) => {
     if (!items.length) return
