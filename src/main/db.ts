@@ -373,6 +373,27 @@ export function updateMessageContent(
   }
 }
 
+export function updateMessageSystemNotice(
+  id: string,
+  systemNotice: Record<string, unknown>,
+  createdAt?: number,
+): void {
+  if (createdAt != null) {
+    getDb().prepare(`
+      UPDATE messages SET system_notice_json = ?, created_at = ?
+      WHERE id = ?
+    `).run(
+      JSON.stringify(systemNotice),
+      createdAt,
+      id,
+    )
+    return
+  }
+
+  getDb().prepare(`UPDATE messages SET system_notice_json = ? WHERE id = ?`)
+    .run(JSON.stringify(systemNotice), id)
+}
+
 export interface FullMessage {
   id: string
   session_id: string

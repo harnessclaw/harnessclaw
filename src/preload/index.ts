@@ -31,13 +31,13 @@ const appRuntimeAPI = {
   getLogLevel: () => ipcRenderer.invoke('app-runtime:getLogLevel'),
   getLogs: (options?: {
     after?: string
-    level?: 'error' | 'info' | 'debug'
+    level?: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
     query?: string
-    file?: 'all' | 'app' | 'renderer'
+    file?: 'all' | 'harnessclaw'
     limit?: number
   }) => ipcRenderer.invoke('app-runtime:getLogs', options),
   openLogsDirectory: () => ipcRenderer.invoke('app-runtime:openLogsDirectory'),
-  logRenderer: (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, unknown>) =>
+  logRenderer: (level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal', message: string, details?: Record<string, unknown>) =>
     ipcRenderer.invoke('app-runtime:logRenderer', level, message, details),
   trackUsage: (entry: {
     category: string

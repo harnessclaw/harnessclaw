@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Paperclip, Send } from 'lucide-react'
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
@@ -31,6 +31,7 @@ export function HomePage() {
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const navigate = useNavigate()
   const maxLength = 2000
   const harnessclawStatus = useHarnessclawStatus()
@@ -49,6 +50,10 @@ export function HomePage() {
       window.removeEventListener('dragover', preventWindowDrop)
       window.removeEventListener('drop', preventWindowDrop)
     }
+  }, [])
+
+  useEffect(() => {
+    inputRef.current?.focus()
   }, [])
 
   const appendAttachments = (items: AttachmentItem[]) => {
@@ -168,6 +173,7 @@ export function HomePage() {
 
           <div className="p-5 sm:p-6">
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
               onKeyDown={handleKeyDown}

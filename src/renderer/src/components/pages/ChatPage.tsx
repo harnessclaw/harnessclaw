@@ -107,6 +107,7 @@ interface SessionState {
 
 const ATTACHMENT_BLOCK_START = '[HARNESSCLAW_LOCAL_ATTACHMENTS]'
 const ATTACHMENT_BLOCK_END = '[/HARNESSCLAW_LOCAL_ATTACHMENTS]'
+const ERROR_ATTACH_WINDOW_MS = 30_000
 
 function buildMessagePayload(content: string, attachments: AttachmentItem[]): string {
   const text = content.trim()
@@ -258,6 +259,66 @@ function getFileName(path: string): string {
   const normalized = path.replace(/\\/g, '/')
   const parts = normalized.split('/')
   return parts[parts.length - 1] || path
+}
+
+function formatMessageTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
+function findAttachableAssistantMessageIndex(
+  messages: Message[],
+  referenceTs: number,
+  preferredId?: string | null,
+): number {
+  if (preferredId) {
+    const preferredIndex = messages.findIndex((message) => message.id === preferredId)
+    if (preferredIndex >= 0) return preferredIndex
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role === 'user') break
+    if (message.role !== 'assistant') continue
+    if (referenceTs - message.timestamp > ERROR_ATTACH_WINDOW_MS) break
+    return index
+  }
+
+  return -1
+}
+
+function isVisualErrorOnlyAssistantMessage(message: Message): boolean {
+  return message.role === 'assistant'
+    && !!message.systemNotice
+    && !message.content.trim()
+    && !message.attachments?.length
+    && !message.tools?.length
+    && !(message.contentSegments || []).some((segment) => segment.text.trim())
+}
+
+function compactMessagesForDisplay(messages: Message[]): Message[] {
+  const compacted: Message[] = []
+
+  for (const message of messages) {
+    if (isVisualErrorOnlyAssistantMessage(message) && compacted.length > 0) {
+      const previous = compacted[compacted.length - 1]
+      if (
+        previous.role === 'assistant'
+        && message.timestamp - previous.timestamp <= ERROR_ATTACH_WINDOW_MS
+      ) {
+        compacted[compacted.length - 1] = {
+          ...previous,
+          systemNotice: message.systemNotice,
+          timestamp: message.timestamp,
+          isStreaming: false,
+        }
+        continue
+      }
+    }
+
+    compacted.push(message)
+  }
+
+  return compacted
 }
 
 function extractFilePreviewData(call: ToolActivity, result?: ToolActivity): FilePreviewData | null {
@@ -450,6 +511,10 @@ export function ChatPage() {
   }, [])
 
   const activeSession = getSession(activeSessionId)
+  const displayMessages = useMemo(
+    () => compactMessagesForDisplay(activeSession.messages),
+    [activeSession.messages],
+  )
 
   // Display sessions from sessionMap only (user-created or DB-loaded), enriched with server info
   const displayedSessions = useMemo(() => {
@@ -1161,6 +1226,7 @@ export function ChatPage() {
         if (sid) {
           const pendingAssistantId = pendingAssistantIds.current[sid]
           const systemNotice = buildSystemErrorNotice(event.error || event.payload || event.content || event)
+          const errorAt = Date.now()
           pendingAssistantIds.current[sid] = null
           updateSession(sid, (prev) => ({
             isProcessing: false,
@@ -1169,32 +1235,24 @@ export function ChatPage() {
             pauseReason: undefined,
             messages: (() => {
               const nextMessages = [...prev.messages]
+              const attachIndex = findAttachableAssistantMessageIndex(nextMessages, errorAt, pendingAssistantId)
 
-              if (pendingAssistantId) {
-                const pendingIndex = nextMessages.findIndex((message) => message.id === pendingAssistantId)
-                if (pendingIndex >= 0) {
-                  const pendingMessage = nextMessages[pendingIndex]
-                  const hasVisibleContent = Boolean(
-                    pendingMessage.content.trim()
-                    || pendingMessage.attachments?.length
-                    || pendingMessage.tools?.length
-                    || pendingMessage.contentSegments?.some((segment) => segment.text.trim())
-                  )
-
-                  if (hasVisibleContent) {
-                    nextMessages[pendingIndex] = { ...pendingMessage, isStreaming: false }
-                  } else {
-                    nextMessages.splice(pendingIndex, 1)
-                  }
+              if (attachIndex >= 0) {
+                nextMessages[attachIndex] = {
+                  ...nextMessages[attachIndex],
+                  isStreaming: false,
+                  systemNotice,
+                  timestamp: errorAt,
                 }
+                return nextMessages
               }
 
               nextMessages.push({
-                id: `err-${Date.now()}`,
-                role: 'system',
-                content: systemNotice.message,
+                id: `err-${errorAt}`,
+                role: 'assistant',
+                content: '',
                 systemNotice,
-                timestamp: Date.now(),
+                timestamp: errorAt,
               })
 
               return nextMessages
@@ -1395,7 +1453,7 @@ export function ChatPage() {
               className="flex-1 overflow-x-hidden overflow-y-auto px-4 py-5"
             >
               <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5">
-                {activeSession.messages.map((message) => (
+                {displayMessages.map((message) => (
                   <MessageBubble
                     key={message.id}
                     message={message}
@@ -1598,6 +1656,7 @@ function MessageBubble({
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
   const systemNotice = message.systemNotice
+  const errorNotice = systemNotice?.kind === 'error' ? systemNotice : undefined
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -1605,39 +1664,41 @@ function MessageBubble({
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const renderErrorNoticeCard = (notice: SystemNoticeData) => (
+    <div className="rounded-2xl border border-red-200 bg-white px-4 py-3 shadow-sm dark:border-red-900/40 dark:bg-[#1b1414]">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300">
+          <AlertCircle size={16} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">{notice.title}</p>
+            {notice.reason && (
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950/30 dark:text-red-300">
+                {notice.reason}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm leading-6 text-foreground dark:text-[#e8edf5]">{notice.message}</p>
+          {notice.hint && (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground dark:text-[#aab4c7]">
+              建议：{notice.hint}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
   if (isSystem) {
-    if (systemNotice?.kind === 'error') {
+    if (errorNotice) {
       return (
         <div className="flex justify-start">
           <div className="w-[min(80%,56rem)]">
-            <div className="rounded-2xl border border-red-200 bg-white px-4 py-3 shadow-sm dark:border-red-900/40 dark:bg-[#1b1414]">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300">
-                  <AlertCircle size={16} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-red-700 dark:text-red-300">{systemNotice.title}</p>
-                    {systemNotice.reason && (
-                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:bg-red-950/30 dark:text-red-300">
-                        {systemNotice.reason}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-sm leading-6 text-foreground dark:text-[#e8edf5]">{systemNotice.message}</p>
-                  {systemNotice.hint && (
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground dark:text-[#aab4c7]">
-                      建议：{systemNotice.hint}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <p className="mt-1 px-1 text-[10px] text-muted-foreground">
-                {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </div>
+            {renderErrorNoticeCard(errorNotice)}
+            <p className="mt-1 px-1 text-[10px] text-muted-foreground">
+              {formatMessageTime(message.timestamp)}
+            </p>
           </div>
         </div>
       )
@@ -1732,12 +1793,6 @@ function MessageBubble({
     displaySegments.push(panel)
   }
 
-  const toolCalls = tools.filter((a) => a.type === 'call')
-  const subagentCount = new Set(
-    segments
-      .map((seg) => seg.subagent?.taskId)
-      .filter((taskId): taskId is string => !!taskId)
-  ).size
   const attachments = message.attachments || []
   const lastVisibleActivityTs = segments.reduce((latest, seg) => Math.max(latest, seg.ts), message.timestamp)
   const shouldShowBreathingDot = !isUser
@@ -1746,7 +1801,7 @@ function MessageBubble({
     && segments.length > 0
     && now - lastVisibleActivityTs > 1000
   const shouldShowTimestamp = !message.isStreaming
-  const hasRenderableAssistantBody = displaySegments.length > 0 || attachments.length > 0
+  const hasRenderableAssistantBody = displaySegments.length > 0 || attachments.length > 0 || !!errorNotice
 
   if (!isUser && !isSystem && !message.isStreaming && !hasRenderableAssistantBody) {
     return null
@@ -1900,33 +1955,25 @@ function MessageBubble({
           </div>
         )}
 
+        {errorNotice && (
+          <div className="mb-1.5">
+            {renderErrorNoticeCard(errorNotice)}
+          </div>
+        )}
+
         {shouldShowBreathingDot && (
           <div className="mb-1.5 flex justify-end pr-1">
             <span className="streaming-breathing-dot" aria-label="服务仍在继续" />
           </div>
         )}
 
-        {/* Metadata */}
-        <div className="flex items-center gap-2 mt-1 px-1">
-          {toolCalls.length > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Wrench size={9} /> {toolCalls.length} 个工具操作
-            </span>
-          )}
-          {subagentCount > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-[4px] border border-border bg-accent">
-                <span className="h-1.5 w-1.5 rounded-[2px] bg-primary" />
-              </span>
-              {subagentCount} 个辅助处理
-            </span>
-          )}
-          {shouldShowTimestamp && (
+        {shouldShowTimestamp && (
+          <div className="mt-1 px-1">
             <p className="text-[10px] text-muted-foreground">
-              {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+              {formatMessageTime(message.timestamp)}
             </p>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -2248,15 +2295,15 @@ function PermissionRequestCard({
             </div>
             <div className="mt-1 rounded-lg border border-amber-200/70 bg-white/70 px-2.5 py-2 dark:border-amber-900/30 dark:bg-[#191f2c]">
               {requestData?.command ? (
-                <p className="line-clamp-3 break-all text-[11px] text-foreground/90 dark:text-[#e5ebf4]">
-                  Agent 想运行一条命令继续处理当前任务。
-                </p>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-black/[0.04] px-2 py-1.5 text-[11px] font-mono text-foreground/90 dark:bg-white/[0.05] dark:text-[#e5ebf4]">
+                  {requestData.command}
+                </pre>
               ) : (
                 <p className="line-clamp-3 break-all text-[11px] text-foreground/90 dark:text-[#e5ebf4]">
                   {requestData?.message || '这个操作需要先得到你的确认。'}
                 </p>
               )}
-              {requestData?.description && (
+              {!requestData?.command && requestData?.description && (
                 <p className="mt-1 line-clamp-2 break-all text-[10px] text-muted-foreground dark:text-[#aab4c7]">
                   {requestData.description}
                 </p>
@@ -2266,7 +2313,7 @@ function PermissionRequestCard({
               <span>{requestData?.isReadOnly ? '只会读取信息' : '可能修改文件或环境'}</span>
               {request.name && <span>{getToolDisplayName(request.name)}</span>}
             </div>
-            {requestData?.message && (requestData.command || requestData.description) && (
+            {!requestData?.command && requestData?.message && requestData.description && (
               <p className="mt-1 text-[10px] text-muted-foreground dark:text-[#aab4c7]">
                 {requestData.message}
               </p>

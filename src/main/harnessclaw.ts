@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readEngineConfig } from './config'
+import { sanitizeForLogging, writeAppLog } from './logging'
 
 interface HarnessclawConfig {
   enabled: boolean
@@ -137,6 +138,17 @@ function combineOutput(stdout: string, stderr: string): string {
   return stdout || stderr
 }
 
+function logEngineFrame(direction: 'send' | 'recv', payload: unknown, extra?: Record<string, unknown>): void {
+  writeAppLog('trace', 'harnessclaw-engine.frame', `${direction} frame`, {
+    ...extra,
+    payload: sanitizeForLogging(payload),
+  })
+}
+
+function logSessionSummary(message: string, meta: Record<string, unknown>): void {
+  writeAppLog('debug', 'harnessclaw-engine.session', message, meta)
+}
+
 type HarnessclawStatus = 'disconnected' | 'connecting' | 'connected'
 
 const HARNESSCLAW_WS_HOST = '0.0.0.0'
@@ -201,7 +213,10 @@ export class HarnessclawClient extends EventEmitter {
 
     const url = new URL(`ws://${cfg.host}:${cfg.port}${cfg.path.startsWith('/') ? cfg.path : `/${cfg.path}`}`)
 
-    console.log(`[Harnessclaw] Connecting to ${url.toString()} (attempt ${this.retryCount + 1})`)
+    writeAppLog('info', 'harnessclaw-engine.ws', 'Connecting websocket', {
+      url: url.toString(),
+      attempt: this.retryCount + 1,
+    })
     this.setStatus('connecting')
 
     const headers: Record<string, string> = {}
@@ -212,7 +227,7 @@ export class HarnessclawClient extends EventEmitter {
     this.ws = new WebSocket(url, Object.keys(headers).length > 0 ? { headers } : undefined)
 
     this.ws.on('open', () => {
-      console.log('[Harnessclaw] WebSocket opened')
+      writeAppLog('info', 'harnessclaw-engine.ws', 'WebSocket opened')
       this.retryCount = 0
       this.setStatus('connected')
       this.resolveTransportWaiters()
@@ -224,20 +239,30 @@ export class HarnessclawClient extends EventEmitter {
     this.ws.on('message', (data) => {
       try {
         const raw = data.toString()
-        console.log('[Harnessclaw] ← recv:', raw)
         const msg = JSON.parse(raw) as Record<string, unknown>
+        logEngineFrame('recv', msg, {
+          sessionId: getMessageSessionId(msg, this.defaultSessionId),
+          type: typeof msg.type === 'string' ? msg.type : '',
+        })
         this.handleMessage(msg)
       } catch (e) {
-        console.error('[Harnessclaw] Failed to parse message:', e)
+        writeAppLog('error', 'harnessclaw-engine.ws', 'Failed to parse websocket frame', {
+          error: String(e),
+        })
       }
     })
 
     this.ws.on('error', (err) => {
-      console.error('[Harnessclaw] WebSocket error:', err.message)
+      writeAppLog('error', 'harnessclaw-engine.ws', 'WebSocket error', {
+        error: err.message,
+      })
     })
 
     this.ws.on('close', (code, reason) => {
-      console.log('[Harnessclaw] WebSocket closed:', code, reason.toString())
+      writeAppLog(code === 1000 ? 'info' : 'warn', 'harnessclaw-engine.ws', 'WebSocket closed', {
+        code,
+        reason: reason.toString(),
+      })
       const reconnectSessionId = this.pendingSessionInitId || this.defaultSessionId
       this.ws = null
       this.pendingMessages.clear()
@@ -258,11 +283,14 @@ export class HarnessclawClient extends EventEmitter {
   private scheduleRetry(): void {
     if (!this.shouldReconnect) return
     if (this.retryCount >= this.maxRetries) {
-      console.warn('[Harnessclaw] Max retries reached, giving up')
+      writeAppLog('warn', 'harnessclaw-engine.ws', 'Max retries reached, giving up')
       return
     }
     const delay = Math.min(1000 * Math.max(1, 2 ** Math.min(this.retryCount, 4)), 30_000)
-    console.log(`[Harnessclaw] Retry in ${delay}ms...`)
+    writeAppLog('info', 'harnessclaw-engine.ws', 'Scheduling reconnect', {
+      delay,
+      retryCount: this.retryCount,
+    })
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
       this.retryCount++
@@ -333,7 +361,10 @@ export class HarnessclawClient extends EventEmitter {
     }
 
     this.sessionCreateInFlight = true
-    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
+    logEngineFrame('send', payload, {
+      sessionId,
+      type: 'session.create',
+    })
     this.ws.send(JSON.stringify(payload))
   }
 
@@ -592,7 +623,27 @@ export class HarnessclawClient extends EventEmitter {
 
       case 'task.end': {
         const usage = toUsage(msg.total_usage)
-        if (msg.status === 'aborted') {
+        const status = typeof msg.status === 'string' ? msg.status : ''
+        if (status === 'aborted' || status === 'error' || status === 'failed') {
+          writeAppLog('warn', 'harnessclaw-engine.session', 'Session task finished with exception', {
+            sessionId,
+            requestId: msg.request_id,
+            status,
+            durationMs: msg.duration_ms,
+            numTurns: msg.num_turns,
+            usage,
+          })
+        } else {
+          logSessionSummary('Session task completed', {
+            sessionId,
+            requestId: msg.request_id,
+            status,
+            durationMs: msg.duration_ms,
+            numTurns: msg.num_turns,
+            usage,
+          })
+        }
+        if (status === 'aborted') {
           this.emitCompatEvent({
             type: 'stopped',
             session_id: sessionId,
@@ -622,6 +673,13 @@ export class HarnessclawClient extends EventEmitter {
           ? msg.error
           : payload
         const content = typeof error.message === 'string' ? error.message : 'Unknown websocket error'
+        writeAppLog('error', 'harnessclaw-engine.session', 'Session error frame received', {
+          sessionId,
+          requestId: msg.request_id,
+          message: content,
+          error: sanitizeForLogging(error),
+          payload: sanitizeForLogging(payload),
+        })
         if (this.pendingSessionInitId) {
           this.pendingSessionInitId = ''
           this.sessionCreateInFlight = false
@@ -693,7 +751,10 @@ export class HarnessclawClient extends EventEmitter {
           text: content,
         },
       }
-      console.log('[Harnessclaw] → send:', JSON.stringify(payload))
+      logEngineFrame('send', payload, {
+        sessionId: resolvedSessionId,
+        type: 'user.message',
+      })
       this.ws.send(JSON.stringify(payload))
       this.knownSessions.set(resolvedSessionId, Date.now())
       return true
@@ -734,7 +795,10 @@ export class HarnessclawClient extends EventEmitter {
         event_id: makeEventId(),
         session_id: resolvedSessionId,
       }
-      console.log('[Harnessclaw] → send:', JSON.stringify(payload))
+      logEngineFrame('send', payload, {
+        sessionId: resolvedSessionId,
+        type: 'session.interrupt',
+      })
       this.ws.send(JSON.stringify(payload))
       return true
     } catch (error) {
@@ -787,7 +851,7 @@ export class HarnessclawClient extends EventEmitter {
 
         this.pendingPongWaiters.push(waiter)
         const payload = { type: 'ping', event_id: makeEventId() }
-        console.log('[Harnessclaw] → send:', JSON.stringify(payload))
+        logEngineFrame('send', payload, { type: 'ping' })
         this.ws?.send(JSON.stringify(payload), (error) => {
           if (!error) return
           const index = this.pendingPongWaiters.indexOf(waiter)
@@ -860,7 +924,10 @@ export class HarnessclawClient extends EventEmitter {
       payload.message = message
     }
 
-    console.log('[Harnessclaw] → send:', JSON.stringify(payload))
+    logEngineFrame('send', payload, {
+      sessionId: pending.sessionId,
+      type: 'permission.response',
+    })
     this.ws.send(JSON.stringify(payload))
     this.pendingPermissionRequests.delete(requestId)
 
@@ -898,7 +965,12 @@ export class HarnessclawClient extends EventEmitter {
     }
 
     if (this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[Harnessclaw] → send:', JSON.stringify(message))
+      logEngineFrame('send', message, {
+        sessionId,
+        type: 'tool.result',
+        toolUseId,
+        status: payload.status,
+      })
       this.ws.send(JSON.stringify(message))
     }
   }

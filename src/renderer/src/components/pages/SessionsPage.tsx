@@ -112,7 +112,7 @@ export function SessionsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col px-6 py-6">
+    <div className="flex h-full min-h-0 flex-col px-6 pt-6 pb-0">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-foreground">对话</h2>
@@ -161,18 +161,18 @@ export function SessionsPage() {
           </div>
         </div>
       ) : (
-        <div className="relative overflow-visible rounded-2xl border border-border bg-card">
-          <div className="grid grid-cols-[minmax(0,1.6fr)_140px_56px] gap-4 border-b border-border bg-muted/30 px-4 py-3 text-xs font-medium text-muted-foreground">
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-t-2xl border border-border bg-card">
+          <div className="grid grid-cols-[minmax(0,1.6fr)_140px_56px] gap-4 border-b border-border bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground">
             <span>对话</span>
             <span>最近更新</span>
             <span className="text-right">操作</span>
           </div>
 
-          <div className="divide-y divide-border">
+          <div className="h-full overflow-y-auto divide-y divide-border">
             {filteredSessions.map((session) => {
               const isRenaming = renamingSessionId === session.session_id
               return (
-                <div key={session.session_id} className="grid grid-cols-[minmax(0,1.6fr)_140px_56px] gap-4 px-4 py-3 transition-colors hover:bg-muted/20">
+                <div key={session.session_id} className="grid grid-cols-[minmax(0,1.6fr)_140px_56px] gap-4 px-4 py-2.5 transition-colors hover:bg-muted/20">
                   <button
                     onClick={() => handleOpenChat(session.session_id)}
                     className="min-w-0 text-left"
@@ -200,7 +200,7 @@ export function SessionsPage() {
                         <p className="truncate text-sm font-medium text-foreground">
                           {getSessionLabel(session.title, session.session_id)}
                         </p>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                           <span className="truncate font-mono">{session.session_id}</span>
                           <span>{session.messageCount} 条消息</span>
                         </div>

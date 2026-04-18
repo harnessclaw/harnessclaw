@@ -17,11 +17,13 @@ export const BIN_DIR = join(HARNESSCLAW_HOME, 'bin')
 export const DB_DIR = join(HARNESSCLAW_HOME, 'db')
 export const DB_PATH = join(DB_DIR, 'harnessclaw.db')
 export const SKILL_REPOS_CACHE_DIR = join(HARNESSCLAW_HOME, 'cache', 'skill-repos')
-export const LOGS_DIR = join(HARNESSCLAW_HOME, 'logs')
-export const APP_LOG_PATH = join(LOGS_DIR, 'app.log')
-export const RENDERER_LOG_PATH = join(LOGS_DIR, 'renderer.log')
-export const USAGE_LOG_PATH = join(LOGS_DIR, 'usage.jsonl')
-export const EXPORTS_DIR = join(LOGS_DIR, 'exports')
+export const LOG_DIR = join(HARNESSCLAW_HOME, 'log')
+export const LOGS_DIR = LOG_DIR
+export const LATEST_LOG_PATH = join(LOG_DIR, 'latest.log')
+export const APP_LOG_PATH = LATEST_LOG_PATH
+export const RENDERER_LOG_PATH = LATEST_LOG_PATH
+export const USAGE_LOG_PATH = LATEST_LOG_PATH
+export const EXPORTS_DIR = join(LOG_DIR, 'exports')
 
 export function getDefaultWorkspaceSetting(): string {
   return IS_WINDOWS ? '~/.harnessclaw/workspace' : '~/.nanobot/workspace'

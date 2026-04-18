@@ -1885,24 +1885,27 @@ function UpdateSection() {
   )
 }
 
-type LogViewerLevel = 'error' | 'info' | 'debug'
-type LogViewerFile = 'all' | 'app' | 'renderer'
+type LogViewerLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
+type LogViewerFile = 'all' | 'harnessclaw'
+type LogViewerMode = 'parsed' | 'raw'
 type LogEntry = {
   cursor: string
   timestamp: number
   isoTime: string
-  level: 'debug' | 'info' | 'warn' | 'error'
+  level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
   source: string
   message: string
   metaText: string
-  file: 'app' | 'renderer'
+  file: 'harnessclaw'
   raw: string
 }
 
 function getLogBadgeClass(level: LogEntry['level']): string {
+  if (level === 'fatal') return 'bg-rose-100 text-rose-700 border-rose-200'
   if (level === 'error') return 'bg-red-50 text-red-700 border-red-200'
   if (level === 'warn') return 'bg-amber-50 text-amber-700 border-amber-200'
   if (level === 'debug') return 'bg-sky-50 text-sky-700 border-sky-200'
+  if (level === 'trace') return 'bg-slate-100 text-slate-700 border-slate-200'
   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
 }
 
@@ -1943,6 +1946,7 @@ function LogsSection() {
   const [selectedFile, setSelectedFile] = useState<LogViewerFile>('all')
   const [query, setQuery] = useState('')
   const [followMode, setFollowMode] = useState(true)
+  const [viewMode, setViewMode] = useState<LogViewerMode>('parsed')
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [loadingLogs, setLoadingLogs] = useState(true)
@@ -2028,6 +2032,7 @@ function LogsSection() {
     setSelectedFile('all')
     setSelectedLevel(persistedLevel)
     setFollowMode(true)
+    setViewMode('parsed')
     setExpandedRows({})
     setNotice(null)
     setReloadKey((current) => current + 1)
@@ -2061,7 +2066,7 @@ function LogsSection() {
   return (
     <div className="h-full overflow-hidden">
       <div className="h-full max-w-5xl mx-auto px-8 py-8 flex flex-col">
-        <SectionHeader icon={FileText} title="日志" subtitle="合并查看 app.log 与 renderer.log，支持筛选、搜索与实时跟随。" />
+        <SectionHeader icon={FileText} title="日志" subtitle="统一查看 latest.log，支持按等级、模块与关键词筛选。" />
 
         <div className="rounded-2xl border border-border bg-card shadow-sm p-4 mb-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -2072,7 +2077,7 @@ function LogsSection() {
                   type="text"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索消息、来源或元数据"
+                  placeholder="搜索消息、模块或元数据"
                   className="w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
@@ -2081,21 +2086,23 @@ function LogsSection() {
             <div className="flex flex-wrap items-center gap-2">
               <Segment
                 options={[
+                  { label: '致命', value: 'fatal' },
                   { label: '错误', value: 'error' },
+                  { label: '警告', value: 'warn' },
                   { label: '标准', value: 'info' },
                   { label: '调试', value: 'debug' },
+                  { label: '追踪', value: 'trace' },
                 ]}
                 value={selectedLevel}
                 onChange={handleLevelChange}
               />
               <Segment
                 options={[
-                  { label: '全部', value: 'all' },
-                  { label: 'app.log', value: 'app' },
-                  { label: 'renderer.log', value: 'renderer' },
+                  { label: '解析', value: 'parsed' },
+                  { label: 'Raw', value: 'raw' },
                 ]}
-                value={selectedFile}
-                onChange={(value) => setSelectedFile(value as LogViewerFile)}
+                value={viewMode}
+                onChange={(value) => setViewMode(value as LogViewerMode)}
               />
             </div>
           </div>
@@ -2171,7 +2178,6 @@ function LogsSection() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div>
               <p className="text-sm font-semibold text-foreground">日志列表</p>
-              <p className="text-xs text-muted-foreground">当前展示 {entries.length} 条合并日志，来源于 app.log 与 renderer.log</p>
             </div>
             {(loadingLogs || (followMode && entries.length === 0)) && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -2193,10 +2199,17 @@ function LogsSection() {
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-border">
+              <div className={cn(viewMode === 'raw' && 'overflow-x-auto')}>
+                <div className={cn('divide-y divide-border', viewMode === 'raw' && 'min-w-max')}>
                 {entries.map((entry) => {
                   const expanded = Boolean(expandedRows[entry.cursor])
-                  return (
+                  return viewMode === 'raw' ? (
+                    <div key={entry.cursor} className="px-4 py-2">
+                      <pre className="whitespace-pre text-xs text-foreground font-mono">
+                        {entry.raw}
+                      </pre>
+                    </div>
+                  ) : (
                     <div key={entry.cursor} className="px-4 py-3">
                       <button onClick={() => toggleExpanded(entry.cursor)} className="w-full text-left">
                         <div className="flex items-start justify-between gap-3">
@@ -2206,7 +2219,7 @@ function LogsSection() {
                                 {entry.level}
                               </span>
                               <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                                {entry.file === 'app' ? 'app.log' : 'renderer.log'}
+                                latest.log
                               </span>
                               <span className="text-xs font-mono text-muted-foreground break-all">{entry.source}</span>
                             </div>
@@ -2244,6 +2257,7 @@ function LogsSection() {
                     </div>
                   )
                 })}
+                </div>
               </div>
             )}
           </div>

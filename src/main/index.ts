@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, screen } from 'electron'
 import { basename, extname, join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, rmSync } from 'fs'
 import { spawn, ChildProcess } from 'child_process'
@@ -20,21 +20,19 @@ import {
 } from './config'
 import {
   getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
-  deleteSession as dbDeleteSession, insertMessage, updateMessageContent,
+  deleteSession as dbDeleteSession, insertMessage, updateMessageContent, updateMessageSystemNotice,
   getMessages, insertToolActivity, insertUsageEvent, listUsageEvents
 } from './db'
 import {
-  APP_LOG_PATH,
+  LATEST_LOG_PATH,
   LOGS_DIR,
-  RENDERER_LOG_PATH,
-  USAGE_LOG_PATH,
 } from './runtime-paths'
 import {
   type LogLevel,
-  type LogThreshold,
   type UsageLogEntry,
-  ensureLoggingDirs,
   getLogThreshold,
+  getDailyLogPath,
+  initializeLogging,
   normalizeLogThreshold,
   readStructuredLogs,
   readTextFile,
@@ -68,6 +66,19 @@ type PersistedSystemNotice = {
   hint?: string
 }
 
+const ERROR_ATTACH_WINDOW_MS = 30_000
+const WINDOW_STATE_PATH = join(HARNESSCLAW_DIR, 'window-state.json')
+const DEFAULT_WINDOW_WIDTH = 1200
+const DEFAULT_WINDOW_HEIGHT = 800
+const MIN_WINDOW_WIDTH = 1024
+const MIN_WINDOW_HEIGHT = 768
+
+type WindowState = {
+  width: number
+  height: number
+  isMaximized?: boolean
+}
+
 function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const candidate = raw as Record<string, unknown>
@@ -76,6 +87,86 @@ function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
   const status = typeof candidate.status === 'string' ? candidate.status : ''
   if (!taskId || !label) return undefined
   return { taskId, label, status: status || 'ok' }
+}
+
+function findAttachablePersistedAssistantMessageId(
+  messages: Array<{ id: string; role: string; created_at: number }>,
+  referenceTs: number,
+  preferredId?: string,
+): string | null {
+  if (preferredId && messages.some((message) => message.id === preferredId)) {
+    return preferredId
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role === 'user') break
+    if (message.role !== 'assistant') continue
+    if (referenceTs - message.created_at > ERROR_ATTACH_WINDOW_MS) break
+    return message.id
+  }
+
+  return null
+}
+
+function readWindowState(): WindowState | null {
+  try {
+    if (!existsSync(WINDOW_STATE_PATH)) return null
+    const parsed = JSON.parse(readFileSync(WINDOW_STATE_PATH, 'utf-8')) as Partial<WindowState>
+    const width = Number(parsed.width)
+    const height = Number(parsed.height)
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      return null
+    }
+    return {
+      width: Math.max(MIN_WINDOW_WIDTH, Math.round(width)),
+      height: Math.max(MIN_WINDOW_HEIGHT, Math.round(height)),
+      isMaximized: parsed.isMaximized === true,
+    }
+  } catch (error) {
+    writeAppLog('warn', 'window.state', 'Failed to read window state', {
+      error: String(error),
+    })
+    return null
+  }
+}
+
+function writeWindowState(windowState: WindowState): void {
+  try {
+    ensureDir(HARNESSCLAW_DIR)
+    writeFileSync(WINDOW_STATE_PATH, JSON.stringify(windowState, null, 2), 'utf-8')
+  } catch (error) {
+    writeAppLog('warn', 'window.state', 'Failed to persist window state', {
+      error: String(error),
+    })
+  }
+}
+
+function resolveWindowState(): WindowState {
+  const storedState = readWindowState()
+  if (!storedState) {
+    return {
+      width: DEFAULT_WINDOW_WIDTH,
+      height: DEFAULT_WINDOW_HEIGHT,
+      isMaximized: false,
+    }
+  }
+
+  const primaryArea = screen.getPrimaryDisplay().workAreaSize
+  return {
+    width: Math.min(Math.max(storedState.width, MIN_WINDOW_WIDTH), Math.max(MIN_WINDOW_WIDTH, primaryArea.width)),
+    height: Math.min(Math.max(storedState.height, MIN_WINDOW_HEIGHT), Math.max(MIN_WINDOW_HEIGHT, primaryArea.height)),
+    isMaximized: storedState.isMaximized === true,
+  }
+}
+
+function getWindowStateSnapshot(win: BrowserWindow): WindowState {
+  const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds()
+  return {
+    width: Math.max(MIN_WINDOW_WIDTH, Math.round(bounds.width)),
+    height: Math.max(MIN_WINDOW_HEIGHT, Math.round(bounds.height)),
+    isMaximized: win.isMaximized(),
+  }
 }
 
 function isSameSubagent(
@@ -332,9 +423,9 @@ function buildExportPayload(type: string): { name: string; content: string } {
       name: `logs-export-${stamp}.json`,
       content: JSON.stringify({
         exportedAt: new Date().toISOString(),
-        appLog: readTextFile(APP_LOG_PATH),
-        rendererLog: readTextFile(RENDERER_LOG_PATH),
-        usageLog: readTextFile(USAGE_LOG_PATH),
+        latestLogPath: LATEST_LOG_PATH,
+        dailyLogPath: getDailyLogPath(),
+        latestLog: readTextFile(LATEST_LOG_PATH),
         usageEvents: listUsageEvents(1000),
       }, null, 2),
     }
@@ -363,36 +454,56 @@ function buildExportPayload(type: string): { name: string; content: string } {
   }
 }
 
+function logProcessStream(level: LogLevel, source: string, payload: Buffer | string): void {
+  const text = typeof payload === 'string' ? payload : payload.toString('utf-8')
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .forEach((line) => {
+      writeAppLog(level, source, line)
+    })
+}
+
 function startHarnessclawEngine(): void {
   if (harnessclawEngineProcess) return
   if (!HARNESSCLAW_ENGINE_BIN || !existsSync(HARNESSCLAW_ENGINE_BIN)) {
-    console.warn('[HarnessclawEngine] Binary not found:', HARNESSCLAW_ENGINE_BIN || '<missing>')
+    writeAppLog('warn', 'harnessclaw-engine.process', 'Binary not found', {
+      path: HARNESSCLAW_ENGINE_BIN || '<missing>',
+    })
     return
   }
-  console.log('[HarnessclawEngine] Starting engine...')
+  writeAppLog('info', 'harnessclaw-engine.process', 'Starting engine', {
+    binary: HARNESSCLAW_ENGINE_BIN,
+    configPath: ENGINE_CONFIG_PATH,
+  })
   harnessclawEngineProcess = spawn(HARNESSCLAW_ENGINE_BIN, ['-config', ENGINE_CONFIG_PATH], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   })
   harnessclawEngineProcess.stdout?.on('data', (data) => {
-    process.stdout.write(`[HarnessclawEngine] ${data}`)
+    logProcessStream('debug', 'harnessclaw-engine.stdout', data)
   })
   harnessclawEngineProcess.stderr?.on('data', (data) => {
-    process.stderr.write(`[HarnessclawEngine] ${data}`)
+    logProcessStream('warn', 'harnessclaw-engine.stderr', data)
   })
   harnessclawEngineProcess.on('error', (err) => {
-    console.error('[HarnessclawEngine] Failed to start:', err)
+    writeAppLog('error', 'harnessclaw-engine.process', 'Failed to start engine', {
+      error: String(err),
+    })
     harnessclawEngineProcess = null
   })
   harnessclawEngineProcess.on('exit', (code) => {
-    console.log('[HarnessclawEngine] Exited with code:', code)
+    writeAppLog(code === 0 ? 'info' : 'error', 'harnessclaw-engine.process', 'Engine exited', {
+      code,
+    })
     harnessclawEngineProcess = null
   })
 }
 
 async function stopHarnessclawEngine(): Promise<void> {
   if (!harnessclawEngineProcess) return
-  console.log('[HarnessclawEngine] Stopping engine...')
+  writeAppLog('info', 'harnessclaw-engine.process', 'Stopping engine')
   const processToStop = harnessclawEngineProcess
 
   await new Promise<void>((resolve) => {
@@ -450,11 +561,12 @@ async function restartHarnessclawRuntime(): Promise<void> {
 
 function createWindow(): BrowserWindow {
   const devIconPath = is.dev ? applyDevAppIcon() : undefined
+  const windowState = resolveWindowState()
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 1024,
-    minHeight: 768,
+    width: windowState.width,
+    height: windowState.height,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hiddenInset',
@@ -471,6 +583,31 @@ function createWindow(): BrowserWindow {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    if (windowState.isMaximized) {
+      mainWindow.maximize()
+    }
+  })
+
+  let persistTimer: NodeJS.Timeout | null = null
+  const persistWindowState = () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+    }
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      writeWindowState(getWindowStateSnapshot(mainWindow))
+    }, 180)
+  }
+
+  mainWindow.on('resize', persistWindowState)
+  mainWindow.on('maximize', persistWindowState)
+  mainWindow.on('unmaximize', persistWindowState)
+  mainWindow.on('close', () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
+    writeWindowState(getWindowStateSnapshot(mainWindow))
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -490,7 +627,7 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.iflytek.harnessclaw')
-  ensureLoggingDirs()
+  initializeLogging()
   const appConfigInit = ensureHarnessclawConfigInitialized()
   const engineConfigInit = ensureEngineConfigInitialized()
   if (!appConfigInit.ok) {
@@ -522,6 +659,7 @@ app.whenReady().then(() => {
         mkdirSync(HARNESSCLAW_DIR, { recursive: true })
       }
       writeFileSync(HARNESSCLAW_LAUNCHED_FLAG, new Date().toISOString(), 'utf-8')
+      writeAppLog('info', 'app.lifecycle', 'Launch flag created')
       if (engineConfigInit.ok) {
         startHarnessclawRuntime()
       }
@@ -544,7 +682,14 @@ app.whenReady().then(() => {
     ensureDir(HARNESSCLAW_DIR)
     const result = saveEngineConfig(data)
     if (result.ok && existsSync(HARNESSCLAW_LAUNCHED_FLAG)) {
+      writeAppLog('info', 'setting.engine', 'Engine config saved, restarting runtime')
       await restartHarnessclawRuntime()
+    } else if (result.ok) {
+      writeAppLog('info', 'setting.engine', 'Engine config saved')
+    } else {
+      writeAppLog('error', 'setting.engine', 'Failed to save engine config', {
+        error: result.error || 'unknown error',
+      })
     }
     return result
   })
@@ -559,6 +704,13 @@ app.whenReady().then(() => {
     if (result.ok) {
       setLogThreshold(normalizeLogThreshold(asRecord(asRecord(data).logging).level))
       broadcastAppRuntimeStatus()
+      writeAppLog('info', 'setting.app', 'App config saved', {
+        loggingLevel: normalizeLogThreshold(asRecord(asRecord(data).logging).level),
+      })
+    } else {
+      writeAppLog('error', 'setting.app', 'Failed to save app config', {
+        error: result.error || 'unknown error',
+      })
     }
     return result
   })
@@ -983,15 +1135,22 @@ app.whenReady().then(() => {
         case 'error': {
           if (!sid) break
           const notice = buildPersistedSystemErrorNotice(event, sid)
+          const errorAt = Date.now()
           upsertSession(sid)
-          insertMessage({
-            id: `sys-${Date.now()}`,
-            sessionId: sid,
-            role: 'system',
-            content: notice.message,
-            systemNotice: notice,
-            createdAt: Date.now(),
-          })
+          const pendingAid = pendingDbAssistantIds[sid]
+          const attachableAid = pendingAid || findAttachablePersistedAssistantMessageId(getMessages(sid), errorAt)
+          if (attachableAid) {
+            updateMessageSystemNotice(attachableAid, notice, errorAt)
+          } else {
+            insertMessage({
+              id: `asst-err-${errorAt}`,
+              sessionId: sid,
+              role: 'assistant',
+              content: '',
+              systemNotice: notice,
+              createdAt: errorAt,
+            })
+          }
           broadcastDbSessionsChanged()
           delete pendingDbAssistantIds[sid]
           delete pendingDbSegments[sid]

@@ -40,10 +40,10 @@ interface AppRuntimeStatus {
   lastError?: string
 }
 
-type LogViewerThreshold = 'error' | 'info' | 'debug'
-type LogViewerFile = 'all' | 'app' | 'renderer'
-type RuntimeLogFile = 'app' | 'renderer'
-type RuntimeLogLevel = 'debug' | 'info' | 'warn' | 'error'
+type LogViewerThreshold = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
+type LogViewerFile = 'all' | 'harnessclaw'
+type RuntimeLogFile = 'harnessclaw'
+type RuntimeLogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
 interface RuntimeLogEntry {
   cursor: string
@@ -76,7 +76,7 @@ interface AppRuntimeAPI {
   getLogLevel: () => Promise<LogViewerThreshold>
   getLogs: (options?: GetLogsOptions) => Promise<GetLogsResult>
   openLogsDirectory: () => Promise<{ ok: boolean; path: string; error?: string }>
-  logRenderer: (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, unknown>) => Promise<{ ok: boolean }>
+  logRenderer: (level: RuntimeLogLevel, message: string, details?: Record<string, unknown>) => Promise<{ ok: boolean }>
   trackUsage: (entry: {
     category: string
     action: string

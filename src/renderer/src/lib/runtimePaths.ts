@@ -11,4 +11,4 @@ export const defaultSkillsDisplayPath = `${defaultWorkspaceDisplayPath}/skills`
 
 export const defaultDbDisplayPath = '~/.harnessclaw/db/harnessclaw.db'
 
-export const defaultLogsDisplayPath = '~/.harnessclaw/logs'
+export const defaultLogsDisplayPath = '~/.harnessclaw/log'

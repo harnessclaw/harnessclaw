@@ -264,7 +264,7 @@ export function Sidebar() {
           </div>
 
           {expanded && (
-            <div className="mt-6 flex min-h-0 w-full flex-1 flex-col">
+            <div className="mt-6 flex w-full flex-shrink-0 flex-col">
               <button
                 onClick={toggleRecentExpanded}
                 className="mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
@@ -279,17 +279,17 @@ export function Sidebar() {
                 />
               </button>
               {recentExpanded && (
-                <div className="recent-session-scroll min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 pb-2">
+                <div className="recent-session-scroll max-h-72 space-y-0.5 overflow-y-auto pr-1 pb-2">
                   {recentItems.length === 0 ? (
                     <div className="px-3 py-2 text-xs leading-5 text-muted-foreground">
                       暂无最近聊天
                     </div>
                   ) : (
                     recentItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className={cn(
-                          'group rounded-xl px-1 py-1 transition-colors',
+                        <div
+                          key={item.id}
+                          className={cn(
+                            'group rounded-xl px-1 py-0.5 transition-colors',
                           selectedRecentSessionId === item.id
                             ? 'bg-accent text-foreground'
                             : 'text-foreground hover:bg-accent'
@@ -317,7 +317,7 @@ export function Sidebar() {
                           ) : (
                             <button
                               onClick={() => handleOpenRecentSession(item.id)}
-                              className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left"
+                              className="min-w-0 flex-1 rounded-lg px-2 py-1 text-left"
                             >
                               <p className="truncate text-sm text-foreground">{item.label}</p>
                             </button>
