@@ -5,6 +5,7 @@ import {
   House,
   Zap,
   Puzzle,
+  Search,
   FolderKanban,
   Users,
   Settings,
@@ -41,6 +42,14 @@ interface FloatingMenuState {
   left: number
 }
 
+interface SearchResultItem {
+  id: string
+  type: 'action' | 'recent'
+  label: string
+  description?: string
+  onSelect: () => void
+}
+
 const navGroups: NavGroup[] = [
   {
     items: [
@@ -57,6 +66,9 @@ const navGroups: NavGroup[] = [
   },
 ]
 
+const isMac = navigator.platform.toUpperCase().includes('MAC')
+const RECENT_WINDOW_SIZE = 8
+
 export function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -67,7 +79,12 @@ export function Sidebar() {
   const [menuState, setMenuState] = useState<FloatingMenuState | null>(null)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0)
+  const [recentWindowStart, setRecentWindowStart] = useState(0)
   const floatingMenuRef = useRef<HTMLDivElement | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme')
     if (saved) {
@@ -97,6 +114,20 @@ export function Sidebar() {
     localStorage.setItem('sidebar-recent-expanded', String(next))
   }
 
+  const openSearch = () => {
+    setSearchOpen(true)
+    setSearchQuery('')
+    setSearchActiveIndex(0)
+    setRecentWindowStart(0)
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    setSearchActiveIndex(0)
+    setRecentWindowStart(0)
+  }
+
   useEffect(() => {
     let active = true
 
@@ -124,16 +155,35 @@ export function Sidebar() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen((prev) => {
+          const next = !prev
+          if (next) {
+            setSearchQuery('')
+            setSearchActiveIndex(0)
+          }
+          return next
+        })
+        return
+      }
+
       if (event.key === 'Escape') {
         setMenuState(null)
         setRenamingSessionId(null)
         setRenameValue('')
+        closeSearch()
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  useEffect(() => {
+    if (!searchOpen) return
+    requestAnimationFrame(() => searchInputRef.current?.focus())
+  }, [searchOpen])
 
   useEffect(() => {
     if (!menuState) return
@@ -169,11 +219,13 @@ export function Sidebar() {
     return recentSessions.map((session) => ({
       id: session.session_id,
       title: session.title,
+      updatedAt: session.updated_at,
       label: session.title.trim() || '未命名对话',
     }))
   }, [recentSessions])
 
   const handleOpenRecentSession = (sessionId: string) => {
+    closeSearch()
     navigate('/chat', { state: { sessionId } })
   }
 
@@ -230,6 +282,93 @@ export function Sidebar() {
     ? recentItems.find((item) => item.id === menuState.sessionId) || null
     : null
 
+  const searchKeyword = searchQuery.trim().toLowerCase()
+  const quickActions = useMemo<SearchResultItem[]>(() => {
+    const items: SearchResultItem[] = [
+      {
+        id: 'new-session',
+        type: 'action',
+        label: '新建会话',
+        description: '跳转到首页，直接开始输入新的任务。',
+        onSelect: () => {
+          closeSearch()
+          navigate('/', { state: { focusComposer: true } })
+        },
+      },
+    ]
+
+    if (!searchKeyword) return items
+    return items.filter((item) => `${item.label} ${item.description}`.toLowerCase().includes(searchKeyword))
+  }, [navigate, searchKeyword])
+
+  const recentSearchItems = useMemo<SearchResultItem[]>(() => {
+    const filtered = recentItems.filter((item) => {
+      if (!searchKeyword) return true
+      return item.label.toLowerCase().includes(searchKeyword) || item.id.toLowerCase().includes(searchKeyword)
+    })
+
+    return filtered.map((item) => ({
+      id: item.id,
+      type: 'recent',
+      label: item.label,
+      onSelect: () => handleOpenRecentSession(item.id),
+    }))
+  }, [recentItems, searchKeyword])
+
+  const maxRecentWindowStart = Math.max(recentSearchItems.length - RECENT_WINDOW_SIZE, 0)
+  const visibleRecentSearchItems = useMemo(
+    () => recentSearchItems.slice(recentWindowStart, recentWindowStart + RECENT_WINDOW_SIZE),
+    [recentSearchItems, recentWindowStart],
+  )
+  const quickActionCount = quickActions.length
+
+  const searchResults = useMemo(
+    () => [...quickActions, ...visibleRecentSearchItems],
+    [quickActions, visibleRecentSearchItems],
+  )
+
+  useEffect(() => {
+    setSearchActiveIndex(0)
+    setRecentWindowStart(0)
+  }, [searchKeyword, searchOpen])
+
+  useEffect(() => {
+    if (searchActiveIndex < searchResults.length) return
+    setSearchActiveIndex(Math.max(searchResults.length - 1, 0))
+  }, [searchActiveIndex, searchResults.length])
+
+  useEffect(() => {
+    if (recentWindowStart <= maxRecentWindowStart) return
+    setRecentWindowStart(maxRecentWindowStart)
+  }, [maxRecentWindowStart, recentWindowStart])
+
+  const renderSearchButton = () => (
+    <button
+      onClick={openSearch}
+      title={expanded ? undefined : '搜索'}
+      aria-label={expanded ? undefined : '搜索'}
+      className={itemCls(searchOpen)}
+    >
+      <Search size={18} className="flex-shrink-0" aria-hidden="true" />
+      {expanded && (
+        <>
+          <span className="flex-1 text-left text-sm font-medium">搜索</span>
+          <span className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {isMac ? '⌘K' : 'Win+K'}
+          </span>
+        </>
+      )}
+    </button>
+  )
+
+  const searchItemCls = (active: boolean, compact = false) => cn(
+    'flex w-full items-center justify-between rounded-2xl border text-left transition-colors',
+    compact ? 'px-3 py-2' : 'px-3 py-3',
+    active
+      ? 'border-slate-300 bg-slate-200 text-slate-950 dark:border-slate-600 dark:bg-slate-700'
+      : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-900/70'
+  )
+
   return (
     <>
       <nav
@@ -247,17 +386,19 @@ export function Sidebar() {
                 className={cn('flex w-full flex-col gap-1', !expanded && 'items-center')}
               >
                 {group.items.map((item) => (
-                  <button
-                    key={item.path}
-                    onClick={() => navigate(item.path)}
-                    title={expanded ? undefined : item.label}
-                    aria-label={expanded ? undefined : item.label}
-                    aria-current={isActive(item.path) ? 'page' : undefined}
-                    className={itemCls(isActive(item.path))}
-                  >
-                    <item.icon size={18} className="flex-shrink-0" aria-hidden="true" />
-                    {expanded && <span className="text-sm font-medium">{item.label}</span>}
-                  </button>
+                  <div key={item.path} className={cn('flex w-full flex-col gap-1', !expanded && 'items-center')}>
+                    <button
+                      onClick={() => navigate(item.path)}
+                      title={expanded ? undefined : item.label}
+                      aria-label={expanded ? undefined : item.label}
+                      aria-current={isActive(item.path) ? 'page' : undefined}
+                      className={itemCls(isActive(item.path))}
+                    >
+                      <item.icon size={18} className="flex-shrink-0" aria-hidden="true" />
+                      {expanded && <span className="text-sm font-medium">{item.label}</span>}
+                    </button>
+                    {item.path === '/' && renderSearchButton()}
+                  </div>
                 ))}
               </div>
             ))}
@@ -420,6 +561,185 @@ export function Sidebar() {
             <Trash2 size={14} />
             删除
           </button>
+        </div>,
+        document.body
+      )}
+
+      {searchOpen && createPortal(
+        <div className="fixed inset-0 z-[140]">
+          <button
+            type="button"
+            aria-label="关闭搜索"
+            onClick={closeSearch}
+            className="absolute inset-0 bg-white/28 backdrop-blur-[10px] dark:bg-slate-950/24"
+          />
+
+          <div className="pointer-events-none absolute inset-0 flex items-start justify-center px-5 pt-20">
+            <div className="pointer-events-auto w-full max-w-[720px] overflow-hidden rounded-[30px] border border-white/70 bg-white/86 shadow-[0_30px_90px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/75">
+              <div className="border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
+                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/82 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">
+                  <Search size={16} className="text-slate-400" />
+                  <input
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.metaKey && event.key === '0') {
+                        const newSessionAction = quickActions.find((item) => item.id === 'new-session')
+                        if (newSessionAction) {
+                          event.preventDefault()
+                          newSessionAction.onSelect()
+                          return
+                        }
+                      }
+
+                      const quickSelectMatch = event.key.match(/^[1-8]$/)
+                      if (event.metaKey && quickSelectMatch) {
+                        const quickIndex = Number(quickSelectMatch[0]) - 1
+                        const targetItem = visibleRecentSearchItems[quickIndex]
+                        if (targetItem) {
+                          event.preventDefault()
+                          targetItem.onSelect()
+                          return
+                        }
+                      }
+
+                      if (searchResults.length > 0 && event.key === 'ArrowDown') {
+                        event.preventDefault()
+                        setSearchActiveIndex((current) => {
+                          const lastVisibleIndex = searchResults.length - 1
+                          const lastRecentIndex = quickActionCount + visibleRecentSearchItems.length - 1
+                          const canScrollRecentDown =
+                            visibleRecentSearchItems.length > 0
+                            && current >= quickActionCount
+                            && current === lastRecentIndex
+                            && recentWindowStart < maxRecentWindowStart
+
+                          if (canScrollRecentDown) {
+                            setRecentWindowStart((prev) => Math.min(prev + 1, maxRecentWindowStart))
+                            return Math.min(current, lastVisibleIndex)
+                          }
+
+                          return Math.min(current + 1, lastVisibleIndex)
+                        })
+                        return
+                      }
+
+                      if (searchResults.length > 0 && event.key === 'ArrowUp') {
+                        event.preventDefault()
+                        setSearchActiveIndex((current) => {
+                          const firstRecentIndex = quickActionCount
+                          const canScrollRecentUp =
+                            visibleRecentSearchItems.length > 0
+                            && current === firstRecentIndex
+                            && recentWindowStart > 0
+
+                          if (canScrollRecentUp) {
+                            setRecentWindowStart((prev) => Math.max(prev - 1, 0))
+                            return Math.max(current, firstRecentIndex)
+                          }
+
+                          return Math.max(current - 1, 0)
+                        })
+                        return
+                      }
+
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        searchResults[searchActiveIndex]?.onSelect()
+                      }
+                    }}
+                    placeholder="搜索操作或最近对话..."
+                    className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
+                  />
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                    {navigator.platform.toUpperCase().includes('MAC') ? '⌘K' : 'Win+K'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="max-h-[520px] overflow-y-auto px-4 py-4">
+                <section>
+                  <div className="mb-2 px-2">
+                    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      Quick actions
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {quickActions.length > 0 ? quickActions.map((item) => {
+                      const activeIndex = searchResults.findIndex((result) => result.id === item.id)
+                      const active = activeIndex === searchActiveIndex
+                      return (
+                        <button
+                          key={item.id}
+                          onMouseEnter={() => setSearchActiveIndex(activeIndex)}
+                          onClick={item.onSelect}
+                          className={searchItemCls(active)}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">{item.label}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+                          </div>
+                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                            {item.id === 'new-session' ? `${isMac ? '⌘' : 'Win'} + 0` : 'Enter'}
+                          </span>
+                        </button>
+                      )
+                    }) : (
+                      <div className="rounded-2xl px-3 py-3 text-sm text-muted-foreground">没有匹配的快捷操作</div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="mt-2.5">
+                  <div className="mb-1 px-2">
+                    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      最近
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {recentSearchItems.length > 0 ? (
+                      <div
+                        className="space-y-1 overflow-hidden"
+                        onWheel={(event) => {
+                          if (recentSearchItems.length <= RECENT_WINDOW_SIZE) return
+                          if (Math.abs(event.deltaY) < 4) return
+                          event.preventDefault()
+                          setRecentWindowStart((current) => {
+                            if (event.deltaY > 0) return Math.min(current + 1, maxRecentWindowStart)
+                            return Math.max(current - 1, 0)
+                          })
+                        }}
+                      >
+                        {visibleRecentSearchItems.map((item, index) => {
+                      const resultIndex = searchResults.findIndex((result) => result.id === item.id)
+                      const shortcut = `${isMac ? '⌘' : 'Win'} + ${index + 1}`
+                      const active = resultIndex === searchActiveIndex
+                      return (
+                        <button
+                          key={`recent-slot-${index}`}
+                          onMouseEnter={() => setSearchActiveIndex(resultIndex)}
+                          onClick={item.onSelect}
+                          className={searchItemCls(active, true)}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">{item.label}</p>
+                          </div>
+                          <span className="ml-4 flex-shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                            {shortcut}
+                          </span>
+                        </button>
+                      )
+                    })}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl px-3 py-3 text-sm text-muted-foreground">没有匹配的最近对话</div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
         </div>,
         document.body
       )}
