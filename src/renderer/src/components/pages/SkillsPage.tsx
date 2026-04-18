@@ -79,8 +79,84 @@ function parseTools(raw: string): string[] {
   }).filter(Boolean)
 }
 
+function isDescriptionPlaceholder(value: string): boolean {
+  const trimmed = value.trim()
+  return !trimmed || trimmed === '|' || trimmed === '>'
+}
+
 function stripFrontmatter(markdown: string): string {
-  return markdown.replace(/^---\n[\s\S]*?\n---\n*/, '')
+  return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
+}
+
+function extractDescriptionFromFrontmatter(markdown: string): string {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  if (!match) return ''
+
+  const frontmatter = match[1].replace(/\r\n/g, '\n')
+  const blockMatch = frontmatter.match(/^description:\s*[>|]\s*\n((?:[ \t]+.*(?:\n|$))+)/m)
+  if (blockMatch?.[1]) {
+    return blockMatch[1]
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+  }
+
+  const singleLineMatch = frontmatter.match(/^description:\s*(.+)$/m)
+  if (!singleLineMatch?.[1]) return ''
+
+  const value = singleLineMatch[1].trim()
+  if (!value || value === '|' || value === '>') return ''
+  return value.replace(/^['"]|['"]$/g, '').trim()
+}
+
+function extractDescriptionFromBody(markdown: string): string {
+  const lines = stripFrontmatter(markdown).replace(/\r\n/g, '\n').split('\n')
+  const paragraph: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      if (paragraph.length > 0) break
+      continue
+    }
+
+    if (/^#\s+/.test(trimmed)) continue
+    if (/^#{2,}\s+/.test(trimmed)) continue
+    if (/^---+$/.test(trimmed)) continue
+    if (/^>\s*/.test(trimmed)) continue
+    if (/^[-*+]\s+/.test(trimmed)) continue
+    if (/^\d+\.\s+/.test(trimmed)) continue
+    if (/^```/.test(trimmed)) continue
+
+    paragraph.push(trimmed)
+  }
+
+  return paragraph.join(' ').trim()
+}
+
+function deriveSkillDescription(markdown: string): string {
+  return extractDescriptionFromFrontmatter(markdown) || extractDescriptionFromBody(markdown)
+}
+
+function toPlainTextPreview(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```/g, '').trim())
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/[*_~]/g, '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim()
 }
 
 function formatTimestamp(value?: number): string {
@@ -95,6 +171,7 @@ function formatTimestamp(value?: number): string {
 
 export function SkillsPage() {
   const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [skillMarkdownMap, setSkillMarkdownMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -107,8 +184,29 @@ export function SkillsPage() {
 
   const loadSkills = useCallback(async () => {
     const data = await window.skills.list()
-    setSkills(data)
-    return data
+    const markdownById = new Map<string, string>()
+    await Promise.all(data.map(async (skill) => {
+      try {
+        const markdown = await window.skills.read(skill.id)
+        markdownById.set(skill.id, markdown)
+      } catch {
+        markdownById.set(skill.id, '')
+      }
+    }))
+
+    setSkillMarkdownMap(
+      Object.fromEntries(Array.from(markdownById.entries()).map(([id, markdown]) => [id, stripFrontmatter(markdown)]))
+    )
+
+    const enriched = data.map((skill) => {
+      const markdown = markdownById.get(skill.id) || ''
+      if (!isDescriptionPlaceholder(skill.description)) return skill
+      const derivedDescription = deriveSkillDescription(markdown)
+      return derivedDescription ? { ...skill, description: derivedDescription } : skill
+    })
+
+    setSkills(enriched)
+    return enriched
   }, [])
 
   useEffect(() => {
@@ -258,14 +356,15 @@ export function SkillsPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((skill) => {
                 const color = getColor(skill.name)
-                const tools = parseTools(skill.allowedTools)
                 const isConfirming = confirmDeleteId === skill.id
                 const isActive = skill.id === selectedId
+                const markdownPreview = skillMarkdownMap[skill.id] || ''
+                const plainTextPreview = toPlainTextPreview(markdownPreview)
                 return (
                   <div
                     key={skill.id}
                     className={cn(
-                      'group relative cursor-pointer rounded-xl border bg-card p-4 text-left transition-all duration-200 hover:border-foreground/10 hover:shadow-md',
+                      'group relative cursor-pointer overflow-hidden rounded-xl border bg-card text-left transition-all duration-200 hover:border-foreground/10 hover:shadow-md',
                       isActive && 'border-primary/35 bg-accent/30 shadow-sm'
                     )}
                     onClick={() => handleSelect(skill)}
@@ -305,42 +404,44 @@ export function SkillsPage() {
                       )}
                     </div>
 
-                    <div className="mb-3 flex items-start gap-3">
-                      <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-white text-sm font-bold"
-                        style={{ backgroundColor: color }}
-                      >
-                        {skill.name[0].toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-semibold text-foreground truncate">{skill.name}</h3>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {skill.hasReferences && (
-                            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                              <FolderOpen size={9} aria-hidden="true" /> refs
-                            </span>
-                          )}
-                          {skill.hasTemplates && (
-                            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                              <FileText size={9} aria-hidden="true" /> templates
-                            </span>
-                          )}
+                    <div className="border-b border-border/80 px-4 py-4">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
+                          style={{ backgroundColor: color }}
+                        >
+                          {skill.name[0].toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="truncate text-sm font-semibold text-foreground">{skill.name}</h3>
+                            {skill.hasReferences && (
+                              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                                <FolderOpen size={9} aria-hidden="true" /> refs
+                              </span>
+                            )}
+                            {skill.hasTemplates && (
+                              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                                <FileText size={9} aria-hidden="true" /> templates
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 truncate text-xs leading-5 text-muted-foreground">
+                            {skill.description}
+                          </p>
                         </div>
                       </div>
                     </div>
-                    <p className="mb-3 text-xs leading-relaxed text-muted-foreground line-clamp-3">
-                      {skill.description}
-                    </p>
-                    {tools.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {tools.map((tool, index) => (
-                          <span key={index} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-muted text-muted-foreground">
-                            <Terminal size={8} aria-hidden="true" />
-                            {tool}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+
+                    <div className="max-h-64 overflow-hidden bg-muted/18 px-4 py-3">
+                      {plainTextPreview ? (
+                        <p className="whitespace-pre-line text-xs leading-5 text-muted-foreground line-clamp-3">
+                          {plainTextPreview}
+                        </p>
+                      ) : (
+                        <p className="text-xs leading-5 text-muted-foreground">暂无内容</p>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -358,53 +459,53 @@ export function SkillsPage() {
             />
 
             <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-[min(42rem,92vw)] flex-col border-l border-border bg-background shadow-2xl">
-              <div className="flex items-center gap-3 border-b border-border px-5 py-3 flex-shrink-0">
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                  style={{ backgroundColor: getColor(selectedSkill.name) }}
-                >
-                  {selectedSkill.name[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-sm font-semibold text-foreground">{selectedSkill.name}</h2>
-                  <p className="text-[11px] text-muted-foreground truncate">{selectedSkill.description.slice(0, 80)}</p>
-                </div>
+              <div className="border-b border-border px-5 py-4 flex-shrink-0">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-base font-semibold text-foreground">{selectedSkill.name}</h2>
+                    {selectedSkill.description && (
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{selectedSkill.description}</p>
+                    )}
+                  </div>
 
-                {confirmDeleteId === selectedId ? (
                   <div className="flex items-center gap-1.5">
+                    {confirmDeleteId === selectedId ? (
+                      <>
+                        <button
+                          onClick={() => handleDelete(selectedId)}
+                          disabled={deleting}
+                          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                        >
+                          {deleting ? '删除中...' : '确认删除'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+                        >
+                          取消
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(selectedId)}
+                        title="删除技能"
+                        aria-label="删除技能"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    )}
+
                     <button
-                      onClick={() => handleDelete(selectedId)}
-                      disabled={deleting}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                      onClick={closeSelected}
+                      title="关闭"
+                      aria-label="关闭详情"
+                      className="p-1.5 rounded-lg hover:bg-muted transition-colors"
                     >
-                      {deleting ? '删除中...' : '确认删除'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeleteId(null)}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
-                    >
-                      取消
+                      <X size={14} className="text-muted-foreground" aria-hidden="true" />
                     </button>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteId(selectedId)}
-                    title="删除技能"
-                    aria-label="删除技能"
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  >
-                    <Trash2 size={14} aria-hidden="true" />
-                  </button>
-                )}
-
-                <button
-                  onClick={closeSelected}
-                  title="关闭"
-                  aria-label="关闭详情"
-                  className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                >
-                  <X size={14} className="text-muted-foreground" aria-hidden="true" />
-                </button>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -449,6 +550,7 @@ function SkillMarketOverlay({
   const [onlyInstallable, setOnlyInstallable] = useState(false)
   const [expandedRepoIds, setExpandedRepoIds] = useState<string[]>([])
   const [busyRepositoryId, setBusyRepositoryId] = useState<string | null>(null)
+  const [refreshingRepositoryId, setRefreshingRepositoryId] = useState<string | 'all' | null>(null)
   const deferredSearch = useDeferredValue(search)
 
   const pushNotice = useCallback((tone: NoticeTone, message: string) => {
@@ -489,6 +591,7 @@ function SkillMarketOverlay({
       return result
     }
     setRefreshing(true)
+    setRefreshingRepositoryId(repositoryId || 'all')
     return result
   }, [pushNotice])
 
@@ -498,11 +601,13 @@ function SkillMarketOverlay({
 
       if (typedEvent.type === 'started') {
         setRefreshing(true)
+        setRefreshingRepositoryId(typedEvent.repositoryId || 'all')
         return
       }
 
       if (typedEvent.type === 'finished') {
         setRefreshing(false)
+        setRefreshingRepositoryId(null)
         void reloadCachedMarketData()
 
         if ((typedEvent.errorCount || 0) > 0) {
@@ -521,6 +626,7 @@ function SkillMarketOverlay({
       }
 
       setRefreshing(false)
+      setRefreshingRepositoryId(null)
       pushNotice('error', typedEvent.error || '后台刷新失败')
     })
   }, [pushNotice, reloadCachedMarketData])
@@ -655,6 +761,10 @@ function SkillMarketOverlay({
 
   const handleRefresh = useCallback(async () => {
     await refreshDiscovery()
+  }, [refreshDiscovery])
+
+  const handleRefreshRepository = useCallback(async (repositoryId: string) => {
+    await refreshDiscovery(repositoryId)
   }, [refreshDiscovery])
 
   const handleDeleteInstalledSkill = useCallback(async (skillId: string, skillName: string) => {
@@ -991,11 +1101,14 @@ function SkillMarketOverlay({
             repoForm={repoForm}
             savingRepo={savingRepo}
             busyRepositoryId={busyRepositoryId}
+            refreshing={refreshing}
+            refreshingRepositoryId={refreshingRepositoryId}
             onClose={() => setManageOpen(false)}
             onSave={handleSaveRepository}
             onResetForm={() => setRepoForm(EMPTY_REPOSITORY_FORM)}
             onChangeRepoForm={setRepoForm}
             onEditRepository={handleEditRepository}
+            onRefreshRepository={handleRefreshRepository}
             onToggleRepository={handleToggleRepository}
             onRemoveRepository={handleRemoveRepository}
           />
@@ -1010,11 +1123,14 @@ function RepositorySettingsModal({
   repoForm,
   savingRepo,
   busyRepositoryId,
+  refreshing,
+  refreshingRepositoryId,
   onClose,
   onSave,
   onResetForm,
   onChangeRepoForm,
   onEditRepository,
+  onRefreshRepository,
   onToggleRepository,
   onRemoveRepository,
 }: {
@@ -1022,11 +1138,14 @@ function RepositorySettingsModal({
   repoForm: RepositoryFormState
   savingRepo: boolean
   busyRepositoryId: string | null
+  refreshing: boolean
+  refreshingRepositoryId: string | 'all' | null
   onClose: () => void
   onSave: () => void
   onResetForm: () => void
   onChangeRepoForm: React.Dispatch<React.SetStateAction<RepositoryFormState>>
   onEditRepository: (repository: SkillRepository) => void
+  onRefreshRepository: (repositoryId: string) => void
   onToggleRepository: (repository: SkillRepository) => void
   onRemoveRepository: (repositoryId: string) => void
 }) {
@@ -1238,6 +1357,11 @@ function RepositorySettingsModal({
                 ) : (
                   repositories.map((repository) => (
                     <div key={repository.id} className="rounded-2xl border border-border bg-card/92 px-4 py-4 shadow-sm">
+                      {(() => {
+                        const isRefreshingThisRepository = refreshing && refreshingRepositoryId === repository.id
+                        const isRefreshBlocked = refreshing || busyRepositoryId === repository.id || !repository.enabled
+
+                        return (
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                         <button onClick={() => onEditRepository(repository)} className="min-w-0 flex-1 text-left">
                           <div className="flex items-center gap-2">
@@ -1256,6 +1380,14 @@ function RepositorySettingsModal({
                         </button>
 
                         <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => onRefreshRepository(repository.id)}
+                            disabled={isRefreshBlocked}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                          >
+                            <RefreshCcw size={12} className={cn(isRefreshingThisRepository && 'animate-spin')} />
+                            刷新仓库
+                          </button>
                           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                             <span>启用</span>
                             <button
@@ -1284,6 +1416,8 @@ function RepositorySettingsModal({
                           </button>
                         </div>
                       </div>
+                        )
+                      })()}
                     </div>
                   ))
                 )}

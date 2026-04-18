@@ -15,6 +15,9 @@ import {
 import { ensureDir, HARNESSCLAW_DIR, readJsonConfig } from './config'
 import { getDb } from './db'
 import { SKILL_REPOS_CACHE_DIR } from './runtime-paths'
+const yaml = require('js-yaml') as {
+  load: (input: string) => unknown
+}
 
 const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
 const LEGACY_SKILL_MARKET_CONFIG_PATH = join(HARNESSCLAW_DIR, 'skill-market.json')
@@ -281,6 +284,20 @@ function sanitizeInstallId(input: string): string {
   return base || 'skill'
 }
 
+function normalizeInstalledSkillId(input: string): string {
+  const normalized = normalizeRepoPath(input)
+  if (!normalized) {
+    throw new Error('Invalid skill id')
+  }
+
+  const segments = normalized.split('/')
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error('Invalid skill id')
+  }
+
+  return normalized
+}
+
 function hashString(input: string): string {
   return createHash('sha1').update(input).digest('hex')
 }
@@ -289,23 +306,104 @@ function normalizeName(input: string): string {
   return input.trim().toLowerCase().replace(/\s+/g, '-')
 }
 
-function readSkillMarkdownMeta(content: string, fallbackName: string): SkillMarkdownMeta {
-  const match = content.match(/^---\n([\s\S]*?)\n---/)
-  const meta: Record<string, string> = {}
+function stripMarkdownFrontmatter(content: string): string {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
+}
 
-  if (match) {
-    match[1].split('\n').forEach((line) => {
-      const index = line.indexOf(':')
-      if (index > 0) {
-        meta[line.slice(0, index).trim()] = line.slice(index + 1).trim()
-      }
-    })
+function toSingleLineText(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim()
   }
 
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => toSingleLineText(item))
+      .filter(Boolean)
+      .join(', ')
+      .trim()
+  }
+
+  return ''
+}
+
+function isSkillDescriptionPlaceholder(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed === '|' || trimmed === '>'
+}
+
+function extractHeadingName(markdownBody: string): string {
+  const lines = markdownBody.replace(/\r\n/g, '\n').split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const heading = trimmed.match(/^#\s+(.+)$/)
+    if (heading?.[1]) {
+      return heading[1].trim()
+    }
+  }
+  return ''
+}
+
+function extractBodyDescription(markdownBody: string): string {
+  const lines = markdownBody.replace(/\r\n/g, '\n').split('\n')
+  const paragraph: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      if (paragraph.length > 0) break
+      continue
+    }
+
+    if (/^#\s+/.test(trimmed)) continue
+    if (/^---+$/.test(trimmed)) continue
+    if (/^[-*+]\s+/.test(trimmed)) continue
+    if (/^\d+\.\s+/.test(trimmed)) continue
+    if (/^>\s*/.test(trimmed)) continue
+
+    paragraph.push(trimmed)
+  }
+
+  return paragraph.join(' ').trim()
+}
+
+function readSkillMarkdownMeta(content: string, fallbackName: string): SkillMarkdownMeta {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  const body = stripMarkdownFrontmatter(content)
+  let meta: Record<string, unknown> = {}
+
+  if (match) {
+    try {
+      const parsed = yaml.load(match[1])
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        meta = parsed as Record<string, unknown>
+      }
+    } catch {
+      meta = {}
+    }
+  }
+
+  const parsedName = toSingleLineText(meta.name)
+  const parsedDescription = toSingleLineText(meta.description)
+  const parsedAllowedTools = toSingleLineText(
+    meta['allowed-tools'] ?? meta.allowed_tools ?? meta.allowedTools ?? meta.tools
+  )
+  const headingName = extractHeadingName(body)
+  const bodyDescription = extractBodyDescription(body)
+  const normalizedDescription = isSkillDescriptionPlaceholder(parsedDescription)
+    ? ''
+    : parsedDescription
+
   return {
-    name: meta.name || fallbackName,
-    description: meta.description || '',
-    allowedTools: meta['allowed-tools'] || '',
+    name: parsedName || headingName || fallbackName,
+    description: normalizedDescription || bodyDescription,
+    allowedTools: parsedAllowedTools,
   }
 }
 
@@ -343,6 +441,9 @@ function discoveryWorkerMain(): void {
   const { createHash } = require('node:crypto')
   const { basename, dirname, join, relative, resolve } = require('node:path')
   const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } = require('node:fs')
+  const yaml = require('js-yaml') as {
+    load: (input: string) => unknown
+  }
 
   const cacheDir = workerData.cacheDir
   const repositories = Array.isArray(workerData.repositories) ? workerData.repositories : []
@@ -460,21 +561,96 @@ function discoveryWorkerMain(): void {
     return ensureDirectoryWithin(repoDir, join(repoDir, basePath))
   }
 
-  const readSkillMarkdownMeta = (content: string, fallbackName: string) => {
-    const match = content.match(/^---\n([\s\S]*?)\n---/)
-    const meta: Record<string, string> = {}
-    if (match) {
-      match[1].split('\n').forEach((line: string) => {
-        const index = line.indexOf(':')
-        if (index > 0) {
-          meta[line.slice(0, index).trim()] = line.slice(index + 1).trim()
-        }
-      })
+  const stripMarkdownFrontmatter = (content: string): string => (
+    content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
+  )
+
+  const toSingleLineText = (value: unknown): string => {
+    if (typeof value === 'string') {
+      return value
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map((line: string) => line.trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim()
     }
+
+    if (Array.isArray(value)) {
+      return value
+        .map((item: unknown) => toSingleLineText(item))
+        .filter(Boolean)
+        .join(', ')
+        .trim()
+    }
+
+    return ''
+  }
+
+  const isSkillDescriptionPlaceholder = (value: string): boolean => {
+    const trimmed = value.trim()
+    return trimmed === '|' || trimmed === '>'
+  }
+
+  const extractHeadingName = (markdownBody: string): string => {
+    const lines = markdownBody.replace(/\r\n/g, '\n').split('\n')
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      const heading = trimmed.match(/^#\s+(.+)$/)
+      if (heading?.[1]) {
+        return heading[1].trim()
+      }
+    }
+    return ''
+  }
+
+  const extractBodyDescription = (markdownBody: string): string => {
+    const lines = markdownBody.replace(/\r\n/g, '\n').split('\n')
+    const paragraph: string[] = []
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) {
+        if (paragraph.length > 0) break
+        continue
+      }
+
+      if (/^#\s+/.test(trimmed)) continue
+      if (/^---+$/.test(trimmed)) continue
+      if (/^[-*+]\s+/.test(trimmed)) continue
+      if (/^\d+\.\s+/.test(trimmed)) continue
+      if (/^>\s*/.test(trimmed)) continue
+
+      paragraph.push(trimmed)
+    }
+
+    return paragraph.join(' ').trim()
+  }
+
+  const readSkillMarkdownMeta = (content: string, fallbackName: string) => {
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+    const body = stripMarkdownFrontmatter(content)
+    let meta: Record<string, unknown> = {}
+
+    if (match) {
+      try {
+        const parsed = yaml.load(match[1])
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          meta = parsed as Record<string, unknown>
+        }
+      } catch {
+        meta = {}
+      }
+    }
+
     return {
-      name: meta.name || fallbackName,
-      description: meta.description || '',
-      allowedTools: meta['allowed-tools'] || '',
+      name: toSingleLineText(meta.name) || extractHeadingName(body) || fallbackName,
+      description: (() => {
+        const parsedDescription = toSingleLineText(meta.description)
+        return (isSkillDescriptionPlaceholder(parsedDescription) ? '' : parsedDescription) || extractBodyDescription(body)
+      })(),
+      allowedTools: toSingleLineText(meta['allowed-tools'] ?? meta.allowed_tools ?? meta.allowedTools ?? meta.tools),
     }
   }
 
@@ -626,6 +802,7 @@ function rowToRepository(row: Record<string, unknown>): SkillRepository {
 }
 
 function rowToDiscoveredSkill(row: Record<string, unknown>): DiscoveredSkill {
+  const description = String(row.description || '')
   return {
     key: String(row.key),
     repoId: String(row.repo_id),
@@ -637,7 +814,7 @@ function rowToDiscoveredSkill(row: Record<string, unknown>): DiscoveredSkill {
     skillPath: String(row.skill_path),
     directoryName: String(row.directory_name),
     name: String(row.name),
-    description: String(row.description || ''),
+    description: isSkillDescriptionPlaceholder(description) ? '' : description,
     allowedTools: String(row.allowed_tools || ''),
     hasReferences: Number(row.has_references) !== 0,
     hasTemplates: Number(row.has_templates) !== 0,
@@ -645,6 +822,7 @@ function rowToDiscoveredSkill(row: Record<string, unknown>): DiscoveredSkill {
 }
 
 function rowToInstalledSkill(row: Record<string, unknown>): SkillInfo {
+  const description = String(row.description || '')
   const source = row.source_key
     ? {
         key: String(row.source_key),
@@ -659,7 +837,7 @@ function rowToInstalledSkill(row: Record<string, unknown>): SkillInfo {
   return {
     id: String(row.id),
     name: String(row.name),
-    description: String(row.description || ''),
+    description: isSkillDescriptionPlaceholder(description) ? '' : description,
     allowedTools: String(row.allowed_tools || ''),
     hasReferences: Number(row.has_references) !== 0,
     hasTemplates: Number(row.has_templates) !== 0,
@@ -754,16 +932,25 @@ function migrateLegacyRepositoriesToDb(): void {
 
 function syncInstalledSkillsToDb(): void {
   ensureDir(SKILLS_DIR)
+  migrateInstalledSkillsIntoRepositoryFolders()
   const db = getDb()
   const directories = existsSync(SKILLS_DIR)
-    ? readdirSync(SKILLS_DIR).filter((name) => {
-        const full = join(SKILLS_DIR, name)
-        return statSync(full).isDirectory() && existsSync(join(full, 'SKILL.md'))
-      })
+    ? findSkillMarkdownFiles(SKILLS_DIR)
+        .map((filePath) => dirname(filePath))
+        .sort((left, right) => left.localeCompare(right, 'zh-CN'))
     : []
 
-  const existingRows = db.prepare('SELECT id, created_at FROM installed_skills').all() as Array<{ id: string; created_at: number }>
+  const existingRows = db.prepare('SELECT id, created_at, source_key FROM installed_skills').all() as Array<{
+    id: string
+    created_at: number
+    source_key: string | null
+  }>
   const existingCreatedAt = new Map(existingRows.map((row) => [row.id, row.created_at]))
+  const existingBySourceKey = new Map(
+    existingRows
+      .filter((row) => typeof row.source_key === 'string' && row.source_key.trim())
+      .map((row) => [String(row.source_key), row])
+  )
   const seen = new Set<string>()
 
   const upsert = db.prepare(`
@@ -793,11 +980,18 @@ function syncInstalledSkillsToDb(): void {
 
   const tx = db.transaction(() => {
     const now = Date.now()
-    directories.forEach((id) => {
-      const skillDir = join(SKILLS_DIR, id)
+    directories.forEach((skillDir) => {
+      const id = relative(SKILLS_DIR, skillDir).replace(/\\/g, '/')
       const content = readFileSync(join(skillDir, 'SKILL.md'), 'utf-8')
       const meta = readSkillMarkdownMeta(content, id)
       const source = readInstallSource(skillDir)
+      const existingBySource = source?.key ? existingBySourceKey.get(source.key) : undefined
+
+      if (existingBySource?.id && existingBySource.id !== id) {
+        db.prepare('DELETE FROM installed_skills WHERE id = ?').run(existingBySource.id)
+        existingCreatedAt.set(id, existingBySource.created_at)
+      }
+
       seen.add(id)
       upsert.run({
         id,
@@ -812,12 +1006,12 @@ function syncInstalledSkillsToDb(): void {
         source_repo_url: source?.repoUrl ?? null,
         source_branch: source?.branch ?? null,
         source_path: source?.path ?? null,
-        created_at: existingCreatedAt.get(id) ?? now,
+        created_at: existingCreatedAt.get(id) ?? existingBySource?.created_at ?? now,
         updated_at: now,
       })
     })
 
-    if (existingRows.length > seen.size) {
+    {
       const stale = existingRows.filter((row) => !seen.has(row.id))
       const remove = db.prepare('DELETE FROM installed_skills WHERE id = ?')
       stale.forEach((row) => remove.run(row.id))
@@ -825,6 +1019,28 @@ function syncInstalledSkillsToDb(): void {
   })
 
   tx()
+}
+
+function migrateInstalledSkillsIntoRepositoryFolders(): void {
+  if (!existsSync(SKILLS_DIR)) return
+
+  const directChildren = readdirSync(SKILLS_DIR)
+  directChildren.forEach((name) => {
+    const skillDir = join(SKILLS_DIR, name)
+    if (!statSync(skillDir).isDirectory()) return
+    if (!existsSync(join(skillDir, 'SKILL.md'))) return
+
+    const source = readInstallSource(skillDir)
+    if (!source?.repoName) return
+
+    const repoFolder = sanitizeInstallId(source.repoName)
+    const targetRelativePath = `${repoFolder}/${name}`
+    const targetDir = join(SKILLS_DIR, targetRelativePath)
+    if (targetDir === skillDir || existsSync(targetDir)) return
+
+    copyDirectoryRecursive(skillDir, targetDir)
+    rmSync(skillDir, { recursive: true, force: true })
+  })
 }
 
 function repositoryCacheDir(repository: Pick<SkillRepository, 'repoUrl' | 'branch'>): string {
@@ -1213,25 +1429,35 @@ function resolveInstallId(directoryName: string, sourceKey: string): string {
   const baseId = sanitizeInstallId(directoryName)
   const installed = listInstalledSkills()
   const existingBySource = installed.find((item) => item.source?.key === sourceKey)
-  if (existingBySource) {
-    return existingBySource.id
+  const existingLeaf = existingBySource ? posix.basename(existingBySource.id) : ''
+  return existingLeaf || baseId
+}
+
+function resolveInstallRelativePath(repository: SkillRepository, directoryName: string, sourceKey: string): string {
+  const repoFolder = sanitizeInstallId(repository.name || repository.repo)
+  const baseId = resolveInstallId(directoryName, sourceKey)
+  const preferredId = `${repoFolder}/${baseId}`
+  const installed = listInstalledSkills()
+  const existingBySource = installed.find((item) => item.source?.key === sourceKey)
+  if (existingBySource?.id) {
+    return normalizeInstalledSkillId(preferredId)
   }
 
-  const preferredDir = join(SKILLS_DIR, baseId)
-  if (!existsSync(preferredDir)) {
-    return baseId
+  if (!existsSync(join(SKILLS_DIR, preferredId))) {
+    return normalizeInstalledSkillId(preferredId)
   }
 
-  const fallback = `${baseId}-${hashString(sourceKey).slice(0, 6)}`
-  if (!existsSync(join(SKILLS_DIR, fallback))) {
-    return fallback
+  const fallbackLeaf = `${baseId}-${hashString(sourceKey).slice(0, 6)}`
+  const fallbackId = `${repoFolder}/${fallbackLeaf}`
+  if (!existsSync(join(SKILLS_DIR, fallbackId))) {
+    return normalizeInstalledSkillId(fallbackId)
   }
 
   let counter = 2
-  while (existsSync(join(SKILLS_DIR, `${fallback}-${counter}`))) {
+  while (existsSync(join(SKILLS_DIR, `${fallbackId}-${counter}`))) {
     counter += 1
   }
-  return `${fallback}-${counter}`
+  return normalizeInstalledSkillId(`${fallbackId}-${counter}`)
 }
 
 function copyDirectoryRecursive(sourceDir: string, targetDir: string): void {
@@ -1263,11 +1489,8 @@ export function listInstalledSkills(): SkillInfo[] {
 
 export function readInstalledSkill(id: string): string {
   try {
-    const trimmed = id.trim()
-    if (!trimmed || trimmed.includes('..') || trimmed.includes('/')) {
-      return ''
-    }
-    const filePath = join(SKILLS_DIR, trimmed, 'SKILL.md')
+    const normalizedId = normalizeInstalledSkillId(id.trim())
+    const filePath = join(SKILLS_DIR, normalizedId, 'SKILL.md')
     if (!existsSync(filePath)) return ''
     return readFileSync(filePath, 'utf-8')
   } catch (error) {
@@ -1279,18 +1502,25 @@ export function readInstalledSkill(id: string): string {
 export function deleteInstalledSkill(id: string): { ok: boolean; error?: string } {
   try {
     ensureStorageReady()
-    const trimmed = id.trim()
-    if (!trimmed || trimmed.includes('..') || trimmed.includes('/')) {
-      return { ok: false, error: 'Invalid skill id' }
-    }
+    const normalizedId = normalizeInstalledSkillId(id.trim())
 
-    const skillDir = join(SKILLS_DIR, trimmed)
+    const skillDir = join(SKILLS_DIR, normalizedId)
     if (!existsSync(skillDir)) {
       return { ok: false, error: 'Skill not found' }
     }
 
     rmSync(skillDir, { recursive: true, force: true })
-    getDb().prepare('DELETE FROM installed_skills WHERE id = ?').run(trimmed)
+    const parentDir = dirname(skillDir)
+    if (parentDir !== SKILLS_DIR && existsSync(parentDir)) {
+      try {
+        if (readdirSync(parentDir).length === 0) {
+          rmSync(parentDir, { recursive: true, force: true })
+        }
+      } catch {
+        // Ignore parent cleanup errors; the skill itself is already removed.
+      }
+    }
+    getDb().prepare('DELETE FROM installed_skills WHERE id = ?').run(normalizedId)
     return { ok: true }
   } catch (error) {
     console.error('[Skills] Failed to delete skill:', error)
@@ -1607,8 +1837,19 @@ export async function installDiscoveredSkill(repositoryId: string, skillPath: st
       return { ok: false, error: 'Skill 文件不完整' }
     }
 
-    const installId = resolveInstallId(posix.basename(normalizedSkillPath), sourceKey)
+    const existingBySource = listInstalledSkills().find((item) => item.source?.key === sourceKey)
+    const installId = resolveInstallRelativePath(repository, posix.basename(normalizedSkillPath), sourceKey)
     const targetDir = join(SKILLS_DIR, installId)
+    const previousDir = existingBySource ? join(SKILLS_DIR, normalizeInstalledSkillId(existingBySource.id)) : null
+
+    if (previousDir && previousDir !== targetDir && existsSync(previousDir)) {
+      rmSync(previousDir, { recursive: true, force: true })
+      const previousParentDir = dirname(previousDir)
+      if (previousParentDir !== SKILLS_DIR && existsSync(previousParentDir) && readdirSync(previousParentDir).length === 0) {
+        rmSync(previousParentDir, { recursive: true, force: true })
+      }
+    }
+
     rmSync(targetDir, { recursive: true, force: true })
     copyDirectoryRecursive(sourceDir, targetDir)
 
