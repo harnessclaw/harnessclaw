@@ -7,6 +7,11 @@ import {
   AttachmentPreviewPanel,
   type LocalAttachmentItem,
 } from '../attachments/AttachmentPreviewPanel'
+import {
+  buildSkillComposerPayload,
+  SkillComposerInput,
+  type SelectedSkillChip,
+} from '../common/SkillComposerInput'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -29,6 +34,7 @@ const statusMeta = {
 
 export function HomePage() {
   const [input, setInput] = useState('')
+  const [selectedSkills, setSelectedSkills] = useState<SelectedSkillChip[]>([])
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -69,9 +75,11 @@ export function HomePage() {
   }
 
   const handleSend = () => {
-    if (!input.trim() && attachments.length === 0) return
-    navigate('/chat', { state: { initialMessage: input, initialAttachments: attachments } })
+    const payload = buildSkillComposerPayload(input, selectedSkills)
+    if (!payload && attachments.length === 0) return
+    navigate('/chat', { state: { initialMessage: payload, initialAttachments: attachments } })
     setInput('')
+    setSelectedSkills([])
     setAttachments([])
   }
 
@@ -172,14 +180,16 @@ export function HomePage() {
           )}
 
           <div className="p-5 sm:p-6">
-            <textarea
-              ref={inputRef}
+            <SkillComposerInput
+              textareaRef={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
+              onChange={setInput}
+              selectedSkills={selectedSkills}
+              onSelectedSkillsChange={setSelectedSkills}
               onKeyDown={handleKeyDown}
               placeholder="+ 输入问题、目标或下一步，我来接手。"
-              aria-label="输入你的问题"
-              className="min-h-[56px] max-h-[112px] w-full resize-none bg-transparent text-[15px] leading-7 text-foreground outline-none placeholder:text-muted-foreground"
+              maxLength={maxLength}
+              className="min-h-[56px] max-h-[112px] leading-7"
               rows={3}
             />
 
@@ -210,7 +220,7 @@ export function HomePage() {
                 )}
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim() && attachments.length === 0}
+                  disabled={!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0}
                   className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-primary dark:text-primary-foreground"
                 >
                   <span>发送</span>

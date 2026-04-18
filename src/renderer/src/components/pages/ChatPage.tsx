@@ -12,6 +12,11 @@ import {
   AttachmentPreviewPanel,
   type LocalAttachmentItem,
 } from '../attachments/AttachmentPreviewPanel'
+import {
+  buildSkillComposerPayload,
+  SkillComposerInput,
+  type SelectedSkillChip,
+} from '../common/SkillComposerInput'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -423,6 +428,7 @@ export function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState('')
   const [filePreview, setFilePreview] = useState<FilePreviewData | null>(null)
   const [input, setInput] = useState(initialMessage)
+  const [selectedSkills, setSelectedSkills] = useState<SelectedSkillChip[]>([])
   const [attachments, setAttachments] = useState<AttachmentItem[]>(initialAttachments)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
@@ -1271,7 +1277,7 @@ export function ChatPage() {
   }, [updateSession])
 
   const handleSend = () => {
-    const message = input.trim()
+    const message = buildSkillComposerPayload(input, selectedSkills)
     if ((!message && attachments.length === 0) || activeSession.isProcessing) return
 
     const sid = activeSessionId || ensureLocalSession()
@@ -1295,6 +1301,7 @@ export function ChatPage() {
     }))
     void window.harnessclaw.send(payload, sid)
     setInput('')
+    setSelectedSkills([])
     setAttachments([])
   }
 
@@ -1574,10 +1581,12 @@ export function ChatPage() {
                     </div>
                   )}
                   <div className="p-3 sm:p-3.5">
-                    <textarea
-                      ref={composerTextareaRef}
+                    <SkillComposerInput
+                      textareaRef={composerTextareaRef}
                       value={input}
-                      onChange={(e) => setInput(e.target.value.slice(0, maxLength))}
+                      onChange={setInput}
+                      selectedSkills={selectedSkills}
+                      onSelectedSkillsChange={setSelectedSkills}
                       onKeyDown={handleKeyDown}
                       disabled={activeSession.isProcessing}
                       placeholder={
@@ -1585,7 +1594,8 @@ export function ChatPage() {
                           ? '+ 想让 HarnessClaw 帮你做什么？'
                           : '+ 先写下你的问题，发送时会自动尝试连接。'
                       }
-                      className="min-h-[26px] max-h-[120px] w-full resize-none bg-transparent text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                      maxLength={maxLength}
+                      className="min-h-[26px] max-h-[120px] leading-6"
                       rows={1}
                     />
                     <AttachmentPreviewPanel
@@ -1618,7 +1628,7 @@ export function ChatPage() {
                         ) : (
                           <button
                             onClick={handleSend}
-                            disabled={!input.trim() && attachments.length === 0}
+                            disabled={!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0}
                             className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-primary dark:text-primary-foreground"
                             aria-label="发送消息"
                           >
