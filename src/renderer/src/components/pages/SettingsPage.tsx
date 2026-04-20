@@ -4,7 +4,7 @@ import {
   Wifi, Shield, Palette, HardDrive,
   Eye, EyeOff, Loader2, Check, X,
   FolderOpen, Download, Trash2,
-  Search, Plus, Settings2, Cpu,
+  Search, Cpu,
   Bot, Radio, Wrench, FileText,
   Pause, Play, RotateCcw, AlertTriangle,
   ChevronDown, ChevronRight
@@ -99,6 +99,30 @@ function GroupCard({ title, children }: { title: string; children: React.ReactNo
       <div className="bg-card border border-border rounded-xl px-4 shadow-sm">
         {children}
       </div>
+    </div>
+  )
+}
+
+function StackedField({
+  label,
+  description,
+  children,
+  className,
+}: {
+  label: string
+  description?: string
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn('py-4 border-b border-border last:border-0', className)}>
+      <div className="mb-2.5">
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {description && (
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        )}
+      </div>
+      {children}
     </div>
   )
 }
@@ -987,7 +1011,7 @@ function ModelSection() {
   }
 
   return (
-    <div className="flex h-full min-w-0">
+    <div className="flex h-full">
       <div className="w-56 flex-shrink-0 border-r border-border bg-card flex flex-col">
         <div className="p-2.5">
           <div className="relative">
@@ -1001,6 +1025,7 @@ function ModelSection() {
             />
           </div>
         </div>
+
         <div className="flex-1 overflow-y-auto px-1.5 pb-2">
           {providerKeys.map((key) => {
             const providerConfig = providers[key]
@@ -1019,167 +1044,173 @@ function ModelSection() {
                   'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
                   isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
                 )}
+              >
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold"
+                  style={{ backgroundColor: getProviderColor(key) }}
                 >
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold" style={{ backgroundColor: getProviderColor(key) }}>
-                    {getProviderInitial(key)}
+                  {getProviderInitial(key)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{getDisplayName(key)}</span>
+                    {isEnabled && (
+                      <span className="text-[10px] font-semibold text-status-connected bg-status-connected/15 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                        ON
+                      </span>
+                    )}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{getDisplayName(key)}</span>
-                      {isEnabled && (
-                        <span className="mt-0.5 text-[10px] font-semibold text-status-connected bg-status-connected/15 px-1.5 py-0.5 rounded-full flex-shrink-0">ON</span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {key === 'custom'
-                        ? `Custom / ${providerConfig.protocol === 'anthropic' ? 'Anthropic 协议' : 'OpenAI 协议'}`
-                        : providerConfig.model?.trim() || '未设置 Model ID'}
-                    </p>
-                  </div>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    {key === 'custom'
+                      ? `Custom / ${providerConfig.protocol === 'anthropic' ? 'Anthropic 协议' : 'OpenAI 协议'}`
+                      : providerConfig.model?.trim() || '未设置 Model ID'}
+                  </p>
+                </div>
               </button>
             )
           })}
-        </div>
-        <div className="p-2.5 border-t border-border">
-          <button
-            disabled
-            className="w-full flex items-center justify-center gap-1.5 h-8 rounded-lg text-sm text-muted-foreground/70 bg-background border border-border cursor-not-allowed"
-            title="当前内置 Anthropic、OpenAI、Custom"
-          >
-            <Plus size={14} />已内置 3 项
-          </button>
+
+          {providerKeys.length === 0 && (
+            <div className="px-2 py-4">
+              <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                没有匹配的模型平台
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="px-8 py-6 max-w-[40rem] min-w-0">
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-8 py-6 max-w-[52rem]">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-2.5">
-              <h2 className="text-lg font-semibold text-foreground">{getDisplayName(selectedProvider)}</h2>
-              <Settings2 size={14} className="text-muted-foreground" />
-            </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">设为当前默认</span>
-                <Toggle
-                  checked={selectedProvider === defaultProvider}
-                  onChange={(checked) => {
-                    if (checked && selectedProvider !== defaultProvider) {
-                      handleDefaultProviderChange(selectedProvider)
-                    }
-                  }}
-                />
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                style={{ backgroundColor: getProviderColor(selectedProvider) }}
+              >
+                {getProviderInitial(selectedProvider)}
               </div>
-              {persistState === 'error' && persistMessage && (
-                <div
-                  className={cn(
-                    'rounded-lg border px-3 py-2 text-xs',
-                    'border-red-200 bg-red-50 text-red-600'
-                  )}
-                >
-                  {persistMessage}
-                </div>
-              )}
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">{getDisplayName(selectedProvider)}</h2>
+                <p className="text-xs text-muted-foreground">Provider 与默认模型</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">设为默认</span>
+              <Toggle
+                checked={selectedProvider === defaultProvider}
+                onChange={(checked) => {
+                  if (checked && selectedProvider !== defaultProvider) {
+                    handleDefaultProviderChange(selectedProvider)
+                  }
+                }}
+              />
             </div>
           </div>
 
-          <div className="mb-6">
-            {selectedProvider === 'custom' && (
-              <>
-                <h3 className="text-sm font-semibold text-foreground mb-2">协议兼容</h3>
-                <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm max-w-[34rem] mb-6">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-muted-foreground">指定 Custom 网关协议</p>
-                    <Segment
-                      value={selected.protocol}
-                      onChange={(value) => updateProvider(selectedProvider, { protocol: value as ProviderConfig['protocol'] })}
-                      options={[
-                        { label: 'OpenAI 协议', value: 'openai' },
-                        { label: 'Anthropic 协议', value: 'anthropic' },
-                      ]}
-                    />
+          {persistState === 'error' && persistMessage && (
+            <div
+              className={cn(
+                'mb-5 rounded-xl border px-4 py-3 text-sm',
+                'border-red-200 bg-red-50 text-red-600'
+              )}
+            >
+              {persistMessage}
+            </div>
+          )}
+
+          <div className="mx-auto w-full max-w-[36rem]">
+            <GroupCard title="配置">
+              {selectedProvider === 'custom' && (
+                <SettingRow
+                  label="协议兼容"
+                  description="指定 Custom provider 写入 llm.providers 时使用的协议格式"
+                >
+                  <Segment
+                    value={selected.protocol}
+                    onChange={(value) => updateProvider(selectedProvider, { protocol: value as ProviderConfig['protocol'] })}
+                    options={[
+                      { label: 'OpenAI 协议', value: 'openai' },
+                      { label: 'Anthropic 协议', value: 'anthropic' },
+                    ]}
+                  />
+                </SettingRow>
+              )}
+
+              <StackedField
+                label="API 密钥"
+                description="填写当前 provider 的访问密钥，可直接在这里做连通性检测"
+              >
+                <div className="relative">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={selected.apiKey}
+                    onChange={(e) => updateProvider(selectedProvider, { apiKey: e.target.value })}
+                    placeholder="输入 API 密钥"
+                    className="h-10 w-full rounded-md border border-border bg-background pl-3 pr-[6.9rem] text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                    <button
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                    <button
+                      onClick={handleTest}
+                      disabled={testState === 'testing'}
+                      className={cn(
+                        'inline-flex h-7 min-w-[3.75rem] items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors',
+                        testState === 'ok' ? 'border-status-connected text-status-connected'
+                          : testState === 'fail' ? 'border-status-disconnected text-status-disconnected'
+                            : 'border-border bg-card hover:bg-muted text-foreground'
+                      )}
+                    >
+                      {testState === 'testing' && <Loader2 size={12} className="animate-spin" />}
+                      {testState === 'ok' && <Check size={12} />}
+                      {testState === 'fail' && <X size={12} />}
+                      {testState === 'testing' ? '检测中' : testState === 'ok' ? '可用' : testState === 'fail' ? '失败' : '检测'}
+                    </button>
                   </div>
                 </div>
-              </>
-            )}
-          </div>
+              </StackedField>
 
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-foreground mb-2">API 密钥</h3>
-            <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm w-full max-w-[34rem]">
-              <div className="relative">
+              <StackedField
+                label="API 地址"
+                description="留空时使用该 provider 的默认地址，自定义网关可直接填写兼容入口"
+              >
                 <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={selected.apiKey}
-                  onChange={(e) => updateProvider(selectedProvider, { apiKey: e.target.value })}
-                  placeholder="输入 API 密钥"
-                  className="w-full h-10 rounded-md border border-border bg-background pl-3 pr-[6.9rem] text-sm font-mono text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  type="text"
+                  value={selected.apiBase || ''}
+                  onChange={(e) => updateProvider(selectedProvider, { apiBase: e.target.value || null })}
+                  placeholder={PROVIDER_DEFAULT_BASES[selectedProvider] || 'https://api.example.com'}
+                  className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                 />
-                <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-                  <button
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                  <button
-                    onClick={handleTest}
-                    disabled={testState === 'testing'}
-                    className={cn(
-                      'inline-flex h-7 min-w-[3.75rem] items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors',
-                      testState === 'ok' ? 'border-status-connected text-status-connected'
-                        : testState === 'fail' ? 'border-status-disconnected text-status-disconnected'
-                          : 'border-border bg-card hover:bg-muted text-foreground'
-                    )}
-                  >
-                    {testState === 'testing' && <Loader2 size={12} className="animate-spin" />}
-                    {testState === 'ok' && <Check size={12} />}
-                    {testState === 'fail' && <X size={12} />}
-                    {testState === 'testing' ? '检测中' : testState === 'ok' ? '可用' : testState === 'fail' ? '失败' : '检测'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+                {selectedProvider === 'custom' && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Custom 当前按 {selected.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI'} 协议映射到 `llm.providers`。
+                  </p>
+                )}
+              </StackedField>
 
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-foreground mb-2">API 地址</h3>
-            <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm w-full max-w-[34rem]">
-              <input
-                type="text"
-                value={selected.apiBase || ''}
-                onChange={(e) => updateProvider(selectedProvider, { apiBase: e.target.value || null })}
-                placeholder={PROVIDER_DEFAULT_BASES[selectedProvider] || 'https://api.example.com'}
-                className="w-full h-10 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
-              />
-              {selectedProvider === 'custom' && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Custom 当前按 {selected.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI'} 协议映射到 `llm.providers`。
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-foreground mb-2">模型</h3>
-            <div className="bg-card border border-border rounded-xl px-4 py-4 shadow-sm w-full max-w-[34rem]">
-              <div className="mb-4">
-                <p className="text-xs font-medium text-muted-foreground mb-2">Model ID</p>
+              <StackedField
+                label="Model ID"
+                description="设置默认调用的模型名称，这里会作为该 provider 的首选模型"
+              >
                 <input
                   type="text"
                   value={selected.model || ''}
                   onChange={(e) => updateProvider(selectedProvider, { model: e.target.value || null })}
                   placeholder="输入默认使用的 Model ID"
-                  className="w-full h-10 px-3 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground placeholder:text-muted-foreground font-mono"
+                  className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                 />
-              </div>
-              <div className="flex items-center justify-center py-6 border border-dashed border-border rounded-lg">
-                <p className="text-xs text-muted-foreground">
-                  当前默认 provider 为 {getDisplayName(defaultProvider)}
-                  {selectedProvider === defaultProvider ? '，这里修改会同步成为应用默认模型。' : '。'}
-                </p>
-              </div>
-            </div>
+                <div className="mt-3 rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+                  {selectedProvider === defaultProvider
+                    ? `当前默认 provider 为 ${getDisplayName(defaultProvider)}，这里的修改会同步成为应用默认模型。`
+                    : `当前默认 provider 为 ${getDisplayName(defaultProvider)}。如需切换，请开启右上角“设为默认”。`}
+                </div>
+              </StackedField>
+            </GroupCard>
           </div>
         </div>
       </div>
@@ -1562,7 +1593,15 @@ function UISection() {
     codeTheme?: string
     animation?: boolean
   }
-  const theme = ui.theme || 'light'
+  const persistedTheme = typeof ui.theme === 'string' ? ui.theme : ''
+  const resolveCurrentThemePreference = (): string => {
+    const saved = localStorage.getItem('theme')
+    if (saved === 'dark' || saved === 'light') {
+      return saved
+    }
+    return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+  }
+  const theme = persistedTheme || resolveCurrentThemePreference()
   const fontSize = ui.fontSize || 'medium'
   const language = ui.language || 'zh'
   const codeTheme = ui.codeTheme || 'github-light'
@@ -1575,11 +1614,14 @@ function UISection() {
   const applyTheme = (v: string) => {
     if (v === 'dark') {
       document.documentElement.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
     } else if (v === 'light') {
       document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
     } else {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
       document.documentElement.classList.toggle('dark', prefersDark)
+      localStorage.removeItem('theme')
     }
   }
 
@@ -1589,8 +1631,10 @@ function UISection() {
   }
 
   useEffect(() => {
-    applyTheme(theme)
-  }, [])
+    if (!loading && persistedTheme) {
+      applyTheme(persistedTheme)
+    }
+  }, [loading, persistedTheme])
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
@@ -2273,7 +2317,7 @@ type SectionKey = 'connection' | 'auth' | 'models' | 'agents' | 'channels' | 'to
 
 const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementType; label: string }[] }[] = [
   {
-    title: 'Harnessclaw Engine 配置',
+    title: '',
     items: [
       { key: 'connection', icon: Wifi, label: '连接设置' },
       { key: 'models', icon: Cpu, label: '模型配置' },
@@ -2284,7 +2328,6 @@ const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementT
   {
     title: '应用配置',
     items: [
-      { key: 'auth', icon: Shield, label: '认证设置' },
       { key: 'updates', icon: RotateCcw, label: '应用更新' },
       { key: 'logs', icon: FileText, label: '日志' },
       { key: 'ui', icon: Palette, label: 'UI 设置' },
@@ -2300,11 +2343,13 @@ const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'logs'])
 export function SettingsPage() {
   const location = useLocation()
   const initialSection = location.state?.initialSection as SectionKey | undefined
-  const [active, setActive] = useState<SectionKey>(initialSection === 'channels' ? 'connection' : (initialSection || 'connection'))
+  const [active, setActive] = useState<SectionKey>(
+    initialSection === 'channels' || initialSection === 'auth' ? 'connection' : (initialSection || 'connection')
+  )
 
   useEffect(() => {
     if (initialSection) {
-      setActive(initialSection === 'channels' ? 'connection' : initialSection)
+      setActive(initialSection === 'channels' || initialSection === 'auth' ? 'connection' : initialSection)
     }
   }, [initialSection])
 
@@ -2317,9 +2362,11 @@ export function SettingsPage() {
         </p>
         {navGroups.map((group, groupIndex) => (
           <div key={group.title} className={cn(groupIndex > 0 && 'mt-2 pt-3 border-t border-border')}>
-            <div className="px-2.5 mb-1.5">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{group.title}</p>
-            </div>
+            {group.title ? (
+              <div className="px-2.5 mb-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{group.title}</p>
+              </div>
+            ) : null}
             {group.items.map(({ key, icon: Icon, label }) => (
               <button
                 key={key}
@@ -2349,7 +2396,6 @@ export function SettingsPage() {
         ) : (
           <div className="max-w-2xl mx-auto px-8 py-8">
             {active === 'connection' && <ConnectionSection />}
-            {active === 'auth' && <AuthSection />}
             {active === 'agents' && <AgentSection />}
             {active === 'tools' && <ToolsSection />}
             {active === 'updates' && <UpdateSection />}
