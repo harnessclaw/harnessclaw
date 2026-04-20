@@ -18,6 +18,7 @@ import { SKILL_REPOS_CACHE_DIR } from './runtime-paths'
 const yaml = require('js-yaml') as {
   load: (input: string) => unknown
 }
+const YAML_MODULE_PATH = require.resolve('js-yaml')
 
 const SKILLS_DIR = join(HARNESSCLAW_DIR, 'workspace', 'skills')
 const LEGACY_SKILL_MARKET_CONFIG_PATH = join(HARNESSCLAW_DIR, 'skill-market.json')
@@ -441,7 +442,11 @@ function discoveryWorkerMain(): void {
   const { createHash } = require('node:crypto')
   const { basename, dirname, join, relative, resolve } = require('node:path')
   const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } = require('node:fs')
-  const yaml = require('js-yaml') as {
+  const yaml = require(
+    typeof workerData?.jsYamlModulePath === 'string' && workerData.jsYamlModulePath
+      ? workerData.jsYamlModulePath
+      : 'js-yaml'
+  ) as {
     load: (input: string) => unknown
   }
 
@@ -1713,6 +1718,7 @@ export function startDiscoverSkills(
     eval: true,
     workerData: {
       cacheDir: SKILL_REPOS_CACHE_DIR,
+      jsYamlModulePath: YAML_MODULE_PATH,
       repositories: repositories.map((repository) => ({
         id: repository.id,
         name: repository.name,
