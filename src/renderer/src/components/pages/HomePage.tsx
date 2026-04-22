@@ -13,8 +13,6 @@ import {
   type SelectedSkillChip,
 } from '../common/SkillComposerInput'
 
-const isMac = navigator.platform.toUpperCase().includes('MAC')
-
 type AttachmentItem = LocalAttachmentItem
 
 const statusMeta = {
@@ -42,7 +40,7 @@ export function HomePage() {
   const navigate = useNavigate()
   const maxLength = 2000
   const harnessclawStatus = useHarnessclawStatus()
-  const shortcutHint = isMac ? 'Cmd + Enter 发送' : 'Ctrl + Enter 发送'
+  const shortcutHint = 'Enter 发送，Shift + Enter 换行'
   const currentStatus = statusMeta[harnessclawStatus]
 
   useEffect(() => {
@@ -89,8 +87,10 @@ export function HomePage() {
     setAttachments([])
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
       handleSend()
     }
   }

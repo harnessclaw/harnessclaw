@@ -532,7 +532,7 @@ export function SkillComposerInput({
                 return
               }
 
-              if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey) || event.key === 'Tab') {
+              if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.shiftKey) || event.key === 'Tab') {
                 event.preventDefault()
                 setActiveReason('keyboard')
                 handleSelectSkill(filteredSkills[activeIndex] || filteredSkills[0])

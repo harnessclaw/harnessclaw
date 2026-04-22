@@ -57,6 +57,16 @@ import {
 } from './skills-market'
 
 type PersistedSubagent = { taskId: string; label: string; status: string }
+type PersistedTaskStatusPayload = {
+  kind: 'task_event'
+  taskId: string
+  subject: string
+  status: 'pending' | 'in_progress' | 'completed' | 'deleted'
+  owner?: string
+  activeForm?: string
+  scopeId?: string
+  summary: string
+}
 type PersistedSystemNotice = {
   kind: 'error'
   title: string
@@ -87,6 +97,51 @@ function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
   const status = typeof candidate.status === 'string' ? candidate.status : ''
   if (!taskId || !label) return undefined
   return { taskId, label, status: status || 'ok' }
+}
+
+function createPersistedSubagent(taskId: string, label: string, status = 'running'): PersistedSubagent {
+  return {
+    taskId,
+    label: label || 'subagent',
+    status,
+  }
+}
+
+function getPersistedSubagentVisualStatus(status?: string): 'running' | 'completed' | 'failed' {
+  if (status === 'running') return 'running'
+  if (status === 'completed' || status === 'ok' || status === 'success') return 'completed'
+  return 'failed'
+}
+
+function normalizeEventType(type: string): string {
+  return type.replace(/\./g, '_')
+}
+
+function createTaskStatusPayload(task: {
+  taskId: string
+  subject: string
+  status: 'pending' | 'in_progress' | 'completed' | 'deleted'
+  owner?: string
+  activeForm?: string
+  scopeId?: string
+}): PersistedTaskStatusPayload {
+  return {
+    kind: 'task_event',
+    taskId: task.taskId,
+    subject: task.subject,
+    status: task.status,
+    owner: task.owner,
+    activeForm: task.activeForm,
+    scopeId: task.scopeId,
+    summary:
+      task.status === 'in_progress'
+        ? `任务进行中 · ${task.activeForm || task.subject}${task.owner ? ` · ${task.owner}` : ''}`
+        : task.status === 'completed'
+          ? `任务已完成 · ${task.subject}${task.owner ? ` · ${task.owner}` : ''}`
+          : task.status === 'deleted'
+            ? `任务已移除 · ${task.subject}`
+            : `任务已创建 · ${task.subject}`,
+  }
 }
 
 function findAttachablePersistedAssistantMessageId(
@@ -233,6 +288,70 @@ function getEventSessionId(event: Record<string, unknown>): string | undefined {
   }
 
   return undefined
+}
+
+function stringifyToolPayload(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function getToolEventName(source: Record<string, unknown>): string | undefined {
+  if (typeof source.name === 'string' && source.name) return source.name
+  if (typeof source.tool_name === 'string' && source.tool_name) return source.tool_name
+  return undefined
+}
+
+function getToolEventCallId(source: Record<string, unknown>): string | undefined {
+  if (typeof source.call_id === 'string' && source.call_id) return source.call_id
+  if (typeof source.tool_use_id === 'string' && source.tool_use_id) return source.tool_use_id
+  if (typeof source.request_id === 'string' && source.request_id) return source.request_id
+  return undefined
+}
+
+function getToolCallEventContent(source: Record<string, unknown>): string {
+  if ('arguments' in source) return stringifyToolPayload(source.arguments)
+  if ('input' in source) return stringifyToolPayload(source.input)
+  if (typeof source.tool_input === 'string') return source.tool_input
+  if (typeof source.content === 'string') return source.content
+  return ''
+}
+
+function getToolResultEventContent(source: Record<string, unknown>): string {
+  if (typeof source.output === 'string') return source.output
+  if (typeof source.content === 'string') return source.content
+  return ''
+}
+
+function getToolDurationMs(source: Record<string, unknown>): number | undefined {
+  return typeof source.duration_ms === 'number' && Number.isFinite(source.duration_ms)
+    ? source.duration_ms
+    : undefined
+}
+
+function getToolMetadataJson(source: Record<string, unknown>): string | undefined {
+  if (!isRecord(source.metadata)) return undefined
+  try {
+    return JSON.stringify(source.metadata)
+  } catch {
+    return undefined
+  }
+}
+
+function getToolRenderHint(source: Record<string, unknown>): string | undefined {
+  return typeof source.render_hint === 'string' && source.render_hint ? source.render_hint : undefined
+}
+
+function getToolLanguage(source: Record<string, unknown>): string | undefined {
+  return typeof source.language === 'string' && source.language ? source.language : undefined
+}
+
+function getToolFilePath(source: Record<string, unknown>): string | undefined {
+  return typeof source.file_path === 'string' && source.file_path ? source.file_path : undefined
 }
 
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
@@ -836,6 +955,16 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('db:createSession', (_, sessionId: string, title?: string) => {
+    try {
+      upsertSession(sessionId, title)
+      broadcastDbSessionsChanged()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
   ipcMain.handle('db:getMessages', (_, sessionId: string) => {
     try {
       return getMessages(sessionId)
@@ -895,6 +1024,7 @@ app.whenReady().then(() => {
 
     // Write to DB based on event type
     const type = event.type as string
+    const normalizedType = normalizeEventType(type)
     const sid = getEventSessionId(event)
     const subagent = normalizeSubagent(event.subagent)
     try {
@@ -910,7 +1040,34 @@ app.whenReady().then(() => {
         return aid
       }
 
-      switch (type) {
+      const appendPassiveDbActivity = (sessionId: string, activity: {
+        type: string
+        name?: string
+        content: string
+        callId?: string
+        isError?: boolean
+        durationMs?: number
+        renderHint?: string
+        language?: string
+        filePath?: string
+        metadataJson?: string
+        subagent?: PersistedSubagent
+      }): void => {
+        const now = Date.now()
+        let aid = pendingDbAssistantIds[sessionId]
+        if (!aid) {
+          const attachableAid = findAttachablePersistedAssistantMessageId(getMessages(sessionId), now)
+          if (attachableAid) {
+            aid = attachableAid
+          } else {
+            aid = `ast-collab-${now}`
+            insertMessage({ id: aid, sessionId, role: 'assistant', content: '', contentSegments: [], createdAt: now })
+          }
+        }
+        insertToolActivity(aid, activity)
+      }
+
+      switch (normalizedType) {
         case 'connected': {
           // Don't auto-create session in DB — session is created when user sends first message
           break
@@ -947,6 +1104,128 @@ app.whenReady().then(() => {
           }
           break
         }
+        case 'subagent_event': {
+          if (!sid) break
+          const agentId = typeof event.agent_id === 'string' ? event.agent_id : ''
+          if (!agentId) break
+          const agentName = typeof event.agent_name === 'string' ? event.agent_name : 'subagent'
+          const payload = isRecord(event.payload) ? event.payload : {}
+          const eventType = typeof payload.event_type === 'string' ? payload.event_type : ''
+          if (!eventType) break
+          const persistedSubagent = createPersistedSubagent(agentId, agentName, 'running')
+          const now = Date.now()
+
+          if (eventType === 'text') {
+            let aid = pendingDbAssistantIds[sid]
+            const chunk = typeof payload.text === 'string' ? payload.text : ''
+            if (!chunk) break
+            if (!aid) {
+              aid = ensureDbAssistantMessage(sid, now)
+              const initialSegments = [{ text: chunk, ts: now, subagent: persistedSubagent }]
+              pendingDbSegments[sid] = { ...(pendingDbSegments[sid] || { lastToolTsByModule: {}, segments: [] }), segments: initialSegments }
+              updateMessageContent(aid, chunk, initialSegments)
+            } else {
+              const state = pendingDbSegments[sid] || { segments: [], lastToolTsByModule: {} }
+              const segments = [...state.segments]
+              const moduleKey = getModuleKey(persistedSubagent)
+              const lastSegIndex = [...segments].reverse().findIndex((seg) => getModuleKey(seg.subagent) === moduleKey)
+              const resolvedLastSegIndex = lastSegIndex === -1 ? -1 : segments.length - 1 - lastSegIndex
+              const lastSeg = resolvedLastSegIndex >= 0 ? segments[resolvedLastSegIndex] : undefined
+              const lastRelatedToolTs = state.lastToolTsByModule[moduleKey] || 0
+
+              if (lastSeg && lastRelatedToolTs <= lastSeg.ts && isSameSubagent(lastSeg.subagent, persistedSubagent)) {
+                segments[resolvedLastSegIndex] = { ...lastSeg, text: lastSeg.text + chunk, ts: lastSeg.ts }
+              } else {
+                segments.push({ text: chunk, ts: now, subagent: persistedSubagent })
+              }
+
+              pendingDbSegments[sid] = { ...state, segments }
+              updateMessageContent(aid, chunk, segments)
+            }
+            break
+          }
+
+          const aid = ensureDbAssistantMessage(sid, now)
+          const callId = typeof payload.tool_use_id === 'string' && payload.tool_use_id
+            ? payload.tool_use_id
+            : `${agentId}-${typeof event.event_id === 'string' ? event.event_id : now}`
+
+          if (eventType === 'tool_start') {
+            insertToolActivity(aid, {
+              type: 'call',
+              name: getToolEventName(payload) || 'tool',
+              content: getToolCallEventContent(payload),
+              callId,
+              subagent: persistedSubagent,
+            })
+            const state = pendingDbSegments[sid]
+            if (state) state.lastToolTsByModule[getModuleKey(persistedSubagent)] = now
+            break
+          }
+
+          if (eventType === 'tool_end') {
+            insertToolActivity(aid, {
+              type: 'result',
+              name: getToolEventName(payload) || 'tool',
+              content: getToolResultEventContent(payload),
+              callId,
+              isError: payload.is_error === true,
+              durationMs: getToolDurationMs(payload),
+              renderHint: getToolRenderHint(payload),
+              language: getToolLanguage(payload),
+              filePath: getToolFilePath(payload),
+              metadataJson: getToolMetadataJson(payload),
+              subagent: persistedSubagent,
+            })
+            const state = pendingDbSegments[sid]
+            if (state) state.lastToolTsByModule[getModuleKey(persistedSubagent)] = now
+          }
+          break
+        }
+        case 'task_created':
+        case 'task_updated': {
+          if (!sid) break
+          const task = isRecord(event.task) ? event.task : {}
+          const taskId = typeof task.task_id === 'string' ? task.task_id : ''
+          if (!taskId) break
+          const status = task.status === 'in_progress' || task.status === 'completed' || task.status === 'deleted'
+            ? task.status
+            : 'pending'
+          appendPassiveDbActivity(sid, {
+            type: 'status',
+            name: 'task_event',
+            content: JSON.stringify(createTaskStatusPayload({
+              taskId,
+              subject: typeof task.subject === 'string' ? task.subject : '未命名任务',
+              status,
+              owner: typeof task.owner === 'string' ? task.owner : undefined,
+              activeForm: typeof task.active_form === 'string' ? task.active_form : undefined,
+              scopeId: typeof task.scope_id === 'string' ? task.scope_id : undefined,
+            })),
+          })
+          break
+        }
+        case 'subagent_end': {
+          if (!sid) break
+          const agentId = typeof event.agent_id === 'string' ? event.agent_id : ''
+          if (!agentId) break
+          const rawStatus = typeof event.status === 'string' ? event.status : 'completed'
+          const status = rawStatus === 'completed' || rawStatus === 'max_turns' || rawStatus === 'model_error' || rawStatus === 'aborted' || rawStatus === 'timeout'
+            ? rawStatus
+            : 'error'
+          const aid = ensureDbAssistantMessage(sid, Date.now())
+          insertToolActivity(aid, {
+            type: 'status',
+            name: 'subagent_end',
+            content: getPersistedSubagentVisualStatus(status) === 'failed' ? '子 Agent 执行失败' : '子 Agent 执行完成',
+            subagent: createPersistedSubagent(
+              agentId,
+              typeof event.agent_name === 'string' ? event.agent_name : 'subagent',
+              status,
+            ),
+          })
+          break
+        }
         case 'tool_hint': {
           if (sid) {
             const aid = ensureDbAssistantMessage(sid, Date.now())
@@ -958,15 +1237,16 @@ app.whenReady().then(() => {
           }
           break
         }
-        case 'tool_call': {
+        case 'tool_call':
+        case 'tool_start': {
           if (sid) {
             const aid = ensureDbAssistantMessage(sid, Date.now())
             if (aid) {
               insertToolActivity(aid, {
                 type: 'call',
-                name: event.name as string,
-                content: JSON.stringify(event.arguments, null, 2),
-                callId: event.call_id as string,
+                name: getToolEventName(event),
+                content: getToolCallEventContent(event),
+                callId: getToolEventCallId(event),
                 subagent,
               })
               const state = pendingDbSegments[sid]
@@ -975,16 +1255,22 @@ app.whenReady().then(() => {
           }
           break
         }
-        case 'tool_result': {
+        case 'tool_result':
+        case 'tool_end': {
           if (sid) {
             const aid = ensureDbAssistantMessage(sid, Date.now())
             if (aid) {
               insertToolActivity(aid, {
                 type: 'result',
-                name: event.name as string,
-                content: (event.content as string) || '',
-                callId: event.call_id as string,
+                name: getToolEventName(event),
+                content: getToolResultEventContent(event),
+                callId: getToolEventCallId(event),
                 isError: event.is_error as boolean,
+                durationMs: getToolDurationMs(event),
+                renderHint: getToolRenderHint(event),
+                language: getToolLanguage(event),
+                filePath: getToolFilePath(event),
+                metadataJson: getToolMetadataJson(event),
                 subagent,
               })
               const state = pendingDbSegments[sid]

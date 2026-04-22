@@ -56,15 +56,20 @@ function initTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
 
     CREATE TABLE IF NOT EXISTS tool_activities (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      message_id TEXT NOT NULL,
-      type       TEXT NOT NULL,
-      name       TEXT,
-      content    TEXT NOT NULL DEFAULT '',
-      call_id    TEXT,
-      is_error   INTEGER DEFAULT 0,
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id   TEXT NOT NULL,
+      type         TEXT NOT NULL,
+      name         TEXT,
+      content      TEXT NOT NULL DEFAULT '',
+      call_id      TEXT,
+      is_error     INTEGER DEFAULT 0,
+      duration_ms  INTEGER,
+      render_hint  TEXT,
+      language     TEXT,
+      file_path    TEXT,
+      metadata_json TEXT,
       subagent_json TEXT,
-      created_at INTEGER NOT NULL,
+      created_at   INTEGER NOT NULL,
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
 
@@ -165,10 +170,17 @@ function initTables(db: Database.Database): void {
   }
 
   const toolColumns = db.prepare(`PRAGMA table_info(tool_activities)`).all() as Array<{ name: string }>
-  const hasSubagentJson = toolColumns.some((col) => col.name === 'subagent_json')
-  if (!hasSubagentJson) {
-    db.exec(`ALTER TABLE tool_activities ADD COLUMN subagent_json TEXT`)
+  const ensureToolColumn = (name: string, sql: string): void => {
+    if (!toolColumns.some((col) => col.name === name)) {
+      db.exec(sql)
+    }
   }
+  ensureToolColumn('subagent_json', `ALTER TABLE tool_activities ADD COLUMN subagent_json TEXT`)
+  ensureToolColumn('duration_ms', `ALTER TABLE tool_activities ADD COLUMN duration_ms INTEGER`)
+  ensureToolColumn('render_hint', `ALTER TABLE tool_activities ADD COLUMN render_hint TEXT`)
+  ensureToolColumn('language', `ALTER TABLE tool_activities ADD COLUMN language TEXT`)
+  ensureToolColumn('file_path', `ALTER TABLE tool_activities ADD COLUMN file_path TEXT`)
+  ensureToolColumn('metadata_json', `ALTER TABLE tool_activities ADD COLUMN metadata_json TEXT`)
 
   const repositoryColumns = db.prepare(`PRAGMA table_info(skill_repositories)`).all() as Array<{ name: string }>
   const ensureRepositoryColumn = (name: string, sql: string): void => {
@@ -241,6 +253,11 @@ export interface ToolActivityRow {
   content: string
   call_id: string | null
   is_error: number
+  duration_ms: number | null
+  render_hint: string | null
+  language: string | null
+  file_path: string | null
+  metadata_json: string | null
   subagent_json: string | null
   created_at: number
 }
@@ -336,14 +353,18 @@ export function updateMessageContent(
   toolsUsed?: string[],
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
 ): void {
+  const resolvedContent = contentSegments
+    ? contentSegments.map((segment) => segment.text || '').join('')
+    : content
+
   if (usage) {
     // response_end: update metadata only, don't overwrite streamed content
-    if (content) {
+    if (resolvedContent) {
       getDb().prepare(`
         UPDATE messages SET content = ?, content_segments = ?, tools_used = ?, usage_prompt = ?, usage_completion = ?, usage_total = ?
         WHERE id = ?
       `).run(
-        content,
+        resolvedContent,
         contentSegments ? JSON.stringify(contentSegments) : null,
         toolsUsed ? JSON.stringify(toolsUsed) : null,
         usage.prompt_tokens,
@@ -364,12 +385,12 @@ export function updateMessageContent(
         id
       )
     }
-  } else if (content) {
-    getDb().prepare(`UPDATE messages SET content = content || ?, content_segments = COALESCE(?, content_segments) WHERE id = ?`)
-      .run(content, contentSegments ? JSON.stringify(contentSegments) : null, id)
   } else if (contentSegments) {
-    getDb().prepare(`UPDATE messages SET content_segments = ? WHERE id = ?`)
-      .run(JSON.stringify(contentSegments), id)
+    getDb().prepare(`UPDATE messages SET content = ?, content_segments = ? WHERE id = ?`)
+      .run(resolvedContent, JSON.stringify(contentSegments), id)
+  } else if (content) {
+    getDb().prepare(`UPDATE messages SET content = content || ? WHERE id = ?`)
+      .run(content, id)
   }
 }
 
@@ -444,11 +465,18 @@ export function insertToolActivity(messageId: string, activity: {
   content: string
   callId?: string
   isError?: boolean
+  durationMs?: number
+  renderHint?: string
+  language?: string
+  filePath?: string
+  metadataJson?: string
   subagent?: { taskId: string; label: string; status: string }
 }): void {
   getDb().prepare(`
-    INSERT INTO tool_activities (message_id, type, name, content, call_id, is_error, subagent_json, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tool_activities (
+      message_id, type, name, content, call_id, is_error, duration_ms, render_hint, language, file_path, metadata_json, subagent_json, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     messageId,
     activity.type,
@@ -456,6 +484,11 @@ export function insertToolActivity(messageId: string, activity: {
     activity.content,
     activity.callId || null,
     activity.isError ? 1 : 0,
+    typeof activity.durationMs === 'number' ? activity.durationMs : null,
+    activity.renderHint || null,
+    activity.language || null,
+    activity.filePath || null,
+    activity.metadataJson || null,
     activity.subagent ? JSON.stringify(activity.subagent) : null,
     Date.now()
   )

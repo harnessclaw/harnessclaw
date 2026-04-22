@@ -112,6 +112,7 @@ const skillsAPI = {
 }
 
 const dbAPI = {
+  createSession: (sessionId: string, title?: string) => ipcRenderer.invoke('db:createSession', sessionId, title),
   listSessions: () => ipcRenderer.invoke('db:listSessions'),
   getMessages: (sessionId: string) => ipcRenderer.invoke('db:getMessages', sessionId),
   deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),

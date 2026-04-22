@@ -7,7 +7,7 @@ import {
   Search, Cpu,
   Bot, Radio, Wrench, FileText,
   Pause, Play, RotateCcw, AlertTriangle,
-  ChevronDown, ChevronRight
+  ChevronDown, ChevronRight, ExternalLink
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NoticeToast } from '../common/NoticeToast'
@@ -1493,17 +1493,35 @@ function ToolsSection() {
   const { config, loading, updateConfig } = useEngineConfig()
 
   const tools = (config?.tools || {}) as Record<string, unknown>
-  const web = (tools.web || {}) as { proxy?: string | null; search?: Record<string, unknown> }
-  const webSearch = (web.search || {}) as { provider?: string; apiKey?: string; baseUrl?: string; maxResults?: number }
+  const iflySearch = (tools.web_search || {}) as {
+    enabled?: boolean
+    api_key?: string
+    api_secret?: string
+    app_id?: string
+    host?: string
+    path?: string
+    limit?: number
+  }
+  const tavilySearch = (tools.tavily_search || {}) as {
+    enabled?: boolean
+    api_key?: string
+    max_results?: number
+  }
   const exec = (tools.exec || {}) as { timeout?: number; pathAppend?: string }
   const restrictToWorkspace = (tools.restrictToWorkspace as boolean) ?? false
   const mcpServers = (tools.mcpServers || {}) as Record<string, unknown>
   const mcpCount = Object.keys(mcpServers).length
 
-  const [showSearchKey, setShowSearchKey] = useState(false)
+  const [showIflyApiKey, setShowIflyApiKey] = useState(false)
+  const [showIflyApiSecret, setShowIflyApiSecret] = useState(false)
+  const [showTavilyApiKey, setShowTavilyApiKey] = useState(false)
 
-  const updateWeb = (searchPatch: Record<string, unknown>) => {
-    updateConfig({ tools: { ...tools, web: { ...web, search: { ...webSearch, ...searchPatch } } } })
+  const updateIflySearch = (patch: Record<string, unknown>) => {
+    updateConfig({ tools: { ...tools, web_search: { ...iflySearch, ...patch } } })
+  }
+
+  const updateTavilySearch = (patch: Record<string, unknown>) => {
+    updateConfig({ tools: { ...tools, tavily_search: { ...tavilySearch, ...patch } } })
   }
 
   const updateExec = (patch: Record<string, unknown>) => {
@@ -1518,38 +1536,103 @@ function ToolsSection() {
     <div>
       <SectionHeader icon={Wrench} title="工具配置" subtitle="搜索、执行与 MCP" />
 
-      <GroupCard title="Web 搜索">
-        <SettingRow label="搜索引擎" description="用于 web.search 工具的提供商">
-          <SelectInput
-            value={webSearch.provider || 'brave'}
-            onChange={(v) => updateWeb({ provider: v })}
-            options={[
-              { label: 'Brave', value: 'brave' },
-              { label: 'Google', value: 'google' },
-              { label: 'Bing', value: 'bing' },
-              { label: 'DuckDuckGo', value: 'duckduckgo' },
-            ]}
-          />
+      <GroupCard title="iFly Search">
+        <SettingRow label="启用 iFly Search" description="同步到 HarnessClaw Engine 的 tools.web_search 模块">
+          <Toggle checked={iflySearch.enabled === true} onChange={(v) => updateIflySearch({ enabled: v })} />
         </SettingRow>
-        <SettingRow label="搜索 API Key" description="搜索引擎的 API 密钥">
+        <SettingRow label="API Key" description="iFly Search API Key">
           <div className="flex items-center gap-1.5">
             <input
-              type={showSearchKey ? 'text' : 'password'}
-              value={webSearch.apiKey || ''}
-              onChange={(e) => updateWeb({ apiKey: e.target.value })}
+              type={showIflyApiKey ? 'text' : 'password'}
+              value={iflySearch.api_key || ''}
+              onChange={(e) => updateIflySearch({ api_key: e.target.value })}
               placeholder="输入 API Key"
-              className="w-44 h-7 px-2.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground font-mono"
+              className="w-52 h-7 px-2.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground font-mono"
             />
-            <button onClick={() => setShowSearchKey(!showSearchKey)} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
-              {showSearchKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            <button onClick={() => setShowIflyApiKey(!showIflyApiKey)} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
+              {showIflyApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
           </div>
         </SettingRow>
-        <SettingRow label="Base URL" description="自定义搜索服务地址 (可选)">
-          <TextInput value={webSearch.baseUrl || ''} onChange={(v) => updateWeb({ baseUrl: v })} placeholder="留空使用默认" className="w-52" mono />
+        <SettingRow label="API Secret" description="iFly Search API Secret">
+          <div className="flex items-center gap-1.5">
+            <input
+              type={showIflyApiSecret ? 'text' : 'password'}
+              value={iflySearch.api_secret || ''}
+              onChange={(e) => updateIflySearch({ api_secret: e.target.value })}
+              placeholder="输入 API Secret"
+              className="w-52 h-7 px-2.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground font-mono"
+            />
+            <button onClick={() => setShowIflyApiSecret(!showIflyApiSecret)} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
+              {showIflyApiSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
         </SettingRow>
-        <SettingRow label="最大结果数" description="每次搜索返回的最大条数">
-          <NumberInput value={webSearch.maxResults ?? 5} onChange={(v) => updateWeb({ maxResults: v })} min={1} max={20} />
+        <SettingRow label="App ID" description="iFly Search App ID">
+          <TextInput value={iflySearch.app_id || ''} onChange={(v) => updateIflySearch({ app_id: v })} placeholder="输入 App ID" className="w-52" mono />
+        </SettingRow>
+        <SettingRow label="Host" description="iFly Search 服务 Host">
+          <TextInput
+            value={iflySearch.host || 'cbm-search-api.cn-huabei-1.xf-yun.com'}
+            onChange={(v) => updateIflySearch({ host: v })}
+            placeholder="cbm-search-api.cn-huabei-1.xf-yun.com"
+            className="w-72"
+            mono
+          />
+        </SettingRow>
+        <SettingRow label="Path" description="iFly Search 请求 Path">
+          <TextInput
+            value={iflySearch.path || '/biz/search'}
+            onChange={(v) => updateIflySearch({ path: v })}
+            placeholder="/biz/search"
+            className="w-52"
+            mono
+          />
+        </SettingRow>
+        <SettingRow label="Limit" description="每次请求返回的最大条数">
+          <NumberInput
+            value={iflySearch.limit ?? 5}
+            onChange={(v) => updateIflySearch({ limit: v })}
+            min={1}
+            max={20}
+          />
+        </SettingRow>
+      </GroupCard>
+
+      <GroupCard title="Tavily Search">
+        <SettingRow label="启用 Tavily Search" description="同步到 HarnessClaw Engine 的 tools.tavily_search 模块">
+          <Toggle checked={tavilySearch.enabled === true} onChange={(v) => updateTavilySearch({ enabled: v })} />
+        </SettingRow>
+        <SettingRow label="API Key" description="Tavily Search API Key">
+          <div className="flex items-center gap-1.5">
+            <input
+              type={showTavilyApiKey ? 'text' : 'password'}
+              value={tavilySearch.api_key || ''}
+              onChange={(e) => updateTavilySearch({ api_key: e.target.value })}
+              placeholder="tvly-xxx"
+              className="w-52 h-7 px-2.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring transition-shadow text-foreground font-mono"
+            />
+            <button onClick={() => setShowTavilyApiKey(!showTavilyApiKey)} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
+              {showTavilyApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.open('https://app.tavily.com/home', '_blank', 'noopener,noreferrer')}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/20"
+              title="打开 Tavily 控制台"
+              aria-label="打开 Tavily 控制台"
+            >
+              <ExternalLink size={12} />
+            </button>
+          </div>
+        </SettingRow>
+        <SettingRow label="最大结果数" description="每次 Tavily Search 请求返回的最大条数">
+          <NumberInput
+            value={tavilySearch.max_results ?? 5}
+            onChange={(v) => updateTavilySearch({ max_results: v })}
+            min={1}
+            max={20}
+          />
         </SettingRow>
       </GroupCard>
 

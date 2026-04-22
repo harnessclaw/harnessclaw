@@ -68,6 +68,10 @@ const navGroups: NavGroup[] = [
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 const RECENT_WINDOW_SIZE = 8
+const FLOATING_MENU_WIDTH = 132
+const FLOATING_MENU_HEIGHT = 84
+const FLOATING_MENU_GAP = 6
+const VIEWPORT_PADDING = 12
 
 export function Sidebar() {
   const location = useLocation()
@@ -83,8 +87,11 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchActiveIndex, setSearchActiveIndex] = useState(0)
   const [recentWindowStart, setRecentWindowStart] = useState(0)
+  const [recentScrollFade, setRecentScrollFade] = useState({ top: false, bottom: false })
   const floatingMenuRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const recentScrollRef = useRef<HTMLDivElement | null>(null)
+  const skipNextRecentReloadRef = useRef(0)
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme')
     if (saved) {
@@ -144,6 +151,10 @@ export function Sidebar() {
 
     void loadRecentSessions()
     const offSessionsChanged = window.db.onSessionsChanged(() => {
+      if (skipNextRecentReloadRef.current > 0) {
+        skipNextRecentReloadRef.current -= 1
+        return
+      }
       void loadRecentSessions()
     })
 
@@ -229,18 +240,32 @@ export function Sidebar() {
     navigate('/chat', { state: { sessionId } })
   }
 
+  const getFloatingMenuPosition = (rect: DOMRect): { top: number; left: number } => {
+    const maxLeft = Math.max(VIEWPORT_PADDING, window.innerWidth - FLOATING_MENU_WIDTH - VIEWPORT_PADDING)
+    const preferredLeft = rect.right - FLOATING_MENU_WIDTH
+    const left = Math.min(Math.max(VIEWPORT_PADDING, preferredLeft), maxLeft)
+
+    const preferredTop = rect.bottom + FLOATING_MENU_GAP
+    const maxTop = Math.max(VIEWPORT_PADDING, window.innerHeight - FLOATING_MENU_HEIGHT - VIEWPORT_PADDING)
+    const fallbackTop = rect.top - FLOATING_MENU_HEIGHT - FLOATING_MENU_GAP
+    const top = preferredTop <= maxTop ? preferredTop : Math.max(VIEWPORT_PADDING, fallbackTop)
+
+    return { top, left }
+  }
+
   const handleDeleteRecentSession = async (sessionId: string) => {
+    skipNextRecentReloadRef.current += 1
     const result = await window.db.deleteSession(sessionId)
-    if (!result.ok) return
+    if (!result.ok) {
+      skipNextRecentReloadRef.current = Math.max(0, skipNextRecentReloadRef.current - 1)
+      return
+    }
 
     setRecentSessions((prev) => prev.filter((session) => session.session_id !== sessionId))
     setMenuState(null)
     if (renamingSessionId === sessionId) {
       setRenamingSessionId(null)
       setRenameValue('')
-    }
-    if (selectedRecentSessionId === sessionId) {
-      navigate('/sessions')
     }
   }
 
@@ -252,8 +277,12 @@ export function Sidebar() {
       return
     }
 
+    skipNextRecentReloadRef.current += 1
     const result = await window.db.updateSessionTitle(sessionId, nextTitle)
-    if (!result.ok) return
+    if (!result.ok) {
+      skipNextRecentReloadRef.current = Math.max(0, skipNextRecentReloadRef.current - 1)
+      return
+    }
 
     setRecentSessions((prev) => prev.map((session) => (
       session.session_id === sessionId
@@ -342,6 +371,37 @@ export function Sidebar() {
     setRecentWindowStart(maxRecentWindowStart)
   }, [maxRecentWindowStart, recentWindowStart])
 
+  useEffect(() => {
+    const container = recentScrollRef.current
+    if (!container || !expanded || !recentExpanded) {
+      setRecentScrollFade({ top: false, bottom: false })
+      return
+    }
+
+    const updateRecentScrollFade = () => {
+      const canScroll = container.scrollHeight - container.clientHeight > 6
+      if (!canScroll) {
+        setRecentScrollFade({ top: false, bottom: false })
+        return
+      }
+
+      const top = container.scrollTop > 6
+      const bottom = container.scrollTop + container.clientHeight < container.scrollHeight - 6
+      setRecentScrollFade({ top, bottom })
+    }
+
+    updateRecentScrollFade()
+
+    const observer = new ResizeObserver(() => {
+      updateRecentScrollFade()
+    })
+    observer.observe(container)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [expanded, recentExpanded, recentItems.length])
+
   const renderSearchButton = () => (
     <button
       onClick={openSearch}
@@ -405,7 +465,7 @@ export function Sidebar() {
           </div>
 
           {expanded && (
-            <div className="mt-6 flex w-full flex-shrink-0 flex-col">
+            <div className="mt-6 flex min-h-0 w-full flex-1 flex-col pb-3">
               <button
                 onClick={toggleRecentExpanded}
                 className="mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
@@ -420,7 +480,22 @@ export function Sidebar() {
                 />
               </button>
               {recentExpanded && (
-                <div className="recent-session-scroll max-h-72 space-y-0.5 overflow-y-auto pr-1 pb-2">
+                <div
+                  ref={recentScrollRef}
+                  onScroll={() => {
+                    const container = recentScrollRef.current
+                    if (!container) return
+                    const top = container.scrollTop > 6
+                    const bottom = container.scrollTop + container.clientHeight < container.scrollHeight - 6
+                    setRecentScrollFade({ top, bottom })
+                  }}
+                  className={cn(
+                    'recent-session-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1 pb-5',
+                    recentScrollFade.top && recentScrollFade.bottom && 'recent-session-scroll-fade-both',
+                    recentScrollFade.top && !recentScrollFade.bottom && 'recent-session-scroll-fade-top',
+                    !recentScrollFade.top && recentScrollFade.bottom && 'recent-session-scroll-fade-bottom',
+                  )}
+                >
                   {recentItems.length === 0 ? (
                     <div className="px-3 py-2 text-xs leading-5 text-muted-foreground">
                       暂无最近聊天
@@ -468,12 +543,13 @@ export function Sidebar() {
                             onClick={(event) => {
                               event.stopPropagation()
                               const rect = event.currentTarget.getBoundingClientRect()
+                              const nextPosition = getFloatingMenuPosition(rect)
                               setMenuState((prev) => prev?.sessionId === item.id
                                 ? null
                                 : {
                                     sessionId: item.id,
-                                    top: rect.bottom + 6,
-                                    left: rect.right - 132,
+                                    top: nextPosition.top,
+                                    left: nextPosition.left,
                                   })
                             }}
                             className={cn(

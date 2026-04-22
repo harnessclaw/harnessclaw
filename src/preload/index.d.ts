@@ -210,6 +210,11 @@ interface DbToolActivityRow {
   content: string
   call_id: string | null
   is_error: number
+  duration_ms: number | null
+  render_hint: string | null
+  language: string | null
+  file_path: string | null
+  metadata_json: string | null
   subagent_json: string | null
   created_at: number
 }
@@ -231,6 +236,7 @@ interface DbMessageRow {
 }
 
 interface DbAPI {
+  createSession: (sessionId: string, title?: string) => Promise<{ ok: boolean; error?: string }>
   listSessions: () => Promise<DbSessionRow[]>
   getMessages: (sessionId: string) => Promise<DbMessageRow[]>
   deleteSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>

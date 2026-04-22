@@ -88,6 +88,10 @@ tools:
     enabled: true
   web_fetch:
     enabled: true
+  tavily_search:
+    enabled: true
+    api_key: "tvly-xxx"
+    max_results: 5
 
 # --- Skills ---
 # Skills are loaded from the directories listed below, in order.

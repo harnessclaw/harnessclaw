@@ -29,6 +29,8 @@ interface PendingContentBlock {
   text?: string
   thinking?: string
   inputJson?: string
+  emittedTextLength?: number
+  emittedThinkingLength?: number
 }
 
 interface PendingMessageState {
@@ -130,6 +132,42 @@ function trimOutput(output: string, maxLength = 200_000): { text: string; trunca
   return {
     text: `${output.slice(0, maxLength)}\n\n[truncated ${output.length - maxLength} chars]`,
     truncated: true,
+  }
+}
+
+function emitPendingBlockContent(
+  emit: (event: Record<string, unknown>) => void,
+  sessionId: string,
+  requestId: string | undefined,
+  block?: PendingContentBlock,
+): void {
+  if (!block) return
+
+  const text = typeof block.text === 'string' ? block.text : ''
+  const emittedTextLength = typeof block.emittedTextLength === 'number' ? block.emittedTextLength : 0
+  if (text.length > emittedTextLength) {
+    const chunk = text.slice(emittedTextLength)
+    if (chunk) {
+      emit({
+        type: 'text_delta',
+        session_id: sessionId,
+        request_id: requestId,
+        content: chunk,
+      })
+      block.emittedTextLength = text.length
+    }
+  }
+
+  const thinking = typeof block.thinking === 'string' ? block.thinking : ''
+  const emittedThinkingLength = typeof block.emittedThinkingLength === 'number' ? block.emittedThinkingLength : 0
+  if (thinking.length > emittedThinkingLength) {
+    emit({
+      type: 'thinking',
+      session_id: sessionId,
+      request_id: requestId,
+      content: thinking,
+    })
+    block.emittedThinkingLength = thinking.length
   }
 }
 
@@ -462,14 +500,18 @@ export class HarnessclawClient extends EventEmitter {
         const index = typeof msg.index === 'number' ? msg.index : -1
         const state = this.ensurePendingMessage(sessionId)
         const block = isPlainObject(msg.content_block) ? msg.content_block : {}
-        state.blocks.set(index, {
+        const pendingBlock: PendingContentBlock = {
           type: typeof block.type === 'string' ? block.type : 'text',
           id: typeof block.id === 'string' ? block.id : undefined,
           name: typeof block.name === 'string' ? block.name : undefined,
           text: typeof block.text === 'string' ? block.text : '',
           thinking: typeof block.thinking === 'string' ? block.thinking : '',
           inputJson: isPlainObject(block.input) ? JSON.stringify(block.input) : '',
-        })
+          emittedTextLength: 0,
+          emittedThinkingLength: 0,
+        }
+        state.blocks.set(index, pendingBlock)
+        emitPendingBlockContent((event) => this.emitCompatEvent(event), sessionId, state.requestId, pendingBlock)
         break
       }
 
@@ -489,6 +531,7 @@ export class HarnessclawClient extends EventEmitter {
             request_id: state.requestId,
             content: chunk,
           })
+          if (block) block.emittedTextLength = typeof block.text === 'string' ? block.text.length : 0
         }
 
         if (deltaType === 'thinking_delta') {
@@ -500,6 +543,7 @@ export class HarnessclawClient extends EventEmitter {
             request_id: state.requestId,
             content: block?.thinking || chunk,
           })
+          if (block) block.emittedThinkingLength = typeof block.thinking === 'string' ? block.thinking.length : 0
         }
 
         if (deltaType === 'input_json_delta' && block) {
@@ -507,6 +551,14 @@ export class HarnessclawClient extends EventEmitter {
           block.inputJson = `${block.inputJson || ''}${partialJson}`
         }
 
+        break
+      }
+
+      case 'content.stop': {
+        const index = typeof msg.index === 'number' ? msg.index : -1
+        const state = this.ensurePendingMessage(sessionId)
+        const block = state.blocks.get(index)
+        emitPendingBlockContent((event) => this.emitCompatEvent(event), sessionId, state.requestId, block)
         break
       }
 
@@ -562,6 +614,9 @@ export class HarnessclawClient extends EventEmitter {
           is_error: msg.is_error === true || msg.status === 'error',
           status: msg.status,
           duration_ms: msg.duration_ms,
+          render_hint: typeof msg.render_hint === 'string' ? msg.render_hint : undefined,
+          language: typeof msg.language === 'string' ? msg.language : undefined,
+          file_path: typeof msg.file_path === 'string' ? msg.file_path : undefined,
           metadata,
         })
         break
@@ -622,6 +677,12 @@ export class HarnessclawClient extends EventEmitter {
       }
 
       case 'task.end': {
+        const pendingState = this.pendingMessages.get(sessionId)
+        if (pendingState) {
+          for (const block of pendingState.blocks.values()) {
+            emitPendingBlockContent((event) => this.emitCompatEvent(event), sessionId, pendingState.requestId, block)
+          }
+        }
         const usage = toUsage(msg.total_usage)
         const status = typeof msg.status === 'string' ? msg.status : ''
         if (status === 'aborted' || status === 'error' || status === 'failed') {
