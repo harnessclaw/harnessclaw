@@ -7,6 +7,24 @@ let db: Database.Database | null = null
 export type ConfigScope = 'app' | 'engine'
 export type ConfigStorageFormat = 'json' | 'yaml'
 
+const DEFAULT_PROJECTS = [
+  {
+    projectId: 'release-009',
+    name: 'v0.0.9 发布收口',
+    description: '聚合发布说明、回归验证与异常修复，保证版本切换时上下文和产出都留在同一个项目里。',
+  },
+  {
+    projectId: 'sidebar-refine',
+    name: '侧边栏交互优化',
+    description: '集中处理对话多选、边界点击区和溢出问题，避免在多个页面来回切换。',
+  },
+  {
+    projectId: 'skills-onboarding',
+    name: '技能引导整理',
+    description: '整理首屏说明、仓库入口与默认流程，让新用户进入后能更快理解下一步操作。',
+  },
+] as const
+
 export function getDb(): Database.Database {
   if (db) return db
   if (!existsSync(DB_DIR)) {
@@ -29,6 +47,18 @@ function initTables(db: Database.Database): void {
       created_at     INTEGER NOT NULL,
       updated_at     INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      project_id   TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      description  TEXT NOT NULL DEFAULT '',
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL,
+      deleted_at   INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_projects_deleted_updated
+      ON projects(deleted_at, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
@@ -195,17 +225,44 @@ function initTables(db: Database.Database): void {
   ensureRepositoryColumn('proxy_port', `ALTER TABLE skill_repositories ADD COLUMN proxy_port TEXT NOT NULL DEFAULT ''`)
   ensureRepositoryColumn('proxy_username', `ALTER TABLE skill_repositories ADD COLUMN proxy_username TEXT NOT NULL DEFAULT ''`)
   ensureRepositoryColumn('proxy_password', `ALTER TABLE skill_repositories ADD COLUMN proxy_password TEXT NOT NULL DEFAULT ''`)
+
+  const sessionColumns = db.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>
+  if (!sessionColumns.some((col) => col.name === 'project_id')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN project_id TEXT`)
+  }
+  if (!sessionColumns.some((col) => col.name === 'project_context_json')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN project_context_json TEXT`)
+  }
+
+  seedDefaultProjects(db)
 }
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
-export function upsertSession(sessionId: string, title?: string): void {
+export function upsertSession(
+  sessionId: string,
+  title?: string,
+  options?: {
+    projectId?: string
+    projectContextJson?: string | null
+  }
+): void {
   const now = Date.now()
   getDb().prepare(`
-    INSERT INTO sessions (session_id, title, created_at, updated_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(session_id) DO UPDATE SET updated_at = excluded.updated_at
-  `).run(sessionId, title || '', now, now)
+    INSERT INTO sessions (session_id, title, project_id, project_context_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      updated_at = excluded.updated_at,
+      project_id = COALESCE(excluded.project_id, sessions.project_id),
+      project_context_json = COALESCE(excluded.project_context_json, sessions.project_context_json)
+  `).run(
+    sessionId,
+    title || '',
+    options?.projectId || null,
+    options?.projectContextJson || null,
+    now,
+    now
+  )
 }
 
 export function updateSessionTitle(sessionId: string, title: string): void {
@@ -216,6 +273,8 @@ export function updateSessionTitle(sessionId: string, title: string): void {
 export interface SessionRow {
   session_id: string
   title: string
+  project_id: string | null
+  project_context_json: string | null
   created_at: number
   updated_at: number
 }
@@ -224,8 +283,102 @@ export function listSessions(): SessionRow[] {
   return getDb().prepare(`SELECT * FROM sessions ORDER BY updated_at DESC`).all() as SessionRow[]
 }
 
+export function getSession(sessionId: string): SessionRow | null {
+  return getDb().prepare(`SELECT * FROM sessions WHERE session_id = ?`).get(sessionId) as SessionRow | null
+}
+
+function escapeSqlLike(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
+function projectContextLikePattern(projectId: string): string {
+  return `%${escapeSqlLike(projectId)}%`
+}
+
+export function listProjectSessions(projectId: string): SessionRow[] {
+  return getDb().prepare(`
+    SELECT * FROM sessions
+    WHERE project_id = ?
+      OR project_context_json LIKE ? ESCAPE '\\'
+    ORDER BY updated_at DESC
+  `).all(projectId, projectContextLikePattern(projectId)) as SessionRow[]
+}
+
 export function deleteSession(sessionId: string): void {
   getDb().prepare(`DELETE FROM sessions WHERE session_id = ?`).run(sessionId)
+}
+
+// ─── Projects ────────────────────────────────────────────────────────────────
+
+export interface ProjectRow {
+  project_id: string
+  name: string
+  description: string
+  created_at: number
+  updated_at: number
+  deleted_at: number | null
+}
+
+export function createProject(input: {
+  projectId: string
+  name: string
+  description?: string
+}): ProjectRow {
+  const now = Date.now()
+  getDb().prepare(`
+    INSERT INTO projects (project_id, name, description, created_at, updated_at, deleted_at)
+    VALUES (?, ?, ?, ?, ?, NULL)
+  `).run(
+    input.projectId,
+    input.name.trim(),
+    input.description?.trim() || '',
+    now,
+    now
+  )
+
+  return getProject(input.projectId)!
+}
+
+export function getProject(projectId: string, includeDeleted = false): ProjectRow | null {
+  const sql = includeDeleted
+    ? `SELECT * FROM projects WHERE project_id = ?`
+    : `SELECT * FROM projects WHERE project_id = ? AND deleted_at IS NULL`
+  return getDb().prepare(sql).get(projectId) as ProjectRow | null
+}
+
+export function listProjects(): ProjectRow[] {
+  return getDb().prepare(`
+    SELECT * FROM projects
+    WHERE deleted_at IS NULL
+    ORDER BY updated_at DESC
+  `).all() as ProjectRow[]
+}
+
+export function softDeleteProject(projectId: string): void {
+  const now = Date.now()
+  getDb().prepare(`
+    UPDATE projects
+    SET deleted_at = ?, updated_at = ?
+    WHERE project_id = ? AND deleted_at IS NULL
+  `).run(now, now, projectId)
+}
+
+export function softDeleteProjectWithSessions(projectId: string): { deletedSessions: number } {
+  const db = getDb()
+  const now = Date.now()
+  return db.transaction(() => {
+    db.prepare(`
+      UPDATE projects
+      SET deleted_at = ?, updated_at = ?
+      WHERE project_id = ? AND deleted_at IS NULL
+    `).run(now, now, projectId)
+    const deleted = db.prepare(`
+      DELETE FROM sessions
+      WHERE project_id = ?
+        OR project_context_json LIKE ? ESCAPE '\\'
+    `).run(projectId, projectContextLikePattern(projectId))
+    return { deletedSessions: deleted.changes }
+  })()
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────
@@ -521,6 +674,21 @@ export function listUsageEvents(limit = 500): UsageEventRow[] {
     ORDER BY created_at DESC
     LIMIT ?
   `).all(limit) as UsageEventRow[]
+}
+
+function seedDefaultProjects(db: Database.Database): void {
+  const row = db.prepare(`SELECT COUNT(*) AS count FROM projects`).get() as { count: number }
+  if (row.count > 0) return
+
+  const now = Date.now()
+  const insert = db.prepare(`
+    INSERT INTO projects (project_id, name, description, created_at, updated_at, deleted_at)
+    VALUES (?, ?, ?, ?, ?, NULL)
+  `)
+
+  for (const project of DEFAULT_PROJECTS) {
+    insert.run(project.projectId, project.name, project.description, now, now)
+  }
 }
 
 export function closeDb(): void {

@@ -1,5 +1,5 @@
 import { memo, useState, useRef, useEffect, useCallback, useMemo, useId, useSyncExternalStore, type RefObject } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Send, Plus, Copy, Check, Trash2,
   Loader2, Wrench, Brain, AlertCircle, RefreshCw, ChevronDown, ChevronUp,
@@ -27,6 +27,13 @@ interface SubagentInfo {
   taskId: string
   label: string
   status: 'ok' | 'error' | string
+}
+
+interface ProjectContext {
+  projectId: string
+  name: string
+  description: string
+  createdAt?: number
 }
 
 interface ContentSegment {
@@ -267,6 +274,8 @@ type PersistedCollaborationStatusPayload =
 
 const ATTACHMENT_BLOCK_START = '[HARNESSCLAW_LOCAL_ATTACHMENTS]'
 const ATTACHMENT_BLOCK_END = '[/HARNESSCLAW_LOCAL_ATTACHMENTS]'
+const PROJECT_CONTEXT_BLOCK_START = '[HARNESSCLAW_PROJECT_CONTEXT]'
+const PROJECT_CONTEXT_BLOCK_END = '[/HARNESSCLAW_PROJECT_CONTEXT]'
 const ERROR_ATTACH_WINDOW_MS = 30_000
 const noopUnsubscribe = () => {}
 const CHAT_LOADING_STEPS = [
@@ -745,6 +754,35 @@ function createPersistentSessionId(): string {
   return `harnessclaw:session:${globalThis.crypto.randomUUID()}`
 }
 
+function normalizeProjectContext(raw: unknown): ProjectContext | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const candidate = raw as Record<string, unknown>
+  const projectId = typeof candidate.projectId === 'string'
+    ? candidate.projectId
+    : typeof candidate.project_id === 'string'
+      ? candidate.project_id
+      : ''
+  const name = typeof candidate.name === 'string' ? candidate.name : ''
+  const description = typeof candidate.description === 'string' ? candidate.description : ''
+  const createdAt = typeof candidate.createdAt === 'number'
+    ? candidate.createdAt
+    : typeof candidate.created_at === 'number'
+      ? candidate.created_at
+      : undefined
+
+  if (!projectId || !name) return null
+  return { projectId, name, description, createdAt }
+}
+
+function parseProjectContextJson(jsonText: string | null): ProjectContext | null {
+  if (!jsonText) return null
+  try {
+    return normalizeProjectContext(JSON.parse(jsonText))
+  } catch {
+    return null
+  }
+}
+
 function buildMessagePayload(content: string, attachments: AttachmentItem[]): string {
   const text = content.trim()
   if (attachments.length === 0) return text
@@ -775,16 +813,25 @@ function buildMessagePayload(content: string, attachments: AttachmentItem[]): st
   ].filter(Boolean).join('\n\n')
 }
 
+function stripProjectContextBlock(content: string): string {
+  const startIndex = content.indexOf(PROJECT_CONTEXT_BLOCK_START)
+  const endIndex = content.indexOf(PROJECT_CONTEXT_BLOCK_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return content
+
+  return `${content.slice(0, startIndex)}${content.slice(endIndex + PROJECT_CONTEXT_BLOCK_END.length)}`.trim()
+}
+
 function extractAttachments(content: string): { content: string; attachments: AttachmentItem[] } {
-  const startIndex = content.indexOf(ATTACHMENT_BLOCK_START)
-  const endIndex = content.indexOf(ATTACHMENT_BLOCK_END)
+  const withoutProjectContext = stripProjectContextBlock(content)
+  const startIndex = withoutProjectContext.indexOf(ATTACHMENT_BLOCK_START)
+  const endIndex = withoutProjectContext.indexOf(ATTACHMENT_BLOCK_END)
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
-    return { content, attachments: [] }
+    return { content: withoutProjectContext, attachments: [] }
   }
 
   const jsonStart = startIndex + ATTACHMENT_BLOCK_START.length
-  const jsonText = content.slice(jsonStart, endIndex).trim()
-  const body = content.slice(0, startIndex).trim()
+  const jsonText = withoutProjectContext.slice(jsonStart, endIndex).trim()
+  const body = withoutProjectContext.slice(0, startIndex).trim()
 
   try {
     const parsed = JSON.parse(jsonText) as { items?: Array<Omit<AttachmentItem, 'id'>> }
@@ -1717,12 +1764,15 @@ function getTeamEventSummary(team: TeamState): string {
 
 export function ChatPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   const initialMessage = location.state?.initialMessage || ''
   const initialAttachments = (location.state?.initialAttachments || []) as AttachmentItem[]
   const selectedSessionIdFromRoute = typeof location.state?.sessionId === 'string' ? location.state.sessionId : ''
   const createSessionOnOpen = location.state?.createSession === true
+  const routeProjectContext = useMemo(() => normalizeProjectContext(location.state?.projectContext), [location.state])
   const [sessionMap, setSessionMap] = useState<Record<string, SessionState>>({})
   const [activeSessionId, setActiveSessionId] = useState('')
+  const [sessionProjectContexts, setSessionProjectContexts] = useState<Record<string, ProjectContext>>({})
   const [filePreview, setFilePreview] = useState<FilePreviewData | null>(null)
   const [input, setInput] = useState(initialMessage)
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkillChip[]>([])
@@ -1744,13 +1794,17 @@ export function ChatPage() {
       ? { content: initialMessage, attachments: initialAttachments }
       : null
   )
+  const initialTurnHandledKeyRef = useRef<string | null>(
+    initialMessage || initialAttachments.length > 0 ? location.key : null
+  )
+  const createSessionOnOpenHandledKeyRef = useRef<string | null>(null)
   // Track pendingAssistantId per session in a ref map
   const pendingAssistantIds = useRef<Record<string, string | null>>({})
   const activeSessionIdRef = useRef(activeSessionId)
   activeSessionIdRef.current = activeSessionId
   const maxLength = 4000
 
-  const [dbSessions, setDbSessions] = useState<{ session_id: string; title: string; updated_at: number }[]>([])
+  const [dbSessions, setDbSessions] = useState<DbSessionRow[]>([])
   const emptyGreeting = useMemo(() => getChatGreeting(), [])
   const composerPayload = useMemo(() => buildSkillComposerPayload(input, selectedSkills), [input, selectedSkills])
   const canSend = !!composerPayload || attachments.length > 0
@@ -1768,16 +1822,28 @@ export function ChatPage() {
     }))
   }, [])
 
-  const ensureLocalSession = useCallback((sid?: string) => {
+  const ensureLocalSession = useCallback((sid?: string, context: ProjectContext | null = routeProjectContext) => {
     const resolvedSessionId = sid || createPersistentSessionId()
     setSessionMap((prev) => ({
       ...prev,
       [resolvedSessionId]: prev[resolvedSessionId] || createEmptySessionState(),
     }))
     setActiveSessionId(resolvedSessionId)
-    void window.db.createSession(resolvedSessionId)
+    navigate('/chat', { replace: true, state: { sessionId: resolvedSessionId } })
+    if (context) {
+      setSessionProjectContexts((prev) => ({
+        ...prev,
+        [resolvedSessionId]: context,
+      }))
+      void window.db.createProjectSession({
+        sessionId: resolvedSessionId,
+        projectId: context.projectId,
+      })
+    } else {
+      void window.db.createSession(resolvedSessionId)
+    }
     return resolvedSessionId
-  }, [])
+  }, [navigate, routeProjectContext])
 
   const sendInitialMessage = useCallback((sid: string, text: string, initialFiles: AttachmentItem[] = []) => {
     pendingInitialTurn.current = null
@@ -1822,6 +1888,16 @@ export function ChatPage() {
   }, [updateSession])
 
   const activeSession = getSession(activeSessionId)
+  const hasActiveSessionMessages = activeSession.messages.some((message) => message.role !== 'system')
+  const hasDraftComposerState = Boolean(input.trim()) || attachments.length > 0 || selectedSkills.length > 0
+  const isActiveSessionPristine =
+    Boolean(activeSessionId)
+    && !hasActiveSessionMessages
+    && !activeSession.isProcessing
+    && !activeSession.isPaused
+    && !activeSession.isStopping
+    && !activeSession.currentThinking
+    && !hasDraftComposerState
   const shouldRotatePreparation = activeSession.isProcessing && !activeSession.isPaused && !activeSession.isStopping && !activeSession.currentThinking
   const loadingNow = useSharedNowTicker(shouldRotatePreparation, 1800)
   const activeLoadingStep = CHAT_LOADING_STEPS[Math.floor(loadingNow / 1800) % CHAT_LOADING_STEPS.length]
@@ -1861,6 +1937,7 @@ export function ChatPage() {
   }, [sessionMap, sessions, dbSessions])
   const activeSessionMeta = displayedSessions.find((session) => session.key === activeSessionId)
   const activeSessionPrompt = activeSessionMeta?.firstMsg || activeSessionMeta?.title || '新对话'
+  const activeProjectContext = activeSessionId ? sessionProjectContexts[activeSessionId] : routeProjectContext
   const resizeComposerTextarea = useCallback(() => {
     const textarea = composerTextareaRef.current
     if (!textarea) return
@@ -2010,11 +2087,22 @@ export function ChatPage() {
     if (rows.length === 0) {
       setDbSessions([])
       setSessions([])
+      setSessionProjectContexts({})
       return rows
     }
 
-    setDbSessions(rows.map((row) => ({ session_id: row.session_id, title: row.title, updated_at: row.updated_at })))
+    setDbSessions(rows)
     setSessions(rows.map((row) => ({ key: row.session_id, updatedAt: new Date(row.updated_at).toLocaleString('zh-CN') })))
+    setSessionProjectContexts((prev) => {
+      const next = { ...prev }
+      for (const row of rows) {
+        const context = parseProjectContextJson(row.project_context_json)
+        if (context) {
+          next[row.session_id] = context
+        }
+      }
+      return next
+    })
 
     const entries: Record<string, SessionState> = {}
     for (const row of rows) {
@@ -2059,6 +2147,19 @@ export function ChatPage() {
     return () => offSessionsChanged()
   }, [loadPersistedSessions])
 
+  useEffect(() => {
+    if (!initialMessage && initialAttachments.length === 0) return
+    if (initialTurnHandledKeyRef.current === location.key) return
+
+    initialTurnHandledKeyRef.current = location.key
+    pendingInitialTurn.current = {
+      content: initialMessage,
+      attachments: initialAttachments,
+    }
+    setInput(initialMessage)
+    setAttachments(initialAttachments)
+  }, [initialAttachments, initialMessage, location.key])
+
   const handleSwitchSession = useCallback((key: string) => {
     if (!key) return
     if (key !== activeSessionIdRef.current) {
@@ -2100,10 +2201,14 @@ export function ChatPage() {
   useEffect(() => {
     if (!createSessionOnOpen) return
     if (selectedSessionIdFromRoute) return
+    if (initialMessage || initialAttachments.length > 0) return
     if (pendingInitialTurn.current) return
     if (activeSessionIdRef.current) return
+    if (createSessionOnOpenHandledKeyRef.current === location.key) return
+
+    createSessionOnOpenHandledKeyRef.current = location.key
     ensureLocalSession()
-  }, [createSessionOnOpen, selectedSessionIdFromRoute, ensureLocalSession, location.key])
+  }, [createSessionOnOpen, initialAttachments.length, initialMessage, selectedSessionIdFromRoute, ensureLocalSession, location.key])
 
   // Sync Harnessclaw status on mount
   useEffect(() => {
@@ -3155,7 +3260,7 @@ export function ChatPage() {
     const message = composerPayload
     if ((!message && attachments.length === 0) || activeSession.isProcessing) return
 
-    const sid = activeSessionId || ensureLocalSession()
+    const sid = activeSessionId || ensureLocalSession(undefined, activeProjectContext || null)
     const payload = buildMessagePayload(message, attachments)
     const attachedFiles = [...attachments]
 
@@ -3197,6 +3302,10 @@ export function ChatPage() {
   }
 
   const handleNewSession = () => {
+    if (isActiveSessionPristine) {
+      composerTextareaRef.current?.focus()
+      return
+    }
     ensureLocalSession()
   }
 
@@ -3327,6 +3436,11 @@ export function ChatPage() {
                 <span className="block truncate text-sm font-semibold text-foreground">
                   {activeSessionId ? activeSessionPrompt : '新对话'}
                 </span>
+                {activeProjectContext ? (
+                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                    项目：{activeProjectContext.name}
+                  </span>
+                ) : null}
               </div>
             </div>
 

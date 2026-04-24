@@ -1,6 +1,5 @@
 import { useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
-import { TopBar } from './TopBar'
 import { WelcomeModal } from '../WelcomeModal'
 
 interface AppLayoutProps {
@@ -9,11 +8,6 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation()
-  const isHome = location.pathname === '/'
-  const showTopBar = location.pathname !== '/chat'
-    && location.pathname !== '/skills'
-    && location.pathname !== '/settings'
-    && !isHome
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background">
@@ -21,7 +15,6 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <div className="flex flex-1 flex-col min-w-0">
-          {showTopBar && <TopBar />}
           <main className="flex-1 overflow-auto" aria-label="主内容区域">
             {children}
           </main>

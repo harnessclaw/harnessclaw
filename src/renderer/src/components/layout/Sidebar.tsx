@@ -19,6 +19,8 @@ import {
   Trash2,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
+import sidebarLogo from '../../assets/sidebar-logo.png'
 
 interface NavItem {
   icon: React.ElementType
@@ -76,6 +78,7 @@ const VIEWPORT_PADDING = 12
 export function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
+  const harnessclawStatus = useHarnessclawStatus()
   const selectedRecentSessionId = typeof location.state?.sessionId === 'string' ? location.state.sessionId : ''
   const [expanded, setExpanded] = useState(() => localStorage.getItem('sidebar-expanded') === 'true')
   const [recentExpanded, setRecentExpanded] = useState(() => localStorage.getItem('sidebar-recent-expanded') !== 'false')
@@ -296,7 +299,7 @@ export function Sidebar() {
 
   const itemCls = (active: boolean) => cn(
     'flex items-center rounded-lg transition-colors flex-shrink-0',
-    expanded ? 'w-full gap-3 px-3 py-2' : 'w-11 h-11 justify-center',
+    expanded ? 'w-full gap-1.5 px-3 py-2' : 'w-11 h-11 justify-center',
     active
       ? 'bg-accent text-foreground'
       : 'text-foreground/78 hover:text-foreground hover:bg-accent'
@@ -434,12 +437,78 @@ export function Sidebar() {
       <nav
         aria-label="主导航"
         className={cn(
-          'flex-shrink-0 bg-card border-r border-border flex flex-col pt-[52px] pb-3 select-none transition-[width] duration-200 overflow-hidden',
+          'flex-shrink-0 bg-card border-r border-border flex flex-col pt-[44px] pb-3 select-none transition-[width] duration-200 overflow-hidden',
           expanded ? 'w-72 items-start px-2' : 'w-[78px] items-center'
         )}
       >
         <div className={cn('flex min-h-0 w-full flex-1 flex-col', !expanded && 'items-center')}>
-          <div className={cn('flex w-full flex-col flex-shrink-0', expanded ? 'gap-7' : 'items-center gap-8')}>
+          <div className={cn('flex w-full flex-col flex-shrink-0', expanded ? 'gap-4' : 'items-center gap-4')}>
+            <div className={cn('flex w-full flex-shrink-0', expanded ? 'px-1' : 'justify-center')}>
+              {expanded ? (
+                <div className="flex w-full items-center gap-2 px-2 py-1">
+                  <div className="min-w-0 flex flex-1 items-center gap-2">
+                    <img
+                      src={sidebarLogo}
+                      alt="HarnessClaw"
+                      className="h-9 w-9 flex-shrink-0 object-contain"
+                    />
+                  </div>
+
+                  <div
+                    className="group relative flex h-8 w-5 flex-shrink-0 items-center justify-center"
+                    aria-label={
+                      harnessclawStatus === 'connected'
+                        ? '当前状态：已连接'
+                        : harnessclawStatus === 'connecting'
+                          ? '当前状态：连接中'
+                          : '当前状态：未连接'
+                    }
+                  >
+                    <span
+                      className={cn(
+                        'h-2 w-2 rounded-full',
+                        harnessclawStatus === 'connected'
+                          ? 'bg-emerald-500'
+                          : harnessclawStatus === 'connecting'
+                            ? 'bg-amber-500 animate-pulse'
+                            : 'bg-rose-500'
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-popover-foreground shadow-md group-hover:block">
+                      {harnessclawStatus === 'connected'
+                        ? '已连接'
+                        : harnessclawStatus === 'connecting'
+                          ? '连接中'
+                          : '未连接'}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={toggleExpanded}
+                    title="收起侧边栏"
+                    aria-label="收起侧边栏"
+                    className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-foreground/78 transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <PanelLeft size={18} className="rotate-180" aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={toggleExpanded}
+                  title="展开侧边栏"
+                  aria-label="展开侧边栏"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-foreground transition-colors hover:bg-accent"
+                >
+                  <img
+                    src={sidebarLogo}
+                    alt="HarnessClaw"
+                    className="h-8 w-8 object-contain"
+                  />
+                </button>
+              )}
+            </div>
+
             {navGroups.map((group, index) => (
               <div
                 key={index}
@@ -595,21 +664,6 @@ export function Sidebar() {
             ? <Sun size={18} className="flex-shrink-0" aria-hidden="true" />
             : <Moon size={18} className="flex-shrink-0" aria-hidden="true" />}
           {expanded && <span className="text-sm font-medium">{isDark ? '亮色模式' : '暗色模式'}</span>}
-        </button>
-
-        {/* Expand / collapse toggle */}
-        <button
-          onClick={toggleExpanded}
-          title={expanded ? '收起侧边栏' : '展开侧边栏'}
-          aria-label={expanded ? '收起侧边栏' : '展开侧边栏'}
-          className={bottomItemCls}
-        >
-          <PanelLeft
-            size={18}
-            className={cn('flex-shrink-0 transition-transform duration-200', expanded && 'rotate-180')}
-            aria-hidden="true"
-          />
-          {expanded && <span className="text-sm font-medium">收起</span>}
         </button>
       </nav>
 

@@ -113,10 +113,18 @@ const skillsAPI = {
 
 const dbAPI = {
   createSession: (sessionId: string, title?: string) => ipcRenderer.invoke('db:createSession', sessionId, title),
+  createProjectSession: (input: { sessionId: string; projectId: string; title?: string }) =>
+    ipcRenderer.invoke('db:createProjectSession', input),
   listSessions: () => ipcRenderer.invoke('db:listSessions'),
   getMessages: (sessionId: string) => ipcRenderer.invoke('db:getMessages', sessionId),
   deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),
   updateSessionTitle: (sessionId: string, title: string) => ipcRenderer.invoke('db:updateSessionTitle', sessionId, title),
+  listProjects: () => ipcRenderer.invoke('db:listProjects'),
+  getProject: (projectId: string) => ipcRenderer.invoke('db:getProject', projectId),
+  createProject: (input: { projectId: string; name: string; description?: string }) =>
+    ipcRenderer.invoke('db:createProject', input),
+  deleteProject: (projectId: string) => ipcRenderer.invoke('db:deleteProject', projectId),
+  listProjectSessions: (projectId: string) => ipcRenderer.invoke('db:listProjectSessions', projectId),
   onSessionsChanged: (callback: () => void) => {
     const handler = (): void => callback()
     ipcRenderer.on('db:sessionsChanged', handler)

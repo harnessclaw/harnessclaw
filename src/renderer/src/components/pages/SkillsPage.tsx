@@ -20,7 +20,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { NoticeToast, type NoticeTone } from '../common/NoticeToast'
-import { HarnessclawStatusBadge } from '../common/HarnessclawStatusBadge'
 
 interface NoticeState {
   tone: NoticeTone
@@ -308,7 +307,6 @@ export function SkillsPage() {
             <PackagePlus size={13} />
             Skill 市场
           </button>
-          <HarnessclawStatusBadge />
           <div className="relative">
             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <input

@@ -332,11 +332,11 @@ export function SessionsPage() {
               className={cn(
                 'grid gap-4 border-b border-border bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground',
                 multiSelectMode
-                  ? 'grid-cols-[32px_minmax(0,1.6fr)_140px_56px]'
+                  ? 'grid-cols-[52px_minmax(0,1.6fr)_140px_56px]'
                   : 'grid-cols-[minmax(0,1.6fr)_140px_56px]'
               )}
             >
-              {multiSelectMode && <span>选择</span>}
+              {multiSelectMode && <span className="text-center">选择</span>}
               <span>{multiSelectMode ? '已选对话' : '对话'}</span>
               <span>最近更新</span>
               <span className="text-right">操作</span>
@@ -350,21 +350,31 @@ export function SessionsPage() {
                   <div
                     key={session.session_id}
                     className={cn(
-                      'grid gap-4 px-4 py-2.5 transition-colors hover:bg-muted/20',
+                      'relative grid gap-4 px-4 py-2.5 transition-colors hover:bg-muted/20',
                       multiSelectMode
-                        ? 'grid-cols-[32px_minmax(0,1.6fr)_140px_56px]'
+                        ? 'grid-cols-[52px_minmax(0,1.6fr)_140px_56px]'
                         : 'grid-cols-[minmax(0,1.6fr)_140px_56px]',
                       multiSelectMode && isSelected && 'bg-accent/30'
                     )}
                   >
                     {multiSelectMode && (
-                      <div className="flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleSessionSelection(session.session_id)}
+                        className="absolute inset-y-0 left-0 z-10 w-[68px] rounded-l-lg"
+                        aria-label={`选择 ${getSessionLabel(session.title, session.session_id)}`}
+                      />
+                    )}
+
+                    {multiSelectMode && (
+                      <div className="pointer-events-none flex h-full w-full items-center justify-center rounded-lg">
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => toggleSessionSelection(session.session_id)}
-                          aria-label={`选择 ${getSessionLabel(session.title, session.session_id)}`}
-                          className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                          readOnly
+                          className="h-5 w-5 rounded border-border text-primary focus:ring-primary"
+                          tabIndex={-1}
+                          aria-hidden="true"
                         />
                       </div>
                     )}
@@ -403,22 +413,37 @@ export function SessionsPage() {
                           <p className="truncate text-sm font-medium text-foreground">
                             {getSessionLabel(session.title, session.session_id)}
                           </p>
-                          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="truncate font-mono">{session.session_id}</span>
+                          <div className="mt-0.5 flex items-center text-xs text-muted-foreground">
                             <span>{session.messageCount} 条消息</span>
                           </div>
                         </>
                       )}
                     </button>
 
-                    <div className="flex items-center text-xs text-muted-foreground">
-                      {new Date(session.updated_at).toLocaleString('zh-CN', {
-                        month: 'numeric',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </div>
+                    {multiSelectMode ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleSessionSelection(session.session_id)}
+                        className="flex h-full w-full items-center rounded-lg text-left text-xs text-muted-foreground transition-colors hover:bg-accent/60"
+                        aria-label={`选择 ${getSessionLabel(session.title, session.session_id)} 的时间区域`}
+                      >
+                        {new Date(session.updated_at).toLocaleString('zh-CN', {
+                          month: 'numeric',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </button>
+                    ) : (
+                      <div className="flex items-center text-xs text-muted-foreground">
+                        {new Date(session.updated_at).toLocaleString('zh-CN', {
+                          month: 'numeric',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                    )}
 
                     <div className="relative flex items-center justify-end">
                       <button

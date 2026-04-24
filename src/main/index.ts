@@ -21,7 +21,8 @@ import {
 import {
   getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent, updateMessageSystemNotice,
-  getMessages, insertToolActivity, insertUsageEvent, listUsageEvents
+  getMessages, insertToolActivity, insertUsageEvent, listUsageEvents, createProject, getProject,
+  listProjects as dbListProjects, softDeleteProjectWithSessions, listProjectSessions,
 } from './db'
 import {
   LATEST_LOG_PATH,
@@ -77,6 +78,8 @@ type PersistedSystemNotice = {
 }
 
 const ERROR_ATTACH_WINDOW_MS = 30_000
+const PROJECT_CONTEXT_BLOCK_START = '[HARNESSCLAW_PROJECT_CONTEXT]'
+const PROJECT_CONTEXT_BLOCK_END = '[/HARNESSCLAW_PROJECT_CONTEXT]'
 const WINDOW_STATE_PATH = join(HARNESSCLAW_DIR, 'window-state.json')
 const DEFAULT_WINDOW_WIDTH = 1200
 const DEFAULT_WINDOW_HEIGHT = 800
@@ -87,6 +90,14 @@ type WindowState = {
   width: number
   height: number
   isMaximized?: boolean
+}
+
+function stripProjectContextBlock(content: string): string {
+  const startIndex = content.indexOf(PROJECT_CONTEXT_BLOCK_START)
+  const endIndex = content.indexOf(PROJECT_CONTEXT_BLOCK_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return content
+
+  return `${content.slice(0, startIndex)}${content.slice(endIndex + PROJECT_CONTEXT_BLOCK_END.length)}`.trim()
 }
 
 function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
@@ -965,6 +976,31 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('db:createProjectSession', (_, input: {
+    sessionId: string
+    projectId: string
+    title?: string
+  }) => {
+    try {
+      const project = getProject(input.projectId)
+      if (!project) return { ok: false, error: 'Project not found' }
+
+      upsertSession(input.sessionId, input.title, {
+        projectId: project.project_id,
+        projectContextJson: JSON.stringify({
+          project_id: project.project_id,
+          name: project.name,
+          description: project.description,
+          created_at: project.created_at,
+        }),
+      })
+      broadcastDbSessionsChanged()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
   ipcMain.handle('db:getMessages', (_, sessionId: string) => {
     try {
       return getMessages(sessionId)
@@ -991,6 +1027,52 @@ app.whenReady().then(() => {
       return { ok: true }
     } catch (err) {
       return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:listProjects', () => {
+    try {
+      return dbListProjects()
+    } catch (err) {
+      console.error('[DB] listProjects error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('db:getProject', (_, projectId: string) => {
+    try {
+      return getProject(projectId)
+    } catch (err) {
+      console.error('[DB] getProject error:', err)
+      return null
+    }
+  })
+
+  ipcMain.handle('db:createProject', (_, input: { projectId: string; name: string; description?: string }) => {
+    try {
+      const project = createProject(input)
+      return { ok: true, project }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:deleteProject', (_, projectId: string) => {
+    try {
+      const result = softDeleteProjectWithSessions(projectId)
+      broadcastDbSessionsChanged()
+      return { ok: true, ...result }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:listProjectSessions', (_, projectId: string) => {
+    try {
+      return listProjectSessions(projectId)
+    } catch (err) {
+      console.error('[DB] listProjectSessions error:', err)
+      return []
     }
   })
 
@@ -1468,13 +1550,14 @@ app.whenReady().then(() => {
       try {
         upsertSession(sessionId)
         const msgId = `usr-${Date.now()}`
-        insertMessage({ id: msgId, sessionId, role: 'user', content, createdAt: Date.now() })
+        const displayContent = stripProjectContextBlock(content)
+        insertMessage({ id: msgId, sessionId, role: 'user', content: displayContent, createdAt: Date.now() })
         broadcastDbSessionsChanged()
         // Use first user message as session title
         const msgs = getMessages(sessionId)
         const userMsgs = msgs.filter((m) => m.role === 'user')
         if (userMsgs.length === 1) {
-          const title = content.trim().replace(/\n/g, ' ')
+          const title = displayContent.trim().replace(/\n/g, ' ')
           const truncated = title.length > 50 ? title.slice(0, 50) + '...' : title
           updateSessionTitle(sessionId, truncated)
           broadcastDbSessionsChanged()

@@ -198,8 +198,19 @@ interface SkillsAPI {
 interface DbSessionRow {
   session_id: string
   title: string
+  project_id: string | null
+  project_context_json: string | null
   created_at: number
   updated_at: number
+}
+
+interface DbProjectRow {
+  project_id: string
+  name: string
+  description: string
+  created_at: number
+  updated_at: number
+  deleted_at: number | null
 }
 
 interface DbToolActivityRow {
@@ -237,10 +248,16 @@ interface DbMessageRow {
 
 interface DbAPI {
   createSession: (sessionId: string, title?: string) => Promise<{ ok: boolean; error?: string }>
+  createProjectSession: (input: { sessionId: string; projectId: string; title?: string }) => Promise<{ ok: boolean; error?: string }>
   listSessions: () => Promise<DbSessionRow[]>
   getMessages: (sessionId: string) => Promise<DbMessageRow[]>
   deleteSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>
   updateSessionTitle: (sessionId: string, title: string) => Promise<{ ok: boolean; error?: string }>
+  listProjects: () => Promise<DbProjectRow[]>
+  getProject: (projectId: string) => Promise<DbProjectRow | null>
+  createProject: (input: { projectId: string; name: string; description?: string }) => Promise<{ ok: boolean; project?: DbProjectRow; error?: string }>
+  deleteProject: (projectId: string) => Promise<{ ok: boolean; deletedSessions?: number; error?: string }>
+  listProjectSessions: (projectId: string) => Promise<DbSessionRow[]>
   onSessionsChanged: (callback: () => void) => () => void
 }
 
