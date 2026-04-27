@@ -4,6 +4,7 @@ interface AppBridgeAPI {
   isFirstLaunch: () => Promise<boolean>
   markLaunched: () => Promise<{ ok: boolean; error?: string }>
   getVersion: () => Promise<string>
+  getUsername: () => string
   checkForUpdates: () => Promise<{ ok: boolean; version?: string; error?: string }>
   onUpdateEvent: (callback: (event: AppUpdateEvent) => void) => () => void
 }
@@ -253,6 +254,7 @@ interface DbAPI {
   getMessages: (sessionId: string) => Promise<DbMessageRow[]>
   deleteSession: (sessionId: string) => Promise<{ ok: boolean; error?: string }>
   updateSessionTitle: (sessionId: string, title: string) => Promise<{ ok: boolean; error?: string }>
+  updateSessionProject: (sessionId: string, projectId: string | null) => Promise<{ ok: boolean; error?: string }>
   listProjects: () => Promise<DbProjectRow[]>
   getProject: (projectId: string) => Promise<DbProjectRow | null>
   createProject: (input: { projectId: string; name: string; description?: string }) => Promise<{ ok: boolean; project?: DbProjectRow; error?: string }>
@@ -273,6 +275,43 @@ interface PickedLocalFile {
 interface FilesAPI {
   pick: () => Promise<PickedLocalFile[]>
   resolve: (paths: string[]) => Promise<PickedLocalFile[]>
+  read: (path: string) => Promise<{ ok: boolean; content?: string; path?: string; size?: number; error?: string }>
+}
+
+interface ConsoleAgentDefinition {
+  name: string
+  display_name?: string
+  description?: string
+  agent_type?: string
+  profile?: string
+  system_prompt?: string
+  model?: string
+  max_turns?: number
+  auto_team?: boolean
+  tools?: string[]
+  allowed_tools?: string[]
+  disallowed_tools?: string[]
+  skills?: string[]
+  sub_agents?: Array<{ name: string; role?: string; agent_type?: string; profile?: string }>
+  source?: string
+}
+
+interface ConsoleResponse<T = unknown> {
+  code: string
+  data?: T
+  total?: number
+  message?: string
+}
+
+interface AgentApiInterface {
+  listAgents: (params?: { agent_type?: string; source?: string; limit?: number; offset?: number }) => Promise<ConsoleResponse<ConsoleAgentDefinition[]>>
+  getAgent: (name: string) => Promise<ConsoleResponse<ConsoleAgentDefinition>>
+  createAgent: (agent: Record<string, unknown>) => Promise<ConsoleResponse<ConsoleAgentDefinition>>
+  updateAgent: (name: string, fields: Record<string, unknown>) => Promise<ConsoleResponse<ConsoleAgentDefinition>>
+  deleteAgent: (name: string) => Promise<ConsoleResponse>
+  probe: (port?: number) => Promise<{ ok: boolean; error?: string }>
+  setPort: (port: number) => Promise<{ ok: boolean; port: number }>
+  getPort: () => Promise<{ port: number }>
 }
 
 declare global {
@@ -289,5 +328,6 @@ declare global {
     skills: SkillsAPI
     db: DbAPI
     files: FilesAPI
+    agentApi: AgentApiInterface
   }
 }

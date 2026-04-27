@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { CheckSquare, Copy, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { CheckSquare, Copy, FolderMinus, FolderPlus, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface SessionRow extends DbSessionRow {
@@ -14,8 +14,12 @@ interface FloatingMenuState {
   left: number
 }
 
+interface AssignProjectDialogState {
+  sessionId: string
+}
+
 const FLOATING_MENU_WIDTH = 132
-const FLOATING_MENU_HEIGHT = 84
+const FLOATING_MENU_HEIGHT = 120
 const FLOATING_MENU_GAP = 6
 const VIEWPORT_PADDING = 12
 
@@ -35,8 +39,12 @@ export function SessionsPage() {
   const [menuState, setMenuState] = useState<FloatingMenuState | null>(null)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [projects, setProjects] = useState<DbProjectRow[]>([])
+  const [assignDialog, setAssignDialog] = useState<AssignProjectDialogState | null>(null)
   const skipNextReloadCountRef = useRef(0)
   const floatingMenuRef = useRef<HTMLDivElement | null>(null)
+  const dragSelectRef = useRef<{ active: boolean; adding: boolean; visited: Set<string> }>({ active: false, adding: true, visited: new Set() })
+  const sessionRowRefs = useRef<Map<string, HTMLElement>>(new Map())
 
   const exitMultiSelectMode = () => {
     setMultiSelectMode(false)
@@ -63,8 +71,18 @@ export function SessionsPage() {
     }
   }
 
+  const loadProjects = async () => {
+    try {
+      const rows = await window.db.listProjects()
+      setProjects(rows)
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
     void loadSessions()
+    void loadProjects()
   }, [])
 
   useEffect(() => {
@@ -127,6 +145,12 @@ export function SessionsPage() {
     })
   }, [search, sessions])
 
+  const projectMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of projects) map.set(p.project_id, p.name)
+    return map
+  }, [projects])
+
   const selectedSessionSet = useMemo(() => new Set(selectedSessionIds), [selectedSessionIds])
   const selectedCount = selectedSessionIds.length
 
@@ -183,6 +207,21 @@ export function SessionsPage() {
     setMenuState(null)
   }
 
+  const handleAssignProject = async (sessionId: string, projectId: string | null) => {
+    skipNextReloadCountRef.current += 1
+    const result = await window.db.updateSessionProject(sessionId, projectId)
+    if (!result.ok) {
+      skipNextReloadCountRef.current = Math.max(0, skipNextReloadCountRef.current - 1)
+      return
+    }
+    setSessions((prev) => prev.map((session) => (
+      session.session_id === sessionId
+        ? { ...session, project_id: projectId, updated_at: Date.now() }
+        : session
+    )))
+    setAssignDialog(null)
+  }
+
   const getFloatingMenuPosition = (rect: DOMRect): { top: number; left: number } => {
     const maxLeft = Math.max(VIEWPORT_PADDING, window.innerWidth - FLOATING_MENU_WIDTH - VIEWPORT_PADDING)
     const preferredLeft = rect.right - FLOATING_MENU_WIDTH
@@ -215,6 +254,44 @@ export function SessionsPage() {
         : [...prev, sessionId]
     ))
   }
+
+  const handleDragSelectStart = useCallback((sessionId: string) => {
+    if (!multiSelectMode) return
+    const adding = !selectedSessionSet.has(sessionId)
+    // Only prepare — don't toggle yet. The first item is toggled by the
+    // existing onClick handler. If the user drags into another row,
+    // mouseenter will retroactively toggle the origin row too.
+    dragSelectRef.current = { active: true, adding, visited: new Set([sessionId]) }
+  }, [multiSelectMode, selectedSessionSet])
+
+  const handleDragSelectMove = useCallback((sessionId: string) => {
+    const drag = dragSelectRef.current
+    if (!drag.active) return
+    // On the first move into a second row, also apply the toggle to the
+    // origin row (which the click handler would have toggled, but since
+    // we're now dragging, the click won't fire on the origin).
+    if (drag.visited.size === 1) {
+      const originId = drag.visited.values().next().value as string
+      setSelectedSessionIds((prev) =>
+        drag.adding
+          ? prev.includes(originId) ? prev : [...prev, originId]
+          : prev.filter((id) => id !== originId)
+      )
+    }
+    if (drag.visited.has(sessionId)) return
+    drag.visited.add(sessionId)
+    setSelectedSessionIds((prev) =>
+      drag.adding
+        ? prev.includes(sessionId) ? prev : [...prev, sessionId]
+        : prev.filter((id) => id !== sessionId)
+    )
+  }, [])
+
+  useEffect(() => {
+    const handleMouseUp = () => { dragSelectRef.current.active = false }
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => window.removeEventListener('mouseup', handleMouseUp)
+  }, [])
 
   const handleCopySelectedSessions = async () => {
     const selectedSessions = sessions.filter((session) => selectedSessionSet.has(session.session_id))
@@ -332,12 +409,13 @@ export function SessionsPage() {
               className={cn(
                 'grid gap-4 border-b border-border bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground',
                 multiSelectMode
-                  ? 'grid-cols-[52px_minmax(0,1.6fr)_140px_56px]'
-                  : 'grid-cols-[minmax(0,1.6fr)_140px_56px]'
+                  ? 'grid-cols-[52px_minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px]'
+                  : 'grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px]'
               )}
             >
               {multiSelectMode && <span className="text-center">选择</span>}
               <span>{multiSelectMode ? '已选对话' : '对话'}</span>
+              <span>项目</span>
               <span>最近更新</span>
               <span className="text-right">操作</span>
             </div>
@@ -349,13 +427,16 @@ export function SessionsPage() {
                 return (
                   <div
                     key={session.session_id}
+                    ref={(el) => { if (el) sessionRowRefs.current.set(session.session_id, el); else sessionRowRefs.current.delete(session.session_id) }}
                     className={cn(
                       'relative grid gap-4 px-4 py-2.5 transition-colors hover:bg-muted/20',
                       multiSelectMode
-                        ? 'grid-cols-[52px_minmax(0,1.6fr)_140px_56px]'
-                        : 'grid-cols-[minmax(0,1.6fr)_140px_56px]',
+                        ? 'grid-cols-[52px_minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px] select-none'
+                        : 'grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px]',
                       multiSelectMode && isSelected && 'bg-accent/30'
                     )}
+                    onMouseDown={() => handleDragSelectStart(session.session_id)}
+                    onMouseEnter={() => handleDragSelectMove(session.session_id)}
                   >
                     {multiSelectMode && (
                       <button
@@ -419,6 +500,16 @@ export function SessionsPage() {
                         </>
                       )}
                     </button>
+
+                    <div className="flex items-center">
+                      {session.project_id && projectMap.has(session.project_id) ? (
+                        <span className="truncate rounded-md bg-accent px-2 py-0.5 text-xs text-accent-foreground">
+                          {projectMap.get(session.project_id)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
+                    </div>
 
                     {multiSelectMode ? (
                       <button
@@ -546,6 +637,29 @@ export function SessionsPage() {
             <Pencil size={14} />
             重命名
           </button>
+          {activeMenuSession.project_id ? (
+            <button
+              onClick={() => {
+                void handleAssignProject(activeMenuSession.session_id, null)
+                setMenuState(null)
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <FolderMinus size={14} />
+              退出项目
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setAssignDialog({ sessionId: activeMenuSession.session_id })
+                setMenuState(null)
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <FolderPlus size={14} />
+              加入项目
+            </button>
+          )}
           <button
             onClick={() => void handleDeleteSession(activeMenuSession.session_id)}
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/20"
@@ -553,6 +667,56 @@ export function SessionsPage() {
             <Trash2 size={14} />
             删除
           </button>
+        </div>,
+        document.body
+      )}
+
+      {assignDialog && createPortal(
+        <div className="fixed inset-0 z-[90]">
+          <div
+            className="absolute inset-0"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'brightness(0.75)' }}
+            onClick={() => setAssignDialog(null)}
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+            <div className="pointer-events-auto w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-2xl">
+              <h3 className="mb-1 text-base font-semibold text-foreground">加入项目</h3>
+              <p className="mb-3 text-xs text-muted-foreground">选择要将此对话归入的项目</p>
+
+              {projects.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">暂无可用项目</p>
+              ) : (
+                <div className="max-h-60 overflow-y-auto rounded-xl border border-border">
+                  {projects.map((project) => {
+                    const isCurrentProject = sessions.find((s) => s.session_id === assignDialog.sessionId)?.project_id === project.project_id
+                    return (
+                      <button
+                        key={project.project_id}
+                        onClick={() => void handleAssignProject(
+                          assignDialog.sessionId,
+                          isCurrentProject ? null : project.project_id,
+                        )}
+                        className={cn(
+                          'flex w-full items-start gap-3 border-b border-border px-3.5 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/60',
+                          isCurrentProject && 'bg-accent'
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{project.name}</p>
+                          {project.description && (
+                            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{project.description}</p>
+                          )}
+                        </div>
+                        {isCurrentProject && (
+                          <span className="mt-0.5 shrink-0 text-xs text-primary">当前</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>,
         document.body
       )}

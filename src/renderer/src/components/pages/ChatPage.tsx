@@ -1,4 +1,5 @@
-import { memo, useState, useRef, useEffect, useCallback, useMemo, useId, useSyncExternalStore, type RefObject } from 'react'
+import { memo, useState, useRef, useEffect, useCallback, useMemo, useId, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Send, Plus, Copy, Check, Trash2,
@@ -7,6 +8,7 @@ import {
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { visit, SKIP } from 'unist-util-visit'
 import { cn } from '@/lib/utils'
 import {
   AttachmentPreviewPanel,
@@ -17,6 +19,100 @@ import {
   SkillComposerInput,
   type SelectedSkillChip,
 } from '../common/SkillComposerInput'
+import { PastedBlocksBar, usePastedBlocks } from '../common/PastedBlocksBar'
+import emmaAvatar from '../../assets/sidebar-logo.png'
+import analystAvatar from '../../assets/team/analyst.png'
+import developerAvatar from '../../assets/team/developer.png'
+import lifestyleAvatar from '../../assets/team/lifestyle.png'
+import researcherAvatar from '../../assets/team/researcher.png'
+import writerAvatar from '../../assets/team/writer.png'
+
+const TEAM_AVATARS = [analystAvatar, developerAvatar, lifestyleAvatar, researcherAvatar, writerAvatar]
+
+function resolveTeamAvatar(name?: string): string {
+  const key = (name || '').toLowerCase()
+  if (/analy|分析|数据/.test(key)) return analystAvatar
+  if (/dev|develop|engineer|coder|code|程序|开发|工程/.test(key)) return developerAvatar
+  if (/life|生活|日常/.test(key)) return lifestyleAvatar
+  if (/research|search|explore|调研|研究|搜索/.test(key)) return researcherAvatar
+  if (/writ|copy|edit|文案|写作|编辑/.test(key)) return writerAvatar
+  let hash = 0
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0
+  return TEAM_AVATARS[Math.abs(hash) % TEAM_AVATARS.length]
+}
+
+// ─── File-path linkification ────────────────────────────────────────────────
+
+// Match absolute UNIX paths (/Users/..., /home/..., /var/..., etc.), tilde-prefixed paths
+// (~/foo/bar) and Windows drive paths (C:\foo\bar). Each must contain at least one separator
+// segment after the root anchor.
+const FILE_PATH_REGEX = /(?:~|\/[A-Za-z0-9._-]+|[A-Za-z]:[\\/])(?:[\\/][A-Za-z0-9._-]+)+/g
+const FILEPATH_HREF_PREFIX = 'filepath://'
+
+function remarkFilePaths() {
+  return (tree: unknown) => {
+    visit(tree as never, 'text', (node: { value: string }, index: number | null, parent: { type: string; children: unknown[] } | null) => {
+      if (!parent || index == null) return
+      if (parent.type === 'link' || parent.type === 'inlineCode' || parent.type === 'code') return
+      const value = node.value
+      const matches = [...value.matchAll(FILE_PATH_REGEX)]
+      if (matches.length === 0) return
+      const replacements: unknown[] = []
+      let cursor = 0
+      for (const match of matches) {
+        const start = match.index ?? 0
+        if (start > cursor) {
+          replacements.push({ type: 'text', value: value.slice(cursor, start) })
+        }
+        replacements.push({
+          type: 'link',
+          url: `${FILEPATH_HREF_PREFIX}${match[0]}`,
+          children: [{ type: 'text', value: match[0] }],
+        })
+        cursor = start + match[0].length
+      }
+      if (cursor < value.length) {
+        replacements.push({ type: 'text', value: value.slice(cursor) })
+      }
+      parent.children.splice(index, 1, ...replacements)
+      return [SKIP, index + replacements.length]
+    })
+  }
+}
+
+function FilePathChip({ path, onOpen }: { path: string; onOpen: (path: string) => void }) {
+  const fileName = path.split(/[\\/]/).pop() || path
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onOpen(path)
+      }}
+      title={path}
+      className="not-prose mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10"
+    >
+      <FileText size={12} className="flex-shrink-0 text-primary" />
+      <span className="truncate max-w-[280px]">{fileName}</span>
+    </button>
+  )
+}
+
+function renderTextWithFilePaths(text: string, onOpen: (path: string) => void): ReactNode[] {
+  const parts: ReactNode[] = []
+  const regex = new RegExp(FILE_PATH_REGEX.source, 'g')
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  let chipIndex = 0
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index))
+    parts.push(<FilePathChip key={`fp-${chipIndex++}-${match.index}`} path={match[0]} onOpen={onOpen} />)
+    lastIndex = regex.lastIndex
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex))
+  return parts
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1467,6 +1563,22 @@ function getFileName(path: string): string {
   return parts[parts.length - 1] || path
 }
 
+function getFileLanguage(ext: string): string {
+  const map: Record<string, string> = {
+    ts: 'TypeScript', tsx: 'TypeScript (JSX)', js: 'JavaScript', jsx: 'JavaScript (JSX)',
+    py: 'Python', rb: 'Ruby', go: 'Go', rs: 'Rust', java: 'Java', kt: 'Kotlin',
+    swift: 'Swift', c: 'C', cpp: 'C++', h: 'C Header', hpp: 'C++ Header',
+    cs: 'C#', php: 'PHP', lua: 'Lua', sh: 'Shell', bash: 'Bash', zsh: 'Zsh',
+    sql: 'SQL', html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
+    json: 'JSON', yaml: 'YAML', yml: 'YAML', toml: 'TOML', xml: 'XML',
+    md: 'Markdown', mdx: 'MDX', txt: 'Text', csv: 'CSV',
+    vue: 'Vue', svelte: 'Svelte', dart: 'Dart', r: 'R',
+    dockerfile: 'Dockerfile', makefile: 'Makefile',
+    graphql: 'GraphQL', proto: 'Protobuf', prisma: 'Prisma',
+  }
+  return map[ext] || ''
+}
+
 function formatMessageTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
@@ -1783,6 +1895,7 @@ export function ChatPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const [sendBurstActive, setSendBurstActive] = useState(false)
   const [dropBurstActive, setDropBurstActive] = useState(false)
+  const pasted = usePastedBlocks()
   const messagesViewportRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -1807,7 +1920,7 @@ export function ChatPage() {
   const [dbSessions, setDbSessions] = useState<DbSessionRow[]>([])
   const emptyGreeting = useMemo(() => getChatGreeting(), [])
   const composerPayload = useMemo(() => buildSkillComposerPayload(input, selectedSkills), [input, selectedSkills])
-  const canSend = !!composerPayload || attachments.length > 0
+  const canSend = !!composerPayload || attachments.length > 0 || pasted.blocks.length > 0
 
   // Get or create session state
   const getSession = useCallback((sid: string): SessionState => {
@@ -1936,7 +2049,11 @@ export function ChatPage() {
     })
   }, [sessionMap, sessions, dbSessions])
   const activeSessionMeta = displayedSessions.find((session) => session.key === activeSessionId)
-  const activeSessionPrompt = activeSessionMeta?.firstMsg || activeSessionMeta?.title || '新对话'
+  const activeSessionPromptRaw = activeSessionMeta?.title || activeSessionMeta?.firstMsg || '新对话'
+  const activeSessionPrompt = (() => {
+    const oneLine = activeSessionPromptRaw.replace(/\n/g, ' ').trim()
+    return oneLine.length > 20 ? oneLine.slice(0, 20) + '...' : oneLine
+  })()
   const activeProjectContext = activeSessionId ? sessionProjectContexts[activeSessionId] : routeProjectContext
   const resizeComposerTextarea = useCallback(() => {
     const textarea = composerTextareaRef.current
@@ -2167,24 +2284,30 @@ export function ChatPage() {
     }
 
     void window.db.getMessages(key).then((rows) => {
-      if (rows.length > 0) {
-        setSessionMap((prev) => ({
-          ...prev,
-          [key]: {
-            messages: dbRowsToMessages(rows),
-            pendingAssistantId: null,
-            isProcessing: false,
-            currentThinking: '',
-            isPaused: false,
-            isStopping: false,
-            collaboration: inferCollaborationFromMessages(dbRowsToMessages(rows)),
-          },
-        }))
-        return
-      }
-
       setSessionMap((prev) => {
-        if (prev[key]) return prev
+        const existing = prev[key]
+        // If the session is already live (processing or has messages from streaming),
+        // do NOT overwrite with stale DB data — the live state is more current.
+        if (existing && (existing.isProcessing || existing.messages.length > 0)) {
+          return prev
+        }
+
+        if (rows.length > 0) {
+          return {
+            ...prev,
+            [key]: {
+              messages: dbRowsToMessages(rows),
+              pendingAssistantId: null,
+              isProcessing: false,
+              currentThinking: '',
+              isPaused: false,
+              isStopping: false,
+              collaboration: inferCollaborationFromMessages(dbRowsToMessages(rows)),
+            },
+          }
+        }
+
+        if (existing) return prev
         return {
           ...prev,
           [key]: createEmptySessionState(),
@@ -2212,25 +2335,25 @@ export function ChatPage() {
 
   // Sync Harnessclaw status on mount
   useEffect(() => {
-    const offStatus = window.harnessclaw.onStatus((s) => {
-      setHarnessclawStatus(s as HarnessclawStatus)
-    })
+   const offStatus = window.harnessclaw.onStatus((s) => {
+     setHarnessclawStatus(s as HarnessclawStatus)
+   })
 
-    const offEvent = window.harnessclaw.onEvent((event) => {
-      handleHarnessclawEvent(event)
-    })
+   const offEvent = window.harnessclaw.onEvent((event) => {
+     handleHarnessclawEventRef.current(event)
+   })
 
-    window.harnessclaw.getStatus().then((s) => {
-      setHarnessclawStatus(s.status as HarnessclawStatus)
-    })
+   window.harnessclaw.getStatus().then((s) => {
+     setHarnessclawStatus(s.status as HarnessclawStatus)
+   })
 
-    // Request session list
-    window.harnessclaw.listSessions()
+   // Request session list
+   window.harnessclaw.listSessions()
 
-    return () => {
-      offStatus()
-      offEvent()
-    }
+   return () => {
+     offStatus()
+     offEvent()
+   }
   }, [])
 
   useEffect(() => {
@@ -3256,12 +3379,20 @@ export function ChatPage() {
     }
   }, [updateCollaboration, updateSession])
 
+  // Keep a stable ref to the latest event handler so the mount-only listener
+  // never captures a stale closure.
+  const handleHarnessclawEventRef = useRef(handleHarnessclawEvent)
+  handleHarnessclawEventRef.current = handleHarnessclawEvent
+
   const handleSend = () => {
     const message = composerPayload
-    if ((!message && attachments.length === 0) || activeSession.isProcessing) return
+    if ((!message && attachments.length === 0 && pasted.blocks.length === 0) || activeSession.isProcessing) return
 
     const sid = activeSessionId || ensureLocalSession(undefined, activeProjectContext || null)
-    const payload = buildMessagePayload(message, attachments)
+
+    const pastedSuffix = pasted.buildPastedSuffix()
+    const fullMessage = [message, pastedSuffix].filter(Boolean).join('\n\n')
+    const payload = buildMessagePayload(fullMessage, attachments)
     const attachedFiles = [...attachments]
 
     updateSession(sid, (prev) => ({
@@ -3274,7 +3405,7 @@ export function ChatPage() {
       messages: [...prev.messages, {
         id: `usr-${Date.now()}`,
         role: 'user',
-        content: message,
+        content: fullMessage,
         attachments: attachedFiles,
         timestamp: Date.now(),
       }],
@@ -3291,6 +3422,7 @@ export function ChatPage() {
     setInput('')
     setSelectedSkills([])
     setAttachments([])
+    pasted.clearBlocks()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -3429,29 +3561,37 @@ export function ChatPage() {
       {/* Main chat area */}
       <div className="relative flex-1 flex min-w-0 flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="titlebar-drag border-b border-border/80 bg-card/72 px-4 py-3 backdrop-blur-sm">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="min-w-0">
-                <span className="block truncate text-sm font-semibold text-foreground">
+        <div className="titlebar-drag border-b border-border/70 px-4 py-4 sm:px-6">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-foreground">
+                <MessagesSquare size={16} className="flex-shrink-0 text-muted-foreground" />
+                <h1 className="truncate text-lg font-semibold tracking-tight">
                   {activeSessionId ? activeSessionPrompt : '新对话'}
-                </span>
-                {activeProjectContext ? (
-                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                    项目：{activeProjectContext.name}
+                </h1>
+                {activeSessionId && activeSession.messages.length > 0 && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                    {activeSession.messages.filter((m) => m.role !== 'system').length}
                   </span>
-                ) : null}
+                )}
               </div>
+              {activeProjectContext ? (
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  项目：{activeProjectContext.name}
+                </p>
+              ) : null}
             </div>
 
             {activeSessionId && (
-              <button
-                onClick={handleClearHistory}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
-              >
-                <Trash2 size={12} />
-                清空历史
-              </button>
+              <div className="flex justify-start sm:justify-end">
+                <button
+                  onClick={handleClearHistory}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Trash2 size={14} />
+                  <span>清空历史</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -3609,6 +3749,11 @@ export function ChatPage() {
                     </div>
                   )}
                   <div className="p-3 sm:p-3.5">
+                    {pasted.blocks.length > 0 && (
+                      <div className="mb-2">
+                        <PastedBlocksBar blocks={pasted.blocks} onRemove={pasted.removeBlock} removable={!activeSession.isProcessing} />
+                      </div>
+                    )}
                     <SkillComposerInput
                       textareaRef={composerTextareaRef}
                       value={input}
@@ -3616,6 +3761,7 @@ export function ChatPage() {
                       selectedSkills={selectedSkills}
                       onSelectedSkillsChange={setSelectedSkills}
                       onKeyDown={handleKeyDown}
+                      onPaste={pasted.handlePaste}
                       disabled={activeSession.isProcessing}
                       placeholder={
                         harnessclawStatus === 'connected'
@@ -3677,6 +3823,26 @@ export function ChatPage() {
 
       <FilePreviewDrawer preview={filePreview} onClose={() => setFilePreview(null)} />
     </div>
+  )
+}
+
+// ─── Agent Avatar ────────────────────────────────────────────────────────────
+
+/** Extensible avatar: pass agentId to resolve a per-agent icon in the future. */
+function AgentAvatar({ agentId, agentName, size = 'md' }: { agentId?: string; agentName?: string; size?: 'md' | 'sm' }) {
+  const dim = size === 'sm' ? 'h-6 w-6' : 'h-8 w-8'
+  // Main agent (emma) — or fallback when no agentId is given
+  if (!agentId) {
+    return <img src={emmaAvatar} alt="Emma" className={cn(dim, 'flex-shrink-0 rounded-full object-cover')} />
+  }
+  // Sub-agent — resolve to one of the 5 team member avatars
+  const src = resolveTeamAvatar(agentName || agentId)
+  return (
+    <img
+      src={src}
+      alt={agentName || agentId}
+      className={cn(dim, 'flex-shrink-0 rounded-full bg-muted object-cover')}
+    />
   )
 }
 
@@ -4020,6 +4186,24 @@ function MessageBubble({
     return null
   }
 
+  const openFilePathPreview = useCallback(async (path: string) => {
+    try {
+      const result = await window.files.read(path)
+      const resolvedPath = result?.path || path
+      const fileName = resolvedPath.split(/[\\/]/).pop() || resolvedPath
+      onOpenFilePreview({
+        path: resolvedPath,
+        fileName,
+        operation: 'read_file',
+        content: result?.ok && typeof result.content === 'string' ? result.content : '',
+      })
+    } catch (error) {
+      console.error('Failed to read file path:', error)
+      const fileName = path.split(/[\\/]/).pop() || path
+      onOpenFilePreview({ path, fileName, operation: 'read_file', content: '' })
+    }
+  }, [onOpenFilePreview])
+
   const renderTextBlock = (text: string, key: string, compact = false) => (
     <div
       key={key}
@@ -4036,13 +4220,26 @@ function MessageBubble({
       )}
     >
       {isUser ? (
-        <p className="whitespace-pre-wrap">{text}</p>
+        <p className="whitespace-pre-wrap">{renderTextWithFilePaths(text, openFilePathPreview)}</p>
       ) : (
         <div className={cn(
           'prose max-w-none break-words [overflow-wrap:anywhere] text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-hr:my-4 prose-hr:border-border/70 prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:break-all prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground dark:prose-invert',
           compact ? 'prose-xs' : 'prose-sm'
         )}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkFilePaths]}
+            components={{
+              a: ({ href, children, ...props }) => {
+                if (typeof href === 'string' && href.startsWith(FILEPATH_HREF_PREFIX)) {
+                  const path = href.slice(FILEPATH_HREF_PREFIX.length)
+                  return <FilePathChip path={path} onOpen={openFilePathPreview} />
+                }
+                return <a href={href} {...props}>{children}</a>
+              },
+            }}
+          >
+            {text}
+          </ReactMarkdown>
         </div>
       )}
     </div>
@@ -4091,12 +4288,21 @@ function MessageBubble({
 
   return (
     <div className={cn('flex min-w-0 max-w-full group', isUser ? 'justify-end' : 'justify-start')}>
+      {/* Assistant avatar — Feishu IM style */}
+      {!isUser && (
+        <div className="mr-2.5 mt-0.5 flex-shrink-0">
+          <AgentAvatar />
+        </div>
+      )}
       <div
         className={cn(
           'relative min-w-0 max-w-full',
-          isUser ? 'max-w-[88%] sm:max-w-[80%] items-end' : 'w-full sm:w-[min(88%,56rem)] xl:w-[min(80%,56rem)] items-start'
+          isUser ? 'max-w-[88%] sm:max-w-[80%] items-end' : 'w-full sm:w-[min(88%,52rem)] xl:w-[min(80%,52rem)] items-start'
         )}
       >
+        {!isUser && (
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Emma</p>
+        )}
         <div className={cn(
           'mb-1 flex justify-end gap-1 opacity-100 transition-opacity md:absolute md:top-1 md:z-10 md:mb-0 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100',
           isUser ? 'md:-left-14 md:right-auto' : 'md:-right-14'
@@ -4145,14 +4351,65 @@ function MessageBubble({
           }
           if (seg.kind === 'agent-team') {
             return (
-              <AgentTeamPanel
-                key={`agent-team-${seg.ts}-${i}`}
-                agents={seg.agents}
-                onOpenFilePreview={onOpenFilePreview}
-                onRespondPermission={onRespondPermission}
-                renderHint={renderHint}
-                renderTextBlock={renderTextBlock}
-              />
+              <div key={`agent-team-${seg.ts}-${i}`} className="space-y-3">
+                {seg.agents.map((agent, agentIdx) => {
+                  const latestTask = agent.items.reduce<SubagentInfo>(
+                    (cur, item) => item.subagent || cur,
+                    agent.task
+                  )
+                  const visualStatus = getSubagentVisualStatus(latestTask.status)
+                  const visibleItems = agent.items.filter((item) => item.kind !== 'status')
+                  return (
+                    <div key={latestTask.taskId || `sub-${agentIdx}`} className="ml-2 border-l-2 border-primary/20 pl-3">
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <AgentAvatar agentId={latestTask.taskId || latestTask.label} agentName={latestTask.label} size="sm" />
+                        <span className="text-xs font-medium text-foreground/80">{latestTask.label}</span>
+                        <span className={cn(
+                          'rounded-full px-1.5 py-0.5 text-[10px]',
+                          visualStatus === 'failed'
+                            ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300'
+                            : visualStatus === 'running'
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                        )}>
+                          {visualStatus === 'failed' ? '失败' : visualStatus === 'running' ? '进行中' : '已完成'}
+                        </span>
+                      </div>
+                      {visibleItems.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground">等待更多处理结果…</p>
+                      ) : (
+                        visibleItems.map((item, itemIndex) => {
+                          if (item.kind === 'hint') {
+                            return renderHint(item.data.content, `sub-hint-${i}-${agentIdx}-${itemIndex}`)
+                          }
+                          if (item.kind === 'tool') {
+                            return (
+                              <ToolCallCard
+                                key={item.call.callId || `sub-tool-${i}-${agentIdx}-${itemIndex}`}
+                                call={item.call}
+                                result={item.result}
+                                isRunning={item.isRunning}
+                                onOpenFilePreview={onOpenFilePreview}
+                              />
+                            )
+                          }
+                          if (item.kind === 'permission') {
+                            return (
+                              <PermissionRequestCard
+                                key={item.request.callId || `sub-perm-${i}-${agentIdx}-${itemIndex}`}
+                                request={item.request}
+                                result={item.result}
+                                onRespondPermission={onRespondPermission}
+                              />
+                            )
+                          }
+                          return renderTextBlock(item.text, `sub-text-${i}-${agentIdx}-${itemIndex}`)
+                        })
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             )
           }
         })}
@@ -4185,34 +4442,6 @@ function MessageBubble({
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-function PixelSubagentIcon({ status }: { status: string }) {
-  const pixels = [
-    '..1111..',
-    '.111111.',
-    '.11..11.',
-    '11111111',
-    '11.11.11',
-    '.111111.',
-    '.1.11.1.',
-    '1..11..1',
-  ]
-  const visualStatus = getSubagentVisualStatus(status)
-  const tone = visualStatus === 'failed' ? 'bg-red-500' : visualStatus === 'running' ? 'bg-amber-500' : 'bg-primary'
-
-  return (
-    <div className="grid grid-cols-8 gap-[1px] rounded-md bg-card/80 p-1 shadow-inner">
-      {pixels.flatMap((row, rowIndex) =>
-        row.split('').map((cell, colIndex) => (
-          <span
-            key={`${rowIndex}-${colIndex}`}
-            className={cn('h-[3px] w-[3px] rounded-[1px]', cell === '1' ? tone : 'bg-transparent')}
-          />
-        ))
-      )}
     </div>
   )
 }
@@ -4428,7 +4657,11 @@ function AgentTeamPanel({
               <div className="team-stack-card-top">
                 <div className="team-stack-agent-head">
                   <div className="team-stack-agent-avatar">
-                    <PixelSubagentIcon status={latestActiveTask.status} />
+                    <img
+                      src={resolveTeamAvatar(latestActiveTask.label)}
+                      alt={latestActiveTask.label}
+                      className="h-full w-full rounded-[0.85rem] object-cover"
+                    />
                   </div>
                   <div className="min-w-0">
                     <span className="team-stack-card-name">{latestActiveTask.label}</span>
@@ -4876,28 +5109,17 @@ function PermissionRequestCard({
 }
 
 function FilePreviewDrawer({ preview, onClose }: { preview: FilePreviewData | null; onClose: () => void }) {
-  const isOpen = !!preview
   const titleId = useId()
   const dialogRef = useRef<HTMLElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
-  const previousFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    if (!isOpen) return
-
-    previousFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
+    if (!preview) return
     closeButtonRef.current?.focus()
-
-    return () => {
-      previousFocusRef.current?.focus()
-      previousFocusRef.current = null
-    }
-  }, [isOpen])
+  }, [preview])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!preview) return
 
     const dialog = dialogRef.current
     if (!dialog) return
@@ -4928,25 +5150,26 @@ function FilePreviewDrawer({ preview, onClose }: { preview: FilePreviewData | nu
 
     dialog.addEventListener('keydown', handleKeyDown)
     return () => dialog.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen])
+  }, [preview])
 
-  return (
-    <>
+  if (!preview) return null
+
+  const ext = preview.fileName.includes('.') ? preview.fileName.split('.').pop()!.toLowerCase() : ''
+  const language = getFileLanguage(ext)
+  const isImage = /^(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/.test(ext)
+  const isMarkdown = ext === 'md' || ext === 'mdx'
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
       <div
-        className={cn(
-          'absolute inset-0 z-20 bg-slate-950/12 transition-opacity duration-200',
-          isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
-        )}
+        className="absolute inset-0 bg-slate-950/25 backdrop-blur-[2px]"
         onClick={onClose}
         aria-hidden="true"
       />
 
       <aside
         ref={dialogRef}
-        className={cn(
-          'chat-surface-elevated absolute inset-y-0 right-0 z-30 flex w-full max-w-3xl flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-out',
-          isOpen ? 'translate-x-0' : 'translate-x-full'
-        )}
+        className="relative ml-auto flex h-full w-full max-w-3xl flex-col border-l border-border bg-card shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -4960,26 +5183,29 @@ function FilePreviewDrawer({ preview, onClose }: { preview: FilePreviewData | nu
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h3 id={titleId} className="truncate text-sm font-semibold text-foreground">
-                  {preview?.fileName || '文件预览'}
+                  {preview.fileName || '文件预览'}
                 </h3>
-                {preview && (
-                  <span className="rounded-full border border-border bg-accent/70 px-2 py-0.5 text-[10px] text-muted-foreground">
-                    {preview.operation === 'read_file' ? 'read_file' : 'write_file'}
+                <span className="rounded-full border border-border bg-accent/70 px-2 py-0.5 text-[10px] text-muted-foreground">
+                  {preview.operation === 'read_file' ? 'read_file' : 'write_file'}
+                </span>
+                {language && (
+                  <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+                    {language}
                   </span>
                 )}
               </div>
-              <p className="mt-1 break-all text-[11px] text-muted-foreground">{preview?.path || ''}</p>
-              {preview?.operation === 'read_file' && preview.limit != null && (
+              <p className="mt-1 break-all text-[11px] text-muted-foreground">{preview.path || ''}</p>
+              {preview.operation === 'read_file' && preview.limit != null && (
                 <p className="mt-1 text-[10px] text-muted-foreground">展示读取结果，调用限制为 {preview.limit} 行</p>
               )}
-              {preview?.operation === 'write_file' && (
+              {preview.operation === 'write_file' && (
                 <p className="mt-1 text-[10px] text-muted-foreground">展示写入文件时提交的内容</p>
               )}
             </div>
             <button
               ref={closeButtonRef}
               onClick={onClose}
-              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-card transition-colors hover:bg-muted"
+              className="relative z-10 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-card transition-colors hover:bg-muted"
               aria-label="关闭文件预览"
             >
               <X size={15} className="text-muted-foreground" />
@@ -4988,11 +5214,7 @@ function FilePreviewDrawer({ preview, onClose }: { preview: FilePreviewData | nu
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto bg-background/65 p-5">
-          {preview?.content ? (
-            <pre className="min-h-full overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-border bg-card p-4 font-mono text-[12px] leading-6 text-foreground shadow-sm">
-              {preview.content}
-            </pre>
-          ) : (
+          {!preview.content ? (
             <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center">
               <div>
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent">
@@ -5002,10 +5224,40 @@ function FilePreviewDrawer({ preview, onClose }: { preview: FilePreviewData | nu
                 <p className="mt-1 text-xs text-muted-foreground">这个工具调用没有返回可预览的文本。</p>
               </div>
             </div>
+          ) : isImage ? (
+            <div className="flex h-full items-center justify-center">
+              <img
+                src={`file://${preview.path}`}
+                alt={preview.fileName}
+                className="max-h-full max-w-full rounded-lg object-contain"
+              />
+            </div>
+          ) : isMarkdown ? (
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+              <div className="prose max-w-none break-words text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-hr:my-4 prose-hr:border-border/70 prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:break-all prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground prose-img:rounded-lg dark:prose-invert">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.content}</ReactMarkdown>
+              </div>
+            </div>
+          ) : (
+            <div className="min-h-full overflow-auto rounded-2xl border border-border bg-card shadow-sm">
+              <div className="flex items-center justify-between border-b border-border px-4 py-2">
+                <span className="text-[11px] text-muted-foreground">{preview.fileName}</span>
+                {language && <span className="text-[10px] text-muted-foreground">{language}</span>}
+              </div>
+              <pre className="overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-6 text-foreground">
+                {preview.content.split('\n').map((line, i) => (
+                  <div key={i} className="flex">
+                    <span className="mr-4 inline-block w-8 flex-shrink-0 select-none text-right text-muted-foreground/50">{i + 1}</span>
+                    <span className="min-w-0 flex-1">{line || ' '}</span>
+                  </div>
+                ))}
+              </pre>
+            </div>
           )}
         </div>
       </aside>
-    </>
+    </div>,
+    document.body
   )
 }
 

@@ -19,7 +19,7 @@ import {
   saveHarnessclawConfig,
 } from './config'
 import {
-  getDb, closeDb, upsertSession, updateSessionTitle, listSessions as dbListSessions,
+  getDb, closeDb, upsertSession, updateSessionTitle, updateSessionProject, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent, updateMessageSystemNotice,
   getMessages, insertToolActivity, insertUsageEvent, listUsageEvents, createProject, getProject,
   listProjects as dbListProjects, softDeleteProjectWithSessions, listProjectSessions,
@@ -56,6 +56,16 @@ import {
   saveSkillRepository,
   startDiscoverSkills,
 } from './skills-market'
+import {
+  listAgents as consoleListAgents,
+  getAgent as consoleGetAgent,
+  createAgent as consoleCreateAgent,
+  updateAgent as consoleUpdateAgent,
+  deleteAgent as consoleDeleteAgent,
+  probeConsole,
+  setConsolePort,
+  getConsolePort,
+} from './console-api'
 
 type PersistedSubagent = { taskId: string; label: string; status: string }
 type PersistedTaskStatusPayload = {
@@ -1030,6 +1040,16 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('db:updateSessionProject', (_, sessionId: string, projectId: string | null) => {
+    try {
+      updateSessionProject(sessionId, projectId)
+      broadcastDbSessionsChanged()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
   ipcMain.handle('db:listProjects', () => {
     try {
       return dbListProjects()
@@ -1076,6 +1096,63 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('console:listAgents', async (_, params?: { agent_type?: string; source?: string; limit?: number; offset?: number }) => {
+    try {
+      return await consoleListAgents(params)
+    } catch (err) {
+      return { code: 'INTERNAL_ERROR', message: String(err) }
+    }
+  })
+
+  ipcMain.handle('console:getAgent', async (_, name: string) => {
+    try {
+      return await consoleGetAgent(name)
+    } catch (err) {
+      return { code: 'INTERNAL_ERROR', message: String(err) }
+    }
+  })
+
+  ipcMain.handle('console:createAgent', async (_, agent: Record<string, unknown>) => {
+    try {
+      return await consoleCreateAgent(agent as any)
+    } catch (err) {
+      return { code: 'INTERNAL_ERROR', message: String(err) }
+    }
+  })
+
+  ipcMain.handle('console:updateAgent', async (_, name: string, fields: Record<string, unknown>) => {
+    try {
+      return await consoleUpdateAgent(name, fields as any)
+    } catch (err) {
+      return { code: 'INTERNAL_ERROR', message: String(err) }
+    }
+  })
+
+  ipcMain.handle('console:deleteAgent', async (_, name: string) => {
+    try {
+      return await consoleDeleteAgent(name)
+    } catch (err) {
+      return { code: 'INTERNAL_ERROR', message: String(err) }
+    }
+  })
+
+  ipcMain.handle('console:probe', async (_, port?: number) => {
+    try {
+      return await probeConsole(port)
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('console:setPort', (_, port: number) => {
+    setConsolePort(port)
+    return { ok: true, port: getConsolePort() }
+  })
+
+  ipcMain.handle('console:getPort', () => {
+    return { port: getConsolePort() }
+  })
+
   ipcMain.handle('files:pick', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
@@ -1090,6 +1167,33 @@ app.whenReady().then(() => {
 
   ipcMain.handle('files:resolve', (_, filePaths: string[]) => {
     return buildPickedLocalFiles(Array.isArray(filePaths) ? filePaths : [])
+  })
+
+  ipcMain.handle('files:read', (_, rawPath: unknown) => {
+    try {
+      if (typeof rawPath !== 'string' || !rawPath.trim()) {
+        return { ok: false, error: 'Invalid path' }
+      }
+      let resolved = rawPath.trim()
+      if (resolved.startsWith('~')) {
+        resolved = resolved.replace(/^~(?=\/|\\|$)/, app.getPath('home'))
+      }
+      if (!existsSync(resolved)) {
+        return { ok: false, error: 'File not found', path: resolved }
+      }
+      const stat = statSync(resolved)
+      if (!stat.isFile()) {
+        return { ok: false, error: 'Not a file', path: resolved }
+      }
+      const MAX_BYTES = 5 * 1024 * 1024
+      if (stat.size > MAX_BYTES) {
+        return { ok: false, error: 'File too large to preview', path: resolved, size: stat.size }
+      }
+      const content = readFileSync(resolved, 'utf-8')
+      return { ok: true, path: resolved, content, size: stat.size }
+    } catch (error) {
+      return { ok: false, error: String((error as Error)?.message || error) }
+    }
   })
 
   // Track pending assistant message IDs per session for DB writes

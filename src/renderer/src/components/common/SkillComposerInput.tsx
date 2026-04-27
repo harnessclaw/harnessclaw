@@ -28,6 +28,7 @@ interface SkillComposerInputProps {
   rows?: number
   className?: string
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  onPaste?: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void
 }
 
 interface MenuPosition {
@@ -176,6 +177,7 @@ export function SkillComposerInput({
   rows = 1,
   className,
   onKeyDown,
+  onPaste,
 }: SkillComposerInputProps) {
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [hasFocus, setHasFocus] = useState(false)
@@ -503,6 +505,7 @@ export function SkillComposerInput({
             setHasFocus(false)
             setSelectedChipIndex(null)
           }}
+          onPaste={onPaste}
           onKeyDown={(event) => {
             if (showMenu && filteredSkills.length > 0) {
               const quickSelectMatch = event.key.match(/^[1-9]$/)

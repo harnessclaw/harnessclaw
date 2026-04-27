@@ -12,6 +12,7 @@ import {
   SkillComposerInput,
   type SelectedSkillChip,
 } from '../common/SkillComposerInput'
+import { PastedBlocksBar, usePastedBlocks } from '../common/PastedBlocksBar'
 
 type AttachmentItem = LocalAttachmentItem
 
@@ -36,6 +37,7 @@ export function HomePage() {
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkillChip[]>([])
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
+  const pasted = usePastedBlocks()
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const navigate = useNavigate()
   const maxLength = 2000
@@ -80,11 +82,14 @@ export function HomePage() {
 
   const handleSend = () => {
     const payload = buildSkillComposerPayload(input, selectedSkills)
-    if (!payload && attachments.length === 0) return
-    navigate('/chat', { state: { initialMessage: payload, initialAttachments: attachments } })
+    if (!payload && attachments.length === 0 && pasted.blocks.length === 0) return
+    const pastedSuffix = pasted.buildPastedSuffix()
+    const fullMessage = [payload, pastedSuffix].filter(Boolean).join('\n\n')
+    navigate('/chat', { state: { initialMessage: fullMessage, initialAttachments: attachments } })
     setInput('')
     setSelectedSkills([])
     setAttachments([])
+    pasted.clearBlocks()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -186,6 +191,11 @@ export function HomePage() {
           )}
 
           <div className="p-5 sm:p-6">
+            {pasted.blocks.length > 0 && (
+              <div className="mb-3">
+                <PastedBlocksBar blocks={pasted.blocks} onRemove={pasted.removeBlock} />
+              </div>
+            )}
             <SkillComposerInput
               textareaRef={inputRef}
               value={input}
@@ -193,6 +203,7 @@ export function HomePage() {
               selectedSkills={selectedSkills}
               onSelectedSkillsChange={setSelectedSkills}
               onKeyDown={handleKeyDown}
+              onPaste={pasted.handlePaste}
               placeholder="+ 输入问题、目标或下一步，我来接手。"
               maxLength={maxLength}
               className="min-h-[56px] max-h-[112px] leading-7"
@@ -226,7 +237,7 @@ export function HomePage() {
                 )}
                 <button
                   onClick={handleSend}
-                  disabled={!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0}
+                  disabled={!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0 && pasted.blocks.length === 0}
                   className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-primary dark:text-primary-foreground"
                 >
                   <span>发送</span>

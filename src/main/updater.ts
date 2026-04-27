@@ -111,6 +111,9 @@ async function showDownloadPrompt(window: BrowserWindow, version: string): Promi
 
     if (result.response === 0) {
       sendUpdateEvent(window, 'download-started', { version })
+      // Release the prompt lock before the long download so that
+      // showInstallPrompt can fire as soon as the download completes.
+      promptInFlight = false
       await autoUpdater.downloadUpdate()
     } else {
       sendUpdateEvent(window, 'download-deferred', { version })
@@ -136,7 +139,7 @@ async function showInstallPrompt(window: BrowserWindow, version: string): Promis
     })
 
     if (result.response === 0) {
-      autoUpdater.quitAndInstall()
+      autoUpdater.quitAndInstall(false, true)
     }
   } finally {
     promptInFlight = false

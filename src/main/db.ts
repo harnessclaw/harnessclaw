@@ -270,6 +270,11 @@ export function updateSessionTitle(sessionId: string, title: string): void {
     .run(title, Date.now(), sessionId)
 }
 
+export function updateSessionProject(sessionId: string, projectId: string | null): void {
+  getDb().prepare(`UPDATE sessions SET project_id = ?, updated_at = ? WHERE session_id = ?`)
+    .run(projectId, Date.now(), sessionId)
+}
+
 export interface SessionRow {
   session_id: string
   title: string

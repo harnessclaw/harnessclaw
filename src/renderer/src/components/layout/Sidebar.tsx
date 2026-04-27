@@ -7,6 +7,8 @@ import {
   Puzzle,
   Search,
   FolderKanban,
+  FolderMinus,
+  FolderPlus,
   Users,
   Settings,
   Moon,
@@ -35,6 +37,7 @@ interface NavGroup {
 interface RecentSessionItem {
   session_id: string
   title: string
+  project_id?: string | null
   updated_at: number
 }
 
@@ -50,6 +53,10 @@ interface SearchResultItem {
   label: string
   description?: string
   onSelect: () => void
+}
+
+interface AssignProjectDialogState {
+  sessionId: string
 }
 
 const navGroups: NavGroup[] = [
@@ -71,7 +78,7 @@ const navGroups: NavGroup[] = [
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 const RECENT_WINDOW_SIZE = 8
 const FLOATING_MENU_WIDTH = 132
-const FLOATING_MENU_HEIGHT = 84
+const FLOATING_MENU_HEIGHT = 120
 const FLOATING_MENU_GAP = 6
 const VIEWPORT_PADDING = 12
 
@@ -91,6 +98,9 @@ export function Sidebar() {
   const [searchActiveIndex, setSearchActiveIndex] = useState(0)
   const [recentWindowStart, setRecentWindowStart] = useState(0)
   const [recentScrollFade, setRecentScrollFade] = useState({ top: false, bottom: false })
+  const [projects, setProjects] = useState<DbProjectRow[]>([])
+  const [assignDialog, setAssignDialog] = useState<AssignProjectDialogState | null>(null)
+  const [logoPreview, setLogoPreview] = useState(false)
   const floatingMenuRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const recentScrollRef = useRef<HTMLDivElement | null>(null)
@@ -152,7 +162,18 @@ export function Sidebar() {
       }
     }
 
+    const loadProjects = async () => {
+      try {
+        const rows = await window.db.listProjects()
+        if (!active) return
+        setProjects(rows)
+      } catch {
+        // ignore
+      }
+    }
+
     void loadRecentSessions()
+    void loadProjects()
     const offSessionsChanged = window.db.onSessionsChanged(() => {
       if (skipNextRecentReloadRef.current > 0) {
         skipNextRecentReloadRef.current -= 1
@@ -186,6 +207,7 @@ export function Sidebar() {
         setMenuState(null)
         setRenamingSessionId(null)
         setRenameValue('')
+        setLogoPreview(false)
         closeSearch()
       }
     }
@@ -295,6 +317,16 @@ export function Sidebar() {
     setMenuState(null)
     setRenamingSessionId(null)
     setRenameValue('')
+  }
+
+  const handleAssignProject = async (sessionId: string, projectId: string | null) => {
+    skipNextRecentReloadRef.current += 1
+    const result = await window.db.updateSessionProject(sessionId, projectId)
+    if (!result.ok) {
+      skipNextRecentReloadRef.current = Math.max(0, skipNextRecentReloadRef.current - 1)
+      return
+    }
+    setAssignDialog(null)
   }
 
   const itemCls = (active: boolean) => cn(
@@ -450,7 +482,8 @@ export function Sidebar() {
                     <img
                       src={sidebarLogo}
                       alt="HarnessClaw"
-                      className="h-9 w-9 flex-shrink-0 object-contain"
+                      className="h-9 w-9 flex-shrink-0 cursor-pointer object-contain transition-opacity hover:opacity-80"
+                      onClick={() => setLogoPreview(true)}
                     />
                   </div>
 
@@ -498,13 +531,9 @@ export function Sidebar() {
                   onClick={toggleExpanded}
                   title="展开侧边栏"
                   aria-label="展开侧边栏"
-                  className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-foreground transition-colors hover:bg-accent"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-foreground/78 transition-colors hover:bg-accent hover:text-foreground"
                 >
-                  <img
-                    src={sidebarLogo}
-                    alt="HarnessClaw"
-                    className="h-8 w-8 object-contain"
-                  />
+                  <PanelLeft size={18} aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -684,6 +713,29 @@ export function Sidebar() {
             <Pencil size={14} />
             重命名
           </button>
+          {recentSessions.find((s) => s.session_id === activeMenuItem.id)?.project_id ? (
+            <button
+              onClick={() => {
+                void handleAssignProject(activeMenuItem.id, null)
+                setMenuState(null)
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <FolderMinus size={14} />
+              退出项目
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setAssignDialog({ sessionId: activeMenuItem.id })
+                setMenuState(null)
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <FolderPlus size={14} />
+              加入项目
+            </button>
+          )}
           <button
             onClick={() => void handleDeleteRecentSession(activeMenuItem.id)}
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/20"
@@ -868,6 +920,72 @@ export function Sidebar() {
                   </div>
                 </section>
               </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {logoPreview && createPortal(
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setLogoPreview(false)}
+        >
+          <img
+            src={sidebarLogo}
+            alt="HarnessClaw"
+            className="max-h-[80vh] max-w-[80vw] object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>,
+        document.body
+      )}
+
+      {assignDialog && createPortal(
+        <div className="fixed inset-0 z-[90]">
+          <div
+            className="absolute inset-0"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'brightness(0.75)' }}
+            onClick={() => setAssignDialog(null)}
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+            <div className="pointer-events-auto w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-2xl">
+              <h3 className="mb-1 text-base font-semibold text-foreground">加入项目</h3>
+              <p className="mb-3 text-xs text-muted-foreground">选择要将此对话归入的项目</p>
+
+              {projects.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">暂无可用项目</p>
+              ) : (
+                <div className="max-h-60 overflow-y-auto rounded-xl border border-border">
+                  {projects.map((project) => {
+                    const currentSession = recentSessions.find((s) => s.session_id === assignDialog.sessionId)
+                    const isCurrentProject = currentSession?.project_id === project.project_id
+                    return (
+                      <button
+                        key={project.project_id}
+                        onClick={() => void handleAssignProject(
+                          assignDialog.sessionId,
+                          isCurrentProject ? null : project.project_id,
+                        )}
+                        className={cn(
+                          'flex w-full items-start gap-3 border-b border-border px-3.5 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/60',
+                          isCurrentProject && 'bg-accent'
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{project.name}</p>
+                          {project.description && (
+                            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{project.description}</p>
+                          )}
+                        </div>
+                        {isCurrentProject && (
+                          <span className="mt-0.5 shrink-0 text-xs text-primary">当前</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>,

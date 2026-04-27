@@ -1,23 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import type { Dispatch, ReactNode, RefObject, SetStateAction } from 'react'
-import { ArrowRight, CheckCircle2, ChevronRight, Cpu, Wrench } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowRight, Check, ChevronLeft, Loader2, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-type SetupPhase =
-  | 'booting'
-  | 'welcome'
-  | 'engine_check'
-  | 'engine_select'
-  | 'engine_url'
-  | 'engine_key'
-  | 'engine_model'
-  | 'engine_verify'
-  | 'profile_selection'
-  | 'ready'
+import emmaAvatar from '../assets/sidebar-logo.png'
 
 type EngineMode = 'openai' | 'anthropic'
 type ProfileKey = 'A' | 'B' | 'C'
-type StartupOverlayState = 'checking' | 'setup' | 'closing' | 'hidden'
+type StartupOverlayState = 'checking' | 'setup' | 'hidden'
+type StageKey = 'emma' | 'engine' | 'connection' | 'profile'
 
 interface SetupDraft {
   engineMode: EngineMode | null
@@ -71,6 +60,46 @@ const profileOptions: Array<{
   },
 ]
 
+const stages: Array<{ key: StageKey; title: string; subtitle: string }> = [
+  { key: 'emma', title: '认识 Emma', subtitle: '从一个能聊也能干活的 Agent 控制台开始。' },
+  { key: 'engine', title: '选择推理引擎', subtitle: '确定首次接入的模型 API 协议。' },
+  { key: 'connection', title: '配置连接信息', subtitle: '' },
+  { key: 'profile', title: '选择任务画像', subtitle: '' },
+]
+
+const emmaPrompts: Array<{ category: string; prompt: string }> = [
+  // 研发
+  { category: '研发', prompt: '帮我把这段函数重构得更易读，并补充单元测试。' },
+  { category: '研发', prompt: '排查这段报错日志，定位最可能的根因并给出修复方案。' },
+  { category: '研发', prompt: '审视这个 PR 的设计与边界，列出潜在风险点。' },
+  { category: '研发', prompt: '给这个接口加上限流和重试，并写好对应的单测。' },
+  // 研究
+  { category: '研究', prompt: '搜索最近一周关于 RAG 的新论文，做一份要点摘要。' },
+  { category: '研究', prompt: '对比 3 家头部向量数据库的架构与适用场景。' },
+  { category: '研究', prompt: '梳理 Agent 评测领域的主流 benchmark 和它们的差异。' },
+  { category: '研究', prompt: '帮我跟踪这位作者最近半年发表的所有论文。' },
+  // 写作
+  { category: '写作', prompt: '为下周产品发布会写一份 300 字的预热推文。' },
+  { category: '写作', prompt: '把这份技术文档改写成给非技术同事的版本。' },
+  { category: '写作', prompt: '给这个开源项目写一份简洁有力的 README 介绍。' },
+  { category: '写作', prompt: '把这次复盘整理成一份对外可发的故事化稿件。' },
+  // 数据
+  { category: '数据', prompt: '分析这份 CSV 中的订单数据，给出复购率和异常值。' },
+  { category: '数据', prompt: '帮我把这份日志拆字段，做出每小时调用量的趋势图。' },
+  { category: '数据', prompt: '看一下这份 A/B 实验结果，给出统计显著性结论。' },
+  { category: '数据', prompt: '从这堆用户反馈里聚类出 5 个最值得关注的话题。' },
+  // 生活
+  { category: '生活', prompt: '帮我规划这个周末两天的杭州周边亲子游行程。' },
+  { category: '生活', prompt: '根据这周的运动和饮食记录，给我下周的调整建议。' },
+  { category: '生活', prompt: '帮我比一下这两个航班加酒店的总性价比。' },
+  { category: '生活', prompt: '给我列一份适合一个人安静度过的周末晚上活动清单。' },
+  // 日常
+  { category: '日常', prompt: '把今天的会议纪要整理成 To-do，并安排到下周日历。' },
+  { category: '日常', prompt: '总结今天 Slack 里被 @ 的所有消息，标出需要回复的。' },
+  { category: '日常', prompt: '把这一周的工作整理成对外可发的周报草稿。' },
+  { category: '日常', prompt: '帮我从邮件里挑出真正需要今天处理的 3 件事。' },
+]
+
 function asRecord(value: unknown): ConfigRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as ConfigRecord)
@@ -92,26 +121,12 @@ function getProfilePreset(profile: ProfileKey | null): {
   reasoningEffort: 'medium' | 'high'
 } {
   if (profile === 'A') {
-    return {
-      workspace: `${WORKSPACE_ROOT}/engineering`,
-      maxToolIterations: 60,
-      reasoningEffort: 'high',
-    }
+    return { workspace: `${WORKSPACE_ROOT}/engineering`, maxToolIterations: 60, reasoningEffort: 'high' }
   }
-
   if (profile === 'B') {
-    return {
-      workspace: `${WORKSPACE_ROOT}/research`,
-      maxToolIterations: 36,
-      reasoningEffort: 'medium',
-    }
+    return { workspace: `${WORKSPACE_ROOT}/research`, maxToolIterations: 36, reasoningEffort: 'medium' }
   }
-
-  return {
-    workspace: `${WORKSPACE_ROOT}/operations`,
-    maxToolIterations: 24,
-    reasoningEffort: 'medium',
-  }
+  return { workspace: `${WORKSPACE_ROOT}/operations`, maxToolIterations: 24, reasoningEffort: 'medium' }
 }
 
 function buildEngineConfig(previous: ConfigRecord, draft: SetupDraft): ConfigRecord {
@@ -171,7 +186,7 @@ function buildAppConfig(previous: ConfigRecord, draft: SetupDraft): ConfigRecord
       ...agents,
       defaults: {
         ...defaults,
-        provider: getProviderKey(draft.engineMode),
+        provider: providerKey,
         workspace: profilePreset.workspace,
         maxToolIterations: profilePreset.maxToolIterations,
         reasoningEffort: profilePreset.reasoningEffort,
@@ -193,14 +208,7 @@ export function WelcomeModal() {
     if (typeof window === 'undefined') return 'checking'
     return window.localStorage.getItem(FIRST_RUN_DONE_STORAGE_KEY) === 'true' ? 'hidden' : 'checking'
   })
-  const [visible, setVisible] = useState(false)
-  const [phase, setPhase] = useState<SetupPhase>('booting')
-  const [history, setHistory] = useState<ReactNode[]>([])
-  const [inputValue, setInputValue] = useState('')
-  const [welcomeReady, setWelcomeReady] = useState(false)
-  const [engineSelectReady, setEngineSelectReady] = useState(false)
-  const [selectedEngineIndex, setSelectedEngineIndex] = useState(0)
-  const [selectedProfileIndex, setSelectedProfileIndex] = useState(0)
+  const [stageIndex, setStageIndex] = useState(0)
   const [draft, setDraft] = useState<SetupDraft>({
     engineMode: null,
     apiBase: '',
@@ -208,764 +216,511 @@ export function WelcomeModal() {
     modelId: '',
     profile: null,
   })
-  const bootRun = useRef(false)
-  const phaseRunRef = useRef<Partial<Record<SetupPhase, boolean>>>({})
-  const activeInputRef = useRef<HTMLInputElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [username] = useState<string>(() => {
+    try {
+      return window.appBridge?.getUsername?.() || ''
+    } catch {
+      return ''
+    }
+  })
 
   useEffect(() => {
     let cancelled = false
 
     const runStartupGate = async () => {
-      const isCachedDone = window.localStorage.getItem(FIRST_RUN_DONE_STORAGE_KEY) === 'true'
-      if (!isCachedDone) {
-        await sleep(1680)
-      }
-
       const isFirst = await window.appBridge.isFirstLaunch()
       if (cancelled) return
 
       if (isFirst) {
         window.localStorage.removeItem(FIRST_RUN_DONE_STORAGE_KEY)
-        setVisible(true)
         setOverlayState('setup')
         return
       }
 
       window.localStorage.setItem(FIRST_RUN_DONE_STORAGE_KEY, 'true')
-      if (overlayState === 'hidden') {
-        return
-      }
-
-      setOverlayState('closing')
-      window.setTimeout(() => {
-        if (!cancelled) {
-          setOverlayState('hidden')
-        }
-      }, 260)
+      setOverlayState('hidden')
     }
 
     void runStartupGate()
-
     return () => {
       cancelled = true
     }
-  }, [overlayState])
+  }, [])
 
-  useEffect(() => {
-    if (!visible || bootRun.current) return
-    bootRun.current = true
+  const stageDone = useMemo(() => ({
+    emma: true,
+    engine: Boolean(draft.engineMode),
+    connection: Boolean(draft.apiKey.trim() && draft.modelId.trim()),
+    profile: Boolean(draft.profile),
+  }), [draft])
 
-    const runBootSequence = async () => {
-      await sleep(550)
-      addHistoryLine(setHistory, <TypewriterLine text="[BOOT] HarnessClaw Runtime warm-up sequence" />)
-      await sleep(650)
-      addHistoryLine(setHistory, <TypewriterLine text="[BOOT] Local policy, storage, and workspace guards online" />)
-      await sleep(540)
-      addHistoryLine(setHistory, <TypewriterLine text="[BOOT] Operator console ready" className="text-[rgba(186,255,176,0.92)]" />)
-      await sleep(420)
-      setPhase('welcome')
+  const allStagesDone = stageDone.engine && stageDone.connection && stageDone.profile
+  const currentStage = stages[stageIndex]
+  const currentStageDone = stageDone[currentStage.key]
+  const isLastStage = stageIndex === stages.length - 1
+
+  const goToStage = (index: number) => {
+    if (index < 0 || index >= stages.length) return
+    // Allow jumping to a stage if all earlier stages are done
+    for (let i = 0; i < index; i++) {
+      if (!stageDone[stages[i].key]) return
     }
+    setErrorMessage(null)
+    setStageIndex(index)
+  }
 
-    void runBootSequence()
-  }, [visible])
-
-  useEffect(() => {
-    if (!visible || phase !== 'welcome') return
-    if (phaseRunRef.current.welcome) return
-    phaseRunRef.current.welcome = true
-    setWelcomeReady(false)
-
-    const runWelcome = async () => {
-      const firstLine = '欢迎接入 HarnessClaw。这里不是聊天框，而是一套可观察、可约束、可持续运行的 Agent 控制台。'
-      const secondLine = '首次启动需要完成一轮基础装配：接入推理引擎、选择工作画像，并确认工具生态是否挂载。'
-
-      addHistoryLine(setHistory, <TypewriterLine text={firstLine} />)
-      await sleep(getTypewriterDuration(firstLine) + 220)
-      addHistoryLine(setHistory, <TypewriterLine text={secondLine} />)
-      await sleep(getTypewriterDuration(secondLine) + 180)
-      setWelcomeReady(true)
+  const handleNext = () => {
+    if (!currentStageDone) return
+    if (!isLastStage) {
+      setErrorMessage(null)
+      setStageIndex((i) => i + 1)
     }
-
-    void runWelcome()
-  }, [phase, visible])
-
-  useEffect(() => {
-    if (!visible) return
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [history, phase, visible])
-
-  useEffect(() => {
-    if (!visible) return
-    if (phase === 'engine_url' || phase === 'engine_key' || phase === 'engine_model') {
-      window.setTimeout(() => activeInputRef.current?.focus(), 40)
-    }
-  }, [phase, visible])
-
-  useEffect(() => {
-    if (!visible) return
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (phase === 'welcome' && event.key === 'Enter') {
-        event.preventDefault()
-        void handleWelcomeEnter()
-        return
-      }
-
-      if (phase === 'engine_select') {
-        if (!engineSelectReady) return
-
-        if (event.key === 'ArrowUp') {
-          event.preventDefault()
-          setSelectedEngineIndex((current) => Math.max(0, current - 1))
-        } else if (event.key === 'ArrowDown') {
-          event.preventDefault()
-          setSelectedEngineIndex((current) => Math.min(engineOptions.length - 1, current + 1))
-        } else if (event.key === 'Enter') {
-          event.preventDefault()
-          void handleEngineSelect(engineOptions[selectedEngineIndex].key)
-        }
-        return
-      }
-
-      if (phase === 'engine_url' && event.key === 'Enter') {
-        event.preventDefault()
-        void handleEngineUrlSubmit()
-        return
-      }
-
-      if (phase === 'engine_url' && event.key === 'Escape') {
-        event.preventDefault()
-        handleEngineUrlBack()
-        return
-      }
-
-      if (phase === 'engine_key' && event.key === 'Enter') {
-        event.preventDefault()
-        void handleEngineKeySubmit()
-        return
-      }
-
-      if (phase === 'engine_key' && event.key === 'Escape') {
-        event.preventDefault()
-        handleEngineKeyBack()
-        return
-      }
-
-      if (phase === 'engine_model' && event.key === 'Enter') {
-        event.preventDefault()
-        void handleEngineModelSubmit()
-        return
-      }
-
-      if (phase === 'engine_model' && event.key === 'Escape') {
-        event.preventDefault()
-        handleEngineModelBack()
-        return
-      }
-
-      if (phase === 'profile_selection') {
-        if (event.key === 'ArrowUp') {
-          event.preventDefault()
-          setSelectedProfileIndex((current) => Math.max(0, current - 1))
-          return
-        }
-        if (event.key === 'ArrowDown') {
-          event.preventDefault()
-          setSelectedProfileIndex((current) => Math.min(profileOptions.length - 1, current + 1))
-          return
-        }
-        if (event.key === 'Enter') {
-          event.preventDefault()
-          void handleProfileSelect(profileOptions[selectedProfileIndex].key)
-          return
-        }
-
-        const upper = event.key.toUpperCase()
-        if (upper === 'A' || upper === 'B' || upper === 'C') {
-          event.preventDefault()
-          void handleProfileSelect(upper as ProfileKey)
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [phase, selectedEngineIndex, selectedProfileIndex, inputValue, visible])
-
-  const handleWelcomeEnter = async () => {
-    setWelcomeReady(false)
-    setEngineSelectReady(false)
-    addHistoryLine(setHistory, <SeparatorLine />)
-    setPhase('engine_check')
-    const scanLine = '[SCAN] Checking active logic engine bridge...'
-    const warnLine = '[WARN] No default reasoning engine detected for first-run console.'
-      const promptLine = '请选择本次初始化要接入的模型 API。后续都可以在设置页继续微调。'
-
-    await sleep(280)
-    addHistoryLine(setHistory, <TypewriterLine text={scanLine} />)
-    await sleep(getTypewriterDuration(scanLine) + 220)
-    addHistoryLine(setHistory, <TypewriterLine text={warnLine} className="text-[rgba(255,214,133,0.94)]" />)
-    await sleep(getTypewriterDuration(warnLine) + 220)
-    addHistoryLine(setHistory, <TypewriterLine text={promptLine} />)
-    await sleep(getTypewriterDuration(promptLine) + 180)
-    setPhase('engine_select')
-    setEngineSelectReady(true)
   }
 
-  const handleEngineSelect = async (mode: EngineMode) => {
-    const option = engineOptions.find((item) => item.key === mode)
-    if (!option) return
-
-    setDraft((current) => ({
-      ...current,
-      engineMode: mode,
-      apiBase: '',
-      apiKey: current.apiKey,
-    }))
-
-    addHistoryLine(setHistory, <div className="text-[rgba(186,255,176,0.92)]">[SELECT] {option.title}</div>)
-    setInputValue('')
-    setPhase('engine_url')
+  const handleBack = () => {
+    if (stageIndex === 0) return
+    setErrorMessage(null)
+    setStageIndex((i) => i - 1)
   }
 
-  const handleEngineUrlSubmit = async () => {
-    const normalizedUrl = inputValue.trim() || getDefaultApiBase(draft.engineMode)
-    setDraft((current) => ({ ...current, apiBase: normalizedUrl }))
-    addHistoryLine(setHistory, <div>API Base URL: {normalizedUrl}</div>)
-    setInputValue('')
-    setPhase('engine_key')
-  }
-
-  const handleEngineUrlBack = () => {
-    setInputValue('')
-    setPhase('engine_select')
-  }
-
-  const handleEngineKeySubmit = async () => {
-    const trimmedKey = inputValue.trim()
-    setDraft((current) => ({ ...current, apiKey: trimmedKey }))
-    addHistoryLine(setHistory, <div>API Key: {trimmedKey ? maskSecret(trimmedKey) : '[EMPTY]'}</div>)
-    setInputValue('')
-    setPhase('engine_model')
-  }
-
-  const handleEngineKeyBack = () => {
-    setInputValue(draft.apiBase)
-    setPhase('engine_url')
-  }
-
-  const handleEngineModelSubmit = async () => {
-    const trimmedModelId = inputValue.trim()
-    setDraft((current) => ({ ...current, modelId: trimmedModelId }))
-    addHistoryLine(setHistory, <div>Model ID: {trimmedModelId || '[EMPTY]'}</div>)
-    setInputValue('')
-    setPhase('engine_verify')
-    await verifyAndPersistEngine({
-      ...draft,
-      apiBase: draft.apiBase.trim() || getDefaultApiBase(draft.engineMode),
-      apiKey: draft.apiKey.trim(),
-      modelId: trimmedModelId,
-    })
-  }
-
-  const handleEngineModelBack = () => {
-    setInputValue(draft.apiKey)
-    setPhase('engine_key')
-  }
-
-  const verifyAndPersistEngine = async (nextDraft: SetupDraft) => {
-    addHistoryLine(setHistory, <TypewriterLine text="[WRITE] Saving engine profile to local config..." />)
-    await sleep(780)
-
+  const handleFinish = async () => {
+    if (!allStagesDone || submitting) return
+    setSubmitting(true)
+    setErrorMessage(null)
     try {
+      const finalDraft: SetupDraft = {
+        ...draft,
+        apiBase: draft.apiBase.trim() || getDefaultApiBase(draft.engineMode),
+        apiKey: draft.apiKey.trim(),
+        modelId: draft.modelId.trim(),
+      }
       const currentEngineConfig = asRecord(await window.engineConfig.read())
       const currentAppConfig = asRecord(await window.appConfig.read())
-
-      const engineResult = await window.engineConfig.save(buildEngineConfig(currentEngineConfig, nextDraft))
-      const appResult = await window.appConfig.save(buildAppConfig(currentAppConfig, nextDraft))
-
+      const engineResult = await window.engineConfig.save(buildEngineConfig(currentEngineConfig, finalDraft))
+      const appResult = await window.appConfig.save(buildAppConfig(currentAppConfig, finalDraft))
       if (!engineResult.ok || !appResult.ok) {
-        throw new Error(engineResult.error || appResult.error || 'Unable to persist setup state')
+        throw new Error(engineResult.error || appResult.error || '保存配置失败')
       }
-
-      const runtimeStatus = await window.appRuntime.getStatus()
-      const verifyLine = runtimeStatus.llmConfigured
-        ? '[OK] Engine configuration accepted by the local scheduler.'
-        : '[INFO] Configuration written. Detailed connection test can be completed later in Settings.'
-
-      addHistoryLine(
-        setHistory,
-        <TypewriterLine
-          text={verifyLine}
-          className={runtimeStatus.llmConfigured ? 'text-[rgba(186,255,176,0.92)]' : 'text-[rgba(255,214,133,0.94)]'}
-        />
-      )
-      await sleep(820)
-      addHistoryLine(setHistory, <SeparatorLine />)
-      setPhase('profile_selection')
-      await sleep(260)
-      addHistoryLine(setHistory, <TypewriterLine text="[PROFILE] Choose the task profile this console should bias for." />)
+      const launched = await window.appBridge.markLaunched()
+      if (launched.ok) {
+        window.localStorage.setItem(FIRST_RUN_DONE_STORAGE_KEY, 'true')
+      }
+      setOverlayState('hidden')
     } catch (error) {
-      addHistoryLine(
-        setHistory,
-        <TypewriterLine
-          text={`[FAIL] ${String(error)}`}
-          className="text-[rgba(255,148,148,0.94)]"
-        />
-      )
-      await sleep(520)
-      setPhase('engine_key')
+      setErrorMessage(String((error as Error)?.message || error))
+      setSubmitting(false)
     }
   }
 
-  const handleProfileSelect = async (key: ProfileKey) => {
-    setDraft((current) => ({ ...current, profile: key }))
-
-    const profile = profileOptions.find((item) => item.key === key)
-    addHistoryLine(setHistory, <div className="text-[rgba(186,255,176,0.92)]">[PROFILE] {key} / {profile?.title}</div>)
-    setPhase('ready')
-
-    const currentAppConfig = asRecord(await window.appConfig.read())
-    const appResult = await window.appConfig.save(buildAppConfig(currentAppConfig, { ...draft, profile: key }))
-    if (!appResult.ok) {
-      addHistoryLine(setHistory, <TypewriterLine text={`[FAIL] ${appResult.error || 'Unable to save profile preset'}`} className="text-[rgba(255,148,148,0.94)]" />)
-      setPhase('profile_selection')
-      return
-    }
-
-    await sleep(720)
-    addHistoryLine(setHistory, <TypewriterLine text="[READY] First-run assembly complete. Command center is now unlocked." className="text-[rgba(186,255,176,0.92)]" />)
-    await sleep(1100)
-    const launched = await window.appBridge.markLaunched()
-    if (launched.ok) {
-      window.localStorage.setItem(FIRST_RUN_DONE_STORAGE_KEY, 'true')
-    }
-    setVisible(false)
-    setOverlayState('hidden')
-  }
-
-  if (overlayState === 'hidden') return null
-
-  if (overlayState !== 'setup') {
-    return <StartupSplash closing={overlayState === 'closing'} />
-  }
+  if (overlayState !== 'setup') return null
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(9,12,10,0.74)] px-4 py-6 backdrop-blur-[6px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="first-run-title"
     >
-      <div className="crt-shell crt-boot-enter font-pixel-terminal relative h-full w-full max-w-[1180px] overflow-hidden rounded-[32px] border border-[rgba(183,214,174,0.22)]">
-        <div className="crt-bezel absolute inset-[18px] rounded-[24px] border border-[rgba(214,225,208,0.08)]" aria-hidden="true" />
-        <div className="crt-noise absolute inset-0" aria-hidden="true" />
-        <div className="crt-scanlines absolute inset-0" aria-hidden="true" />
-        <div className="crt-vignette absolute inset-0" aria-hidden="true" />
-
-        <div className="relative flex h-full flex-col overflow-hidden px-5 pb-5 pt-6 text-[rgba(199,234,191,0.92)] sm:px-7 sm:pb-7 sm:pt-7">
-          <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(173,204,162,0.16)] pb-4">
-            <div>
-              <p className="mb-2 text-[10px] uppercase tracking-[0.34em] text-[rgba(174,208,164,0.52)]">
-                First Initialization Console
-              </p>
-              <h2 id="first-run-title" className="font-pixel-display crt-title-glow text-[clamp(1.7rem,2.3vw,2.55rem)] leading-none text-[rgba(228,247,220,0.92)]">
-                HarnessClaw Bootstrap
-              </h2>
-              <p className="mt-3 max-w-[760px] text-sm leading-6 tracking-[0.04em] text-[rgba(177,205,169,0.7)]">
-                用一轮简短装配，把首次启动从欢迎语变成真实可用的本地控制台。
-              </p>
+      <div className="relative flex h-[540px] max-h-[calc(100vh-3rem)] w-[874px] max-w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <header className="flex items-center justify-between border-b border-border/70 px-7 pb-4 pt-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/12 text-primary">
+              <Sparkles size={16} />
             </div>
+            <h2 id="first-run-title" className="text-base font-semibold leading-tight text-foreground">
+              {username ? `${username}，` : ''}很高兴认识你
+            </h2>
+          </div>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {stageIndex + 1} / {stages.length}
+          </span>
+        </header>
 
-            <div className="grid gap-2 text-xs tracking-[0.08em] text-[rgba(177,205,169,0.72)] sm:text-right">
-              <div className="inline-flex items-center gap-2">
-                <Cpu size={14} />
-                <span>本地优先 / 可回退配置</span>
-              </div>
-              <div className="inline-flex items-center gap-2">
-                <Wrench size={14} />
-                <span>引擎、技能、画像一次装配</span>
-              </div>
+        <Stepper stages={stages} stageIndex={stageIndex} stageDone={stageDone} onJump={goToStage} />
+
+        <div className="min-h-0 flex-1 overflow-hidden px-7 py-6">
+          <div className="mx-auto w-full max-w-[540px]">
+          {currentStage.key !== 'emma' && (
+            <div className="mb-5">
+              <h3 className="text-sm font-semibold text-foreground">{currentStage.title}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">{currentStage.subtitle}</p>
             </div>
-          </header>
+          )}
 
-          <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <section className="crt-screen relative min-h-[420px] overflow-hidden rounded-[24px] border border-[rgba(184,217,174,0.18)] bg-[rgba(7,14,8,0.84)] px-4 py-4 sm:px-5">
-              <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.28em] text-[rgba(169,198,158,0.46)]">
-                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[rgba(186,255,176,0.92)] shadow-[0_0_14px_rgba(186,255,176,0.55)]" />
-                <span>System Stream</span>
-              </div>
+          {currentStage.key === 'emma' && (
+            <div className="flex flex-col items-center text-center">
+              <img
+                src={emmaAvatar}
+                alt="Emma"
+                className="h-16 w-16 rounded-2xl object-cover shadow-sm"
+              />
+              <h3 className="mt-5 text-[2.6rem] font-semibold leading-none tracking-tight text-foreground">
+                emma
+              </h3>
 
-              <div className="h-[calc(100%-1.75rem)] overflow-y-auto pr-1 text-[13px] leading-7 tracking-[0.03em] sm:text-[14px]">
-                {history.map((node, index) => (
-                  <div key={index} className="crt-text-glow mb-1.5 last:mb-0">
-                    {node}
-                  </div>
-                ))}
+              <TypedQuotes prompts={emmaPrompts} />
+            </div>
+          )}
 
-                {phase === 'welcome' && welcomeReady && (
+          {currentStage.key === 'engine' && (
+            <div className="grid gap-2.5">
+              {engineOptions.map((option) => {
+                const selected = draft.engineMode === option.key
+                return (
                   <button
+                    key={option.key}
                     type="button"
-                    className="crt-ease-out mt-6 inline-flex items-center gap-2 rounded-full border border-[rgba(184,217,174,0.26)] bg-[rgba(19,31,20,0.8)] px-4 py-2 text-sm text-[rgba(225,247,217,0.9)] transition-[transform,background-color,box-shadow] duration-200 hover:-translate-y-px hover:bg-[rgba(31,48,33,0.9)] hover:shadow-[0_0_14px_rgba(143,220,132,0.14)] active:translate-y-0"
-                    onClick={() => void handleWelcomeEnter()}
+                    onClick={() => setDraft((d) => ({ ...d, engineMode: option.key }))}
+                    className={cn(
+                      'group flex items-start justify-between gap-4 rounded-xl border px-4 py-3.5 text-left transition-colors',
+                      selected
+                        ? 'border-primary/60 bg-primary/8 ring-1 ring-primary/30'
+                        : 'border-border bg-background hover:border-border/80 hover:bg-muted/40'
+                    )}
                   >
-                    <ArrowRight size={14} />
-                    <span>按 Enter 启动初始化流程</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-foreground">{option.title}</div>
+                      <div className="mt-1 text-xs leading-5 text-muted-foreground">{option.detail}</div>
+                    </div>
+                    <span
+                      className={cn(
+                        'mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border',
+                        selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'
+                      )}
+                      aria-hidden="true"
+                    >
+                      {selected && <Check size={12} strokeWidth={3} />}
+                    </span>
                   </button>
-                )}
+                )
+              })}
+            </div>
+          )}
 
-                {phase === 'engine_select' && engineSelectReady && (
-                  <div className="mt-5 grid gap-2">
-                    {engineOptions.map((option, index) => {
-                      const selected = selectedEngineIndex === index
-                      return (
-                        <button
-                          key={option.key}
-                          type="button"
-                          className={cn(
-                            'crt-ease-out group rounded-[16px] border px-4 py-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-200 hover:-translate-y-px hover:shadow-[0_0_18px_rgba(143,220,132,0.08)]',
-                            selected
-                              ? 'border-[rgba(188,231,176,0.36)] bg-[rgba(36,53,37,0.72)] text-[rgba(228,247,220,0.96)]'
-                              : 'border-[rgba(181,207,173,0.14)] bg-[rgba(14,22,15,0.72)] text-[rgba(176,201,169,0.74)] hover:bg-[rgba(24,35,25,0.78)]'
-                          )}
-                          onMouseEnter={() => setSelectedEngineIndex(index)}
-                          onClick={() => void handleEngineSelect(option.key)}
-                        >
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <div className="text-sm font-medium">{option.title}</div>
-                              <div className="mt-1 text-xs text-[rgba(176,201,169,0.68)]">{option.detail}</div>
-                            </div>
-                            <ChevronRight
-                              size={16}
-                              className={cn(
-                                'transition-transform',
-                                selected && 'translate-x-0.5 text-[rgba(214,245,205,0.88)]'
-                              )}
-                            />
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
+          {currentStage.key === 'connection' && (
+            <div className="grid gap-3.5">
+              <FormField
+                label="API Base URL"
+                value={draft.apiBase}
+                placeholder={getDefaultApiBase(draft.engineMode)}
+                onChange={(v) => setDraft((d) => ({ ...d, apiBase: v }))}
+              />
+              <FormField
+                label="API Key"
+                value={draft.apiKey}
+                placeholder="sk-..."
+                type="password"
+                required
+                onChange={(v) => setDraft((d) => ({ ...d, apiKey: v }))}
+              />
+              <FormField
+                label="Model ID"
+                hint="例如 gpt-4o-mini、claude-sonnet-4 等。"
+                value={draft.modelId}
+                placeholder="model-id"
+                required
+                onChange={(v) => setDraft((d) => ({ ...d, modelId: v }))}
+              />
+            </div>
+          )}
 
-                {phase === 'engine_url' && (
-                  <InputRow
-                    label="API Base URL"
-                    hint={`留空默认 ${getDefaultApiBase(draft.engineMode)}，按 Esc 返回模型 API 选择。`}
-                    value={inputValue}
-                    onChange={setInputValue}
-                    inputRef={activeInputRef}
-                    placeholder={getDefaultApiBase(draft.engineMode)}
-                  />
-                )}
+          {currentStage.key === 'profile' && (
+            <div className="grid grid-cols-3 gap-3">
+              {profileOptions.map((option) => {
+                const selected = draft.profile === option.key
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setDraft((d) => ({ ...d, profile: option.key }))}
+                    className={cn(
+                      'group relative flex h-full flex-col items-start gap-2 rounded-2xl border px-4 py-4 text-left transition-all',
+                      selected
+                        ? 'border-primary/70 bg-primary/8 shadow-sm ring-1 ring-primary/30'
+                        : 'border-border bg-background hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-sm'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full border transition-colors',
+                        selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background opacity-0 group-hover:opacity-100'
+                      )}
+                      aria-hidden="true"
+                    >
+                      {selected && <Check size={12} strokeWidth={3} />}
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors',
+                        selected
+                          ? 'border-primary/40 bg-primary/15 text-primary'
+                          : 'border-border bg-muted/60 text-muted-foreground'
+                      )}
+                    >
+                      {option.key}
+                    </span>
+                    <div className="mt-1 text-sm font-semibold leading-tight text-foreground">
+                      {option.title}
+                    </div>
+                    <div className="text-[11px] leading-5 text-muted-foreground">
+                      {option.detail}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
-                {phase === 'engine_key' && (
-                  <InputRow
-                    label="API Key"
-                    hint="该步骤只写入本地配置文件，不做外网验证。按 Esc 返回上一项。"
-                    value={inputValue}
-                    onChange={setInputValue}
-                    inputRef={activeInputRef}
-                    placeholder="sk-..."
-                    type="password"
-                  />
-                )}
-
-                {phase === 'engine_model' && (
-                  <InputRow
-                    label="Model ID"
-                    hint="输入你要使用的模型标识。按 Esc 返回上一项。"
-                    value={inputValue}
-                    onChange={setInputValue}
-                    inputRef={activeInputRef}
-                    placeholder="model-id"
-                  />
-                )}
-
-                {phase === 'profile_selection' && (
-                  <div className="mt-5 grid gap-2">
-                    {profileOptions.map((option, index) => {
-                      const selected = selectedProfileIndex === index
-                      return (
-                        <button
-                          key={option.key}
-                          type="button"
-                          className={cn(
-                            'crt-ease-out rounded-[16px] border px-4 py-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-200 hover:-translate-y-px hover:shadow-[0_0_18px_rgba(143,220,132,0.08)]',
-                            selected
-                              ? 'border-[rgba(188,231,176,0.36)] bg-[rgba(36,53,37,0.72)] text-[rgba(228,247,220,0.96)]'
-                              : 'border-[rgba(181,207,173,0.14)] bg-[rgba(14,22,15,0.72)] text-[rgba(176,201,169,0.74)] hover:bg-[rgba(24,35,25,0.78)]'
-                          )}
-                          onMouseEnter={() => setSelectedProfileIndex(index)}
-                          onClick={() => void handleProfileSelect(option.key)}
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <div className="text-sm font-medium">[{option.key}] {option.title}</div>
-                              <div className="mt-1 text-xs text-[rgba(176,201,169,0.68)]">{option.detail}</div>
-                            </div>
-                            <CheckCircle2
-                              size={16}
-                              className={cn(
-                                'mt-0.5 opacity-40 transition-opacity',
-                                selected && 'opacity-100 text-[rgba(214,245,205,0.88)]'
-                              )}
-                            />
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-
-                {['booting', 'engine_check', 'engine_verify', 'ready'].includes(phase) && (
-                  <div className="mt-3">
-                    <Cursor />
-                  </div>
-                )}
-
-                <div ref={bottomRef} className="h-14" />
-              </div>
-            </section>
-
-            <aside className="grid content-start gap-4">
-              <div className="rounded-[22px] border border-[rgba(184,217,174,0.18)] bg-[rgba(13,20,14,0.74)] p-4">
-                <div className="mb-3 text-[11px] uppercase tracking-[0.28em] text-[rgba(169,198,158,0.46)]">
-                  Initialization Map
-                </div>
-                <div className="grid gap-2">
-                  <StatusCard
-                    title="推理引擎"
-                    value={draft.engineMode ? engineOptions.find((item) => item.key === draft.engineMode)?.title || '已选择' : '待配置'}
-                    active={phase === 'engine_select' || phase === 'engine_url' || phase === 'engine_key' || phase === 'engine_verify'}
-                    done={Boolean(draft.engineMode)}
-                  />
-                  <StatusCard
-                    title="任务画像"
-                    value={draft.profile ? profileOptions.find((item) => item.key === draft.profile)?.title || draft.profile : '待选择'}
-                    active={phase === 'profile_selection'}
-                    done={Boolean(draft.profile)}
-                  />
-                </div>
-              </div>
-            </aside>
+          {errorMessage && (
+            <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+              {errorMessage}
+            </div>
+          )}
           </div>
         </div>
-      </div>
-    </div>
-  )
-}
 
-function StartupSplash({ closing }: { closing: boolean }) {
-  return (
-    <div
-      className={cn(
-        'fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(48,74,48,0.18),_transparent_30%),linear-gradient(180deg,_rgba(7,11,8,1),_rgba(3,6,4,1))] px-6',
-        closing && 'pointer-events-none'
-      )}
-      aria-hidden="true"
-    >
-      <div className="crt-noise absolute inset-0" />
-      <div className="crt-scanlines absolute inset-0" />
-      <div className="crt-vignette absolute inset-0" />
-      <div className="crt-startup-beam absolute inset-0" />
-
-      <div
-        className={cn(
-          'font-pixel-terminal relative flex w-full max-w-[720px] flex-col items-center text-center text-[rgba(213,244,205,0.92)] transition-[opacity,transform,filter] duration-300',
-          closing ? 'translate-y-1 opacity-0 blur-[2px]' : 'opacity-100'
-        )}
-      >
-        <div className="crt-startup-mark mb-6 h-[2px] w-24 bg-[rgba(196,241,184,0.92)]" />
-        <div className="crt-title-glow font-pixel-display text-[clamp(1.75rem,4vw,3.1rem)] uppercase leading-none tracking-[0.22em]">
-          HarnessClaw
-        </div>
-        <div className="mt-5 text-[11px] uppercase tracking-[0.44em] text-[rgba(175,206,168,0.64)]">
-          Operator Console Boot Sequence
-        </div>
-        <div className="mt-8 h-[1px] w-full max-w-[420px] bg-[linear-gradient(90deg,rgba(179,226,167,0),rgba(179,226,167,0.5),rgba(179,226,167,0))]" />
-      </div>
-    </div>
-  )
-}
-
-function addHistoryLine(
-  setter: Dispatch<SetStateAction<ReactNode[]>>,
-  node: ReactNode,
-) {
-  setter((current) => [...current, node])
-}
-
-function StatusCard({
-  title,
-  value,
-  active,
-  done,
-}: {
-  title: string
-  value: string
-  active?: boolean
-  done?: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        'rounded-[18px] border px-3 py-3 transition-colors',
-        active
-          ? 'border-[rgba(188,231,176,0.34)] bg-[rgba(33,49,34,0.7)]'
-          : 'border-[rgba(184,217,174,0.12)] bg-[rgba(11,16,12,0.62)]'
-      )}
-    >
-      <div className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[rgba(169,198,158,0.46)]">
-        <span
-          className={cn(
-            'inline-flex h-2 w-2 rounded-full',
-            done
-              ? 'bg-[rgba(186,255,176,0.92)] shadow-[0_0_12px_rgba(186,255,176,0.45)]'
-              : active
-                ? 'bg-[rgba(255,214,133,0.92)] shadow-[0_0_12px_rgba(255,214,133,0.38)]'
-                : 'bg-[rgba(115,138,111,0.64)]'
+        <footer className="flex items-center justify-between border-t border-border/70 bg-muted/20 px-7 py-4">
+          {stageIndex === 0 ? (
+            <span aria-hidden="true" />
+          ) : (
+            <button
+              type="button"
+              onClick={handleBack}
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft size={14} />
+              上一步
+            </button>
           )}
-        />
-        <span>{title}</span>
+
+          {isLastStage ? (
+            <button
+              type="button"
+              onClick={handleFinish}
+              disabled={!allStagesDone || submitting}
+              className="group inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2 text-[13px] font-medium tracking-wide text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Emma 正在为你点灯…</span>
+                </>
+              ) : (
+                <>
+                  <span>去见 Emma</span>
+                  <ArrowRight
+                    size={14}
+                    className="transition-transform duration-300 group-hover:translate-x-0.5 group-disabled:translate-x-0"
+                  />
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleNext}
+              disabled={!currentStageDone}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              下一步
+              <ArrowRight size={14} />
+            </button>
+          )}
+        </footer>
       </div>
-      <div className="text-sm text-[rgba(224,244,216,0.9)]">{value}</div>
     </div>
   )
 }
 
-function InputRow({
+function Stepper({
+  stages,
+  stageIndex,
+  stageDone,
+  onJump,
+}: {
+  stages: Array<{ key: StageKey; title: string; subtitle: string }>
+  stageIndex: number
+  stageDone: Record<StageKey, boolean>
+  onJump: (index: number) => void
+}) {
+  // Count consecutive completed stages from the left to determine progress line width.
+  let consecutiveDone = 0
+  for (let i = 0; i < stages.length; i++) {
+    if (stageDone[stages[i].key]) consecutiveDone += 1
+    else break
+  }
+  const progressFraction = stages.length > 1
+    ? Math.min(1, Math.max(0, (consecutiveDone - 1) / (stages.length - 1)))
+    : 0
+
+  return (
+    <div className="px-7 pb-3 pt-4">
+      <div className="relative mx-auto w-full max-w-[540px]">
+        {/* background line */}
+        <div className="absolute left-[14px] right-[14px] top-[13px] h-px bg-border" aria-hidden="true" />
+        {/* progress line */}
+        <div
+          className="absolute left-[14px] top-[13px] h-px bg-primary/60 transition-[width] duration-300"
+          style={{ width: `calc((100% - 28px) * ${progressFraction})` }}
+          aria-hidden="true"
+        />
+
+        <div className="relative flex justify-between">
+          {stages.map((stage, index) => {
+            const active = index === stageIndex
+            const done = stageDone[stage.key]
+            const reachable = index === 0 || stages.slice(0, index).every((s) => stageDone[s.key])
+            return (
+              <button
+                key={stage.key}
+                type="button"
+                onClick={() => onJump(index)}
+                disabled={!reachable}
+                className={cn(
+                  'flex flex-col items-center gap-2',
+                  reachable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+                )}
+                aria-label={stage.title}
+              >
+                <span
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-semibold transition-colors',
+                    done
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : active
+                        ? 'border-primary bg-card text-primary'
+                        : 'border-border bg-card text-muted-foreground',
+                    reachable && !active && !done && 'hover:border-primary/60'
+                  )}
+                >
+                  {done ? <Check size={13} strokeWidth={3} /> : index + 1}
+                </span>
+                <span
+                  className={cn(
+                    'whitespace-nowrap text-[11px] font-medium leading-4',
+                    active ? 'text-foreground' : done ? 'text-foreground/75' : 'text-muted-foreground'
+                  )}
+                >
+                  {stage.title}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TypedQuotes({ prompts }: { prompts: Array<{ category: string; prompt: string }> }) {
+  // Shuffle once on mount so each session sees a different ordering, then loop.
+  const shuffled = useMemo(() => {
+    const arr = prompts.slice()
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      const tmp = arr[i]
+      arr[i] = arr[j]
+      arr[j] = tmp
+    }
+    return arr
+  }, [prompts])
+
+  const [index, setIndex] = useState(0)
+  const [text, setText] = useState('')
+  const [phase, setPhase] = useState<'typing' | 'holding' | 'erasing'>('typing')
+  const timerRef = useRef<number | null>(null)
+
+  const current = shuffled[index] ?? shuffled[0]
+
+  useEffect(() => {
+    const full = current.prompt
+    if (timerRef.current) window.clearTimeout(timerRef.current)
+
+    if (phase === 'typing') {
+      if (text.length < full.length) {
+        timerRef.current = window.setTimeout(() => setText(full.slice(0, text.length + 1)), 42)
+      } else {
+        timerRef.current = window.setTimeout(() => setPhase('holding'), 1400)
+      }
+    } else if (phase === 'holding') {
+      timerRef.current = window.setTimeout(() => setPhase('erasing'), 900)
+    } else {
+      if (text.length > 0) {
+        timerRef.current = window.setTimeout(() => setText(full.slice(0, text.length - 1)), 22)
+      } else {
+        timerRef.current = window.setTimeout(() => {
+          setIndex((i) => (i + 1) % shuffled.length)
+          setPhase('typing')
+        }, 220)
+      }
+    }
+
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+    }
+  }, [text, phase, current.prompt, shuffled.length])
+
+  return (
+    <div className="mt-8 w-full">
+      <div className="mx-auto min-h-[120px] max-w-[520px] rounded-2xl border border-border bg-background/60 px-5 py-5 text-left">
+        <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          {current.category}
+        </div>
+        <div className="text-[15px] leading-7 text-foreground/90">
+          <span className="text-muted-foreground/60">“</span>
+          <span>{text}</span>
+          <span
+            className="ml-[2px] inline-block h-[1.05em] w-[2px] translate-y-[3px] animate-pulse bg-foreground/70"
+            aria-hidden="true"
+          />
+          {text === current.prompt && phase !== 'erasing' && (
+            <span className="text-muted-foreground/60">”</span>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 flex justify-center text-[10px] tabular-nums text-muted-foreground/70">
+        {index + 1} / {shuffled.length}
+      </div>
+    </div>
+  )
+}
+
+function FormField({
   label,
   hint,
   value,
-  onChange,
-  inputRef,
   placeholder,
+  onChange,
   type = 'text',
+  required,
 }: {
   label: string
-  hint: string
+  hint?: string
   value: string
-  onChange: (value: string) => void
-  inputRef: RefObject<HTMLInputElement>
   placeholder?: string
+  onChange: (value: string) => void
   type?: 'text' | 'password'
+  required?: boolean
 }) {
   return (
-    <div className="crt-ease-out mt-5 rounded-[18px] border border-[rgba(184,217,174,0.18)] bg-[rgba(16,24,17,0.76)] px-4 py-3 transition-[border-color,box-shadow,transform] duration-200 focus-within:-translate-y-px focus-within:border-[rgba(189,233,177,0.38)] focus-within:shadow-[0_0_18px_rgba(153,226,141,0.12)]">
-      <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-[rgba(169,198,158,0.46)]">
-        {label}
-      </label>
-      <div className="flex items-center gap-2">
-        <span className="text-[rgba(188,217,181,0.72)]">&gt;</span>
-        <input
-          ref={inputRef}
-          autoFocus
-          type={type}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-          className="w-full bg-transparent text-sm tracking-[0.04em] text-[rgba(230,247,223,0.92)] outline-none placeholder:text-[rgba(120,146,116,0.64)]"
-        />
-        <Cursor />
+    <label className="block">
+      <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-foreground">
+        <span>{label}</span>
+        {required && <span className="text-red-500">*</span>}
       </div>
-      <p className="mt-2 text-xs leading-5 text-[rgba(176,201,169,0.62)]">{hint}</p>
-    </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+      />
+      {hint && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</p>}
+    </label>
   )
 }
 
-function TypewriterLine({
-  text,
-  className,
-}: {
-  text: string
-  className?: string
-}) {
-  const prefersReducedMotion = usePrefersReducedMotion()
-  const [displayed, setDisplayed] = useState('')
-  const [typing, setTyping] = useState(false)
 
-  useEffect(() => {
-    const glyphs = Array.from(text)
-
-    if (prefersReducedMotion) {
-      setDisplayed(text)
-      setTyping(false)
-      return
-    }
-
-    setDisplayed('')
-    setTyping(true)
-
-    let index = 0
-    let timer: number | null = null
-
-    const tick = () => {
-      index += 1
-      setDisplayed(glyphs.slice(0, index).join(''))
-
-      if (index >= glyphs.length) {
-        setTyping(false)
-        return
-      }
-
-      timer = window.setTimeout(tick, getGlyphDelay(glyphs[index]))
-    }
-
-    timer = window.setTimeout(tick, 60)
-
-    return () => {
-      if (timer != null) window.clearTimeout(timer)
-    }
-  }, [prefersReducedMotion, text])
-
-  return (
-    <span className={cn('whitespace-pre-wrap break-words', className)}>
-      {displayed}
-      {typing && <span className="crt-type-caret ml-[2px]" aria-hidden="true" />}
-    </span>
-  )
-}
-
-function Cursor() {
-  return <span className="crt-cursor inline-block h-4 w-2 rounded-[1px] bg-[rgba(226,247,217,0.92)] align-middle" aria-hidden="true" />
-}
-
-function SeparatorLine() {
-  return <div className="my-2 h-px w-full bg-[linear-gradient(90deg,rgba(180,214,171,0),rgba(180,214,171,0.36),rgba(180,214,171,0))]" />
-}
-
-function maskSecret(value: string): string {
-  if (value.length <= 8) return '********'
-  return `${value.slice(0, 4)}••••${value.slice(-2)}`
-}
-
-function getGlyphDelay(glyph: string): number {
-  if (!glyph.trim()) return 10
-  if (/^[,.:;!?，。：；！？]$/.test(glyph)) return 70
-  if (/^[A-Z0-9[\]>/-]$/i.test(glyph)) return 16
-  return 28
-}
-
-function getTypewriterDuration(text: string): number {
-  return 60 + Array.from(text).reduce((total, glyph) => total + getGlyphDelay(glyph), 0)
-}
-
-function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => setPrefersReducedMotion(media.matches)
-    update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [])
-
-  return prefersReducedMotion
-}
-
-const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))

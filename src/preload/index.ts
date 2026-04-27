@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import os from 'node:os'
 
 // Custom APIs for renderer
 const api = {}
@@ -8,6 +9,13 @@ const appAPI = {
   isFirstLaunch: () => ipcRenderer.invoke('app:isFirstLaunch'),
   markLaunched: () => ipcRenderer.invoke('app:markLaunched'),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getUsername: (): string => {
+    try {
+      return os.userInfo().username || process.env.USER || process.env.USERNAME || ''
+    } catch {
+      return process.env.USER || process.env.USERNAME || ''
+    }
+  },
   checkForUpdates: () => ipcRenderer.invoke('app:update:check'),
   onUpdateEvent: (callback: (event: Record<string, unknown>) => void) => {
     const handler = (_: Electron.IpcRendererEvent, event: Record<string, unknown>): void => callback(event)
@@ -119,6 +127,7 @@ const dbAPI = {
   getMessages: (sessionId: string) => ipcRenderer.invoke('db:getMessages', sessionId),
   deleteSession: (sessionId: string) => ipcRenderer.invoke('db:deleteSession', sessionId),
   updateSessionTitle: (sessionId: string, title: string) => ipcRenderer.invoke('db:updateSessionTitle', sessionId, title),
+  updateSessionProject: (sessionId: string, projectId: string | null) => ipcRenderer.invoke('db:updateSessionProject', sessionId, projectId),
   listProjects: () => ipcRenderer.invoke('db:listProjects'),
   getProject: (projectId: string) => ipcRenderer.invoke('db:getProject', projectId),
   createProject: (input: { projectId: string; name: string; description?: string }) =>
@@ -135,6 +144,19 @@ const dbAPI = {
 const filesAPI = {
   pick: () => ipcRenderer.invoke('files:pick'),
   resolve: (paths: string[]) => ipcRenderer.invoke('files:resolve', paths),
+  read: (path: string) => ipcRenderer.invoke('files:read', path),
+}
+
+const agentAPI = {
+  listAgents: (params?: { agent_type?: string; source?: string; limit?: number; offset?: number }) =>
+    ipcRenderer.invoke('console:listAgents', params),
+  getAgent: (name: string) => ipcRenderer.invoke('console:getAgent', name),
+  createAgent: (agent: Record<string, unknown>) => ipcRenderer.invoke('console:createAgent', agent),
+  updateAgent: (name: string, fields: Record<string, unknown>) => ipcRenderer.invoke('console:updateAgent', name, fields),
+  deleteAgent: (name: string) => ipcRenderer.invoke('console:deleteAgent', name),
+  probe: (port?: number) => ipcRenderer.invoke('console:probe', port),
+  setPort: (port: number) => ipcRenderer.invoke('console:setPort', port),
+  getPort: () => ipcRenderer.invoke('console:getPort'),
 }
 
 if (process.contextIsolated) {
@@ -151,6 +173,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('skills', skillsAPI)
     contextBridge.exposeInMainWorld('db', dbAPI)
     contextBridge.exposeInMainWorld('files', filesAPI)
+    contextBridge.exposeInMainWorld('agentApi', agentAPI)
   } catch (error) {
     console.error(error)
   }
@@ -179,4 +202,6 @@ if (process.contextIsolated) {
   window.db = dbAPI
   // @ts-ignore (define in dts)
   window.files = filesAPI
+  // @ts-ignore (define in dts)
+  window.agentApi = agentAPI
 }

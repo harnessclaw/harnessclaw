@@ -276,16 +276,44 @@ function ConnectionSection() {
 
   const gw = (config?.gateway || {}) as { host?: string; port?: number; heartbeat?: { enabled?: boolean; intervalS?: number } }
   const host = gw.host ?? '0.0.0.0'
-  const port = gw.port ?? 18790
+  const port = gw.port ?? 8090
   const hbEnabled = gw.heartbeat?.enabled ?? true
   const hbInterval = gw.heartbeat?.intervalS ?? 1800
 
   const [autoReconnect, setAutoReconnect] = useState(true)
   const [reconnectInterval, setReconnectInterval] = useState(5)
   const [connTimeout, setConnTimeout] = useState(10)
+  const [probeState, setProbeState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [probeError, setProbeError] = useState('')
 
   const updateGateway = (patch: Record<string, unknown>) => {
-    updateConfig({ gateway: { ...gw, ...patch } })
+    const next = { ...gw, ...patch }
+    updateConfig({ gateway: next })
+    if (patch.port != null) {
+      void window.agentApi.setPort(patch.port as number)
+    }
+  }
+
+  useEffect(() => {
+    void window.agentApi.setPort(port)
+  }, [])
+
+  const handleProbe = async () => {
+    setProbeState('testing')
+    setProbeError('')
+    try {
+      const result = await window.agentApi.probe(port)
+      if (result.ok) {
+        setProbeState('ok')
+      } else {
+        setProbeState('fail')
+        setProbeError(result.error || '无法连接')
+      }
+    } catch {
+      setProbeState('fail')
+      setProbeError('检测请求失败')
+    }
+    setTimeout(() => setProbeState('idle'), 4000)
   }
 
   if (loading) {
@@ -299,8 +327,33 @@ function ConnectionSection() {
         <SettingRow label="监听地址" description="Gateway 服务端绑定的主机地址">
           <TextInput value={host} onChange={(v) => updateGateway({ host: v })} placeholder="0.0.0.0" className="w-40" mono />
         </SettingRow>
-        <SettingRow label="端口" description="Gateway 监听端口号">
-          <NumberInput value={port} onChange={(v) => updateGateway({ port: v })} min={1} max={65535} className="w-20" />
+        <SettingRow label="端口" description="Console API 端口，默认 8090">
+          <div className="flex items-center gap-2">
+            <NumberInput value={port} onChange={(v) => updateGateway({ port: v })} min={1} max={65535} className="w-20" />
+            <button
+              onClick={() => void handleProbe()}
+              disabled={probeState === 'testing'}
+              className={cn(
+                'inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
+                probeState === 'ok'
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400'
+                  : probeState === 'fail'
+                    ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400'
+                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
+                probeState === 'testing' && 'cursor-not-allowed opacity-70',
+              )}
+            >
+              {probeState === 'testing' ? (
+                <><Loader2 size={12} className="animate-spin" /> 检测中</>
+              ) : probeState === 'ok' ? (
+                <><Check size={12} /> 已连接</>
+              ) : probeState === 'fail' ? (
+                <><X size={12} /> {probeError || '失败'}</>
+              ) : (
+                <><Radio size={12} /> 检测</>
+              )}
+            </button>
+          </div>
         </SettingRow>
         <SettingRow label="自动重连" description="连接断开后自动尝试重新连接">
           <Toggle checked={autoReconnect} onChange={setAutoReconnect} />
