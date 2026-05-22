@@ -146,3 +146,5 @@ function main() {
 }
 
 main()
+
+// touched by PR for issue #39 (reward workflow E2E test)
