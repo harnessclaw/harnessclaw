@@ -148,3 +148,5 @@ function main() {
 main()
 
 // touched by PR for issue #39 (reward workflow E2E test)
+
+// touched by PR for issue #41 (京东卡 reward case)
