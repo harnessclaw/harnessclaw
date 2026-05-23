@@ -31,11 +31,13 @@ llm:
   #   X-Custom: "value"
   providers:
     anthropic:
+      type: "anthropic"
       base_url: "your-api-url"
       api_key: "your-api-key-here"
       model: "your-model-id"
       max_tokens: 16384
 #    openai:
+#      type: "openai"
 #      base_url: "https://api.openai.com"
 #      api_key: "your-openai-api-key"
 #      model: "gpt-4o"
@@ -139,6 +141,8 @@ skills:
 
 # --- Console Management API ---
 console:
+  # Provider / agent management endpoints are served from this console
+  # port, for example: http://127.0.0.1:8090/api/v1/providers
   enabled: true
   host: "0.0.0.0"
   port: 8090
