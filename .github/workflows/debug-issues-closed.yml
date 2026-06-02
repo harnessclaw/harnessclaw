@@ -12,12 +12,18 @@ jobs:
       contents: read
     steps:
       - name: Print issue metadata
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ', ') }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
         run: |
-          echo "issue_number=${{ github.event.issue.number }}"
-          echo "issue_title=${{ github.event.issue.title }}"
-          echo "issue_labels=${{ join(github.event.issue.labels.*.name, ', ') }}"
-          echo "repository=${{ github.repository }}"
-          echo "actor=${{ github.actor }}"
+          echo "issue_number=$ISSUE_NUMBER"
+          echo "issue_title=$ISSUE_TITLE"
+          echo "issue_labels=$ISSUE_LABELS"
+          echo "repository=$REPOSITORY"
+          echo "actor=$ACTOR"
 
       - name: Print event payload
         run: |
