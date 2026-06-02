@@ -4,6 +4,7 @@ on:
   issues:
     types:
       - closed
+  workflow_dispatch:
 
 jobs:
   debug-issues-closed:
