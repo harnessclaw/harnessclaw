@@ -246,6 +246,13 @@ const agentAPI = {
    */
   listRegistryModels: () => ipcRenderer.invoke('console:listRegistryModels'),
   /**
+   * Provider-side model list fetch — queries the currently configured
+   * provider endpoint directly (e.g. OpenAI-compatible `/models`) and
+   * normalizes the response into the registry-like shape used by Settings.
+   */
+  listProviderModels: (payload: { provider: string; type: 'openai' | 'anthropic' | 'gemini'; baseUrl?: string | null; apiKey?: string }) =>
+    ipcRenderer.invoke('console:listProviderModels', payload),
+  /**
    * Agent Capabilities API — GET /api/v1/agent/capabilities. Resolved
    * SupportsFlags + derived capability buckets for the active model,
    * taking endpoint.model_type overrides into account so the gate

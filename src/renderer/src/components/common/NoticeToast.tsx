@@ -26,7 +26,7 @@ export function NoticeToast({
   return (
     <div
       className={cn(
-        'pointer-events-none inset-x-0 z-[60] flex justify-center px-4',
+        'pointer-events-none inset-x-0 z-[1100] flex justify-center px-4',
         anchor === 'viewport' ? 'fixed' : 'absolute',
         position === 'top' ? 'top-4' : 'bottom-5',
         className

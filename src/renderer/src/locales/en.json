@@ -124,8 +124,8 @@
     "engineError": "Cannot connect to engine. Ensure the console port is active.",
     "timeout": "Request timed out",
     "requestFailed": "Request failed: {{error}}",
-    "noModelsInRegistry": "Registry returned no models",
-    "noModelsForProvider": "No models for {{name}} in registry",
+    "noModelsInRegistry": "The current provider returned no models",
+    "noModelsForProvider": "{{name}} returned no models",
     "apiNotFound": "Management API not found (Ensure engine version ≥ 2026-05-14)",
     "editModel": "Edit Model",
     "addModel": "Add Model",
@@ -1034,8 +1034,8 @@
       "engineError": "Cannot connect to engine. Ensure the console port is active.",
       "timeout": "Request timed out",
       "requestFailed": "Request failed: {{error}}",
-      "noModelsInRegistry": "Registry returned no models",
-      "noModelsForProvider": "No models for {{name}} in registry",
+      "noModelsInRegistry": "The current provider returned no models",
+      "noModelsForProvider": "{{name}} returned no models",
       "apiNotFound": "Management API not found (Ensure engine version ≥ 2026-05-14)",
       "editModel": "Edit Model",
       "addModel": "Add Model",
@@ -1452,7 +1452,7 @@
       },
       "enabled": {
         "label": "Enable",
-        "desc": "When enabled, the global hotkey opens the Quick Launcher input box; type a question to jump straight into a new chat."
+        "desc": "Disabled by default to avoid conflicts with IME or system shortcuts. When enabled, the global hotkey opens the Quick Launcher input box; type a question to jump straight into a new chat."
       },
       "hotkey": {
         "label": "Hotkey",

@@ -178,8 +178,8 @@
     "modelNamePlaceholder": "例如 GPT-4",
     "modelsLabel": "模型列表",
     "noMatch": "没有匹配的服务商",
-    "noModelsForProvider": "Registry 中没有 {{name}} 的模型",
-    "noModelsInRegistry": "Registry 未返回模型",
+    "noModelsForProvider": "{{name}} 未返回任何模型",
+    "noModelsInRegistry": "当前供应商未返回任何模型",
     "persist": {
       "readFailed": "读取模型配置失败",
       "saving": "正在保存界面偏好...",
@@ -1044,8 +1044,8 @@
       "engineError": "无法连接到引擎，请确认控制台端口已启动",
       "timeout": "请求超时",
       "requestFailed": "请求失败：{{error}}",
-      "noModelsInRegistry": "注册表未返回任何模型",
-      "noModelsForProvider": "注册表中没有 {{name}} 的模型",
+      "noModelsInRegistry": "当前供应商未返回任何模型",
+      "noModelsForProvider": "{{name}} 未返回任何模型",
       "apiNotFound": "管理 API 未找到（请确认引擎版本 ≥ 2026-05-14）",
       "editModel": "编辑模型",
       "addModel": "添加模型",
@@ -1462,7 +1462,7 @@
       },
       "enabled": {
         "label": "启动",
-        "desc": "开启后可通过全局快捷键随时呼出快捷助手输入框，输入问题直接进入新对话。"
+        "desc": "默认关闭以避免与输入法或系统快捷键冲突。开启后可通过全局快捷键随时呼出快捷助手输入框，输入问题直接进入新对话。"
       },
       "hotkey": {
         "label": "快捷键",

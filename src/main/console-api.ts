@@ -215,6 +215,13 @@ export type RegistryModelsResult =
   | { ok: true; data: RegistryModel[] }
   | { ok: false; status: number; error: string; message?: string }
 
+export interface ProviderModelsFetchPayload {
+  provider: string
+  type: ProviderType
+  baseUrl?: string | null
+  apiKey?: string
+}
+
 // ─── Providers Management API ───────────────────────────────────────────
 // See harnessclaw-engine/docs/api/providers-management-api.md.
 //
@@ -749,6 +756,178 @@ export function listRegistryModels(): Promise<RegistryModelsResult> {
     })
     req.end()
   })
+}
+
+function buildProviderModelUrls(baseUrl: string, type: ProviderType): string[] {
+  const normalized = baseUrl.trim().replace(/\/+$/, '')
+  const candidates: string[] = []
+  const hasVersionSuffix = /\/v\d+(?:beta\d+)?$/i.test(normalized)
+
+  if (type === 'gemini') {
+    if (hasVersionSuffix) candidates.push(`${normalized}/models`)
+    candidates.push(`${normalized}/v1beta/models`)
+    candidates.push(`${normalized}/models`)
+  } else {
+    if (hasVersionSuffix) candidates.push(`${normalized}/models`)
+    candidates.push(`${normalized}/v1/models`)
+    candidates.push(`${normalized}/models`)
+  }
+
+  return Array.from(new Set(candidates))
+}
+
+function extractProviderModelsMessage(body: unknown, fallback: string): string {
+  if (typeof body === 'string' && body.trim()) return body
+  if (!body || typeof body !== 'object') return fallback
+  const rec = body as Record<string, unknown>
+  if (typeof rec.message === 'string' && rec.message.trim()) return rec.message
+  const err = rec.error
+  if (typeof err === 'string' && err.trim()) return err
+  if (err && typeof err === 'object') {
+    const nested = err as Record<string, unknown>
+    if (typeof nested.message === 'string' && nested.message.trim()) return nested.message
+    if (typeof nested.code === 'string' && nested.code.trim()) return nested.code
+  }
+  return fallback
+}
+
+function normalizeProviderModels(
+  provider: string,
+  body: unknown,
+): RegistryModel[] | null {
+  if (!body || typeof body !== 'object') return null
+  const rec = body as Record<string, unknown>
+
+  if (Array.isArray(rec.data)) {
+    const items = rec.data
+      .map((item): RegistryModel | null => {
+        if (!item || typeof item !== 'object') return null
+        const row = item as Record<string, unknown>
+        const rawId = typeof row.id === 'string'
+          ? row.id.trim()
+          : typeof row.name === 'string'
+            ? row.name.trim()
+            : ''
+        if (!rawId) return null
+        const modelId = rawId.replace(/^models\//, '')
+        const displayName = typeof row.display_name === 'string'
+          ? row.display_name
+          : typeof row.displayName === 'string'
+            ? row.displayName
+            : undefined
+        const family = typeof row.family === 'string' ? row.family : undefined
+        return {
+          id: `${provider}:${modelId}`,
+          provider,
+          model_id: modelId,
+          ...(displayName ? { display_name: displayName } : {}),
+          ...(family ? { family } : {}),
+        }
+      })
+      .filter((item): item is RegistryModel => item !== null)
+    return items
+  }
+
+  if (Array.isArray(rec.models)) {
+    const items = rec.models
+      .map((item): RegistryModel | null => {
+        if (!item || typeof item !== 'object') return null
+        const row = item as Record<string, unknown>
+        const rawName = typeof row.name === 'string' ? row.name.trim() : ''
+        if (!rawName) return null
+        const modelId = rawName.replace(/^models\//, '')
+        const displayName = typeof row.displayName === 'string'
+          ? row.displayName
+          : typeof row.display_name === 'string'
+            ? row.display_name
+            : undefined
+        return {
+          id: `${provider}:${modelId}`,
+          provider,
+          model_id: modelId,
+          ...(displayName ? { display_name: displayName } : {}),
+        }
+      })
+      .filter((item): item is RegistryModel => item !== null)
+    return items
+  }
+
+  return null
+}
+
+export async function listProviderModels(
+  payload: ProviderModelsFetchPayload,
+): Promise<RegistryModelsResult> {
+  const provider = payload.provider.trim()
+  const baseUrl = payload.baseUrl?.trim() || ''
+  const apiKey = payload.apiKey?.trim() || ''
+
+  if (!provider) return { ok: false, status: 0, error: 'invalid_provider' }
+  if (!baseUrl) return { ok: false, status: 0, error: 'missing_base_url' }
+  if (!apiKey) return { ok: false, status: 0, error: 'missing_api_key' }
+
+  const urls = buildProviderModelUrls(baseUrl, payload.type)
+  let lastFailure: RegistryModelsResult | null = null
+
+  for (const url of urls) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8000)
+    try {
+      const headers: Record<string, string> = { Accept: 'application/json' }
+      if (payload.type === 'anthropic') {
+        headers['x-api-key'] = apiKey
+        headers['anthropic-version'] = '2023-06-01'
+      } else if (payload.type === 'gemini') {
+        headers['x-goog-api-key'] = apiKey
+      } else {
+        headers.Authorization = `Bearer ${apiKey}`
+      }
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      })
+      const raw = await response.text()
+      let parsed: unknown = raw
+      try {
+        parsed = raw ? JSON.parse(raw) : {}
+      } catch {
+        parsed = raw
+      }
+
+      if (!response.ok) {
+        lastFailure = {
+          ok: false,
+          status: response.status,
+          error: `http_${response.status}`,
+          message: extractProviderModelsMessage(parsed, raw.slice(0, 200)),
+        }
+        if (response.status === 404) continue
+        return lastFailure
+      }
+
+      const models = normalizeProviderModels(provider, parsed)
+      if (!models) {
+        return {
+          ok: false,
+          status: response.status,
+          error: 'invalid_response',
+          message: 'Unsupported models response shape',
+        }
+      }
+      return { ok: true, data: models }
+    } catch (error) {
+      lastFailure = error instanceof Error && error.name === 'AbortError'
+        ? { ok: false, status: 0, error: 'timeout' }
+        : { ok: false, status: 0, error: 'network_error', message: String(error) }
+      return lastFailure
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  return lastFailure || { ok: false, status: 0, error: 'request_failed' }
 }
 
 // ─── Tools Management API ─────────────────────────────────────────────

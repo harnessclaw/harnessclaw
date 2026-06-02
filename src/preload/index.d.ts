@@ -452,6 +452,13 @@ type RegistryModelsResult =
   | { ok: true; data: RegistryModel[] }
   | { ok: false; status: number; error: string; message?: string }
 
+interface ProviderModelsFetchPayload {
+  provider: string
+  type: ProviderType
+  baseUrl?: string | null
+  apiKey?: string
+}
+
 interface AgentCapabilitiesData {
   model_key: string
   supports: RegistryModelSupports
@@ -619,6 +626,7 @@ interface AgentApiInterface {
   getPort: () => Promise<{ port: number }>
   getSessionMetrics: (sessionId: string) => Promise<SessionMetricsResult>
   listRegistryModels: () => Promise<RegistryModelsResult>
+  listProviderModels: (payload: ProviderModelsFetchPayload) => Promise<RegistryModelsResult>
   /** GET /api/v1/agent/capabilities — resolved (override-aware) supports + capability buckets. */
   getAgentCapabilities: () => Promise<AgentCapabilitiesResult>
   /** GET /api/v1/tools — list every hot-editable tool with its current config. */

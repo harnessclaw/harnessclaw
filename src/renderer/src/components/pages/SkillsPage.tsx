@@ -1104,7 +1104,7 @@ function SkillMarketOverlay({
         </div>
 
         {notice && (
-          <NoticeToast tone={notice.tone} message={notice.message} position="top" />
+          <NoticeToast tone={notice.tone} message={notice.message} position="top" anchor="viewport" />
         )}
 
         {manageOpen && (

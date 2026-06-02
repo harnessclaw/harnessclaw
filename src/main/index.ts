@@ -69,6 +69,7 @@ import {
   getConsolePort,
   getSessionMetrics,
   listRegistryModels,
+  listProviderModels,
   getAgentCapabilities,
   listProviders,
   createProvider,
@@ -1148,13 +1149,13 @@ function readLauncherSettings(): { enabled: boolean; hotkey: string } {
   try {
     const cfg = asRecord(readHarnessclawConfig({}))
     const launcher = asRecord(cfg.launcher)
-    const enabled = launcher.enabled === false ? false : true
+    const enabled = launcher.enabled === true
     const hotkey = typeof launcher.hotkey === 'string' && launcher.hotkey.trim().length > 0
       ? String(launcher.hotkey).trim()
       : DEFAULT_LAUNCHER_HOTKEY
     return { enabled, hotkey }
   } catch {
-    return { enabled: true, hotkey: DEFAULT_LAUNCHER_HOTKEY }
+    return { enabled: false, hotkey: DEFAULT_LAUNCHER_HOTKEY }
   }
 }
 
@@ -1731,6 +1732,14 @@ app.whenReady().then(() => {
   ipcMain.handle('console:listRegistryModels', async () => {
     try {
       return await listRegistryModels()
+    } catch (error) {
+      return { ok: false, status: 0, error: 'network_error', message: String(error) }
+    }
+  })
+
+  ipcMain.handle('console:listProviderModels', async (_, payload) => {
+    try {
+      return await listProviderModels(payload)
     } catch (error) {
       return { ok: false, status: 0, error: 'network_error', message: String(error) }
     }

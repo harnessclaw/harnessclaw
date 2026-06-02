@@ -74,7 +74,7 @@ yarn dist
 
 - 💬 Community Discussion: [GitHub Discussions](https://github.com/harnessclaw/harnessclaw/discussions)
 - 🐛 Bug Reports: [Issues](https://github.com/harnessclaw/harnessclaw/issues)
-- 👥 WeChat Work Group: ![WeCom Group](https://github.com/iflytek/astron-agent/raw/main/docs/imgs/WeCom_Group.png)
+- 👥 WeChat Work Group: ![WeCom Group](https://raw.githubusercontent.com/iflytek/astron-agent/main/docs/imgs/WeCom_Group.png)
 
 ## 许可证
 
