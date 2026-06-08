@@ -12,6 +12,7 @@ import {
   Cog,
   FileText,
   ImagePlus,
+  Info,
   Layers3,
   Play,
   Plus,
@@ -513,6 +514,20 @@ export function TeamPage() {
         </header>
 
         <section className="space-y-4 pt-5">
+          {activeView === 'teams' ? (
+            <div
+              role="status"
+              className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground"
+            >
+              <Info size={16} className="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="min-w-0">
+                <p className="font-medium">{t('team.previewBanner.title')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t('team.previewBanner.description')}
+                </p>
+              </div>
+            </div>
+          ) : null}
           {activeView === 'agents' ? (
             agents.length > 0 ? (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

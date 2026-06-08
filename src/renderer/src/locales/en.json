@@ -1581,6 +1581,10 @@
     "emptyAgentsDesc": "Create your first agent above to use in teams later.",
     "emptyTeams": "No Agent Teams yet",
     "emptyTeamsDesc": "Create a team to combine multiple agents into fixed collaborative groups.",
+    "previewBanner": {
+      "title": "Agent Team is in early preview",
+      "description": "Workflow design, collaboration settings, and testing steps are still coming soon. Published teams are kept only for this session and won't persist after a restart."
+    },
     "agentType": {
       "sync": "sync (Sync Sub-agent)",
       "async": "async (Async Sub-agent)",

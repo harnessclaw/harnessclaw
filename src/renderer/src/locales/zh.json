@@ -1591,6 +1591,10 @@
     "emptyAgentsDesc": "从上方创建第一个角色，后续可用于 Team 组合。",
     "emptyTeams": "还没有 Agent Team",
     "emptyTeamsDesc": "创建一个 Team，把多个角色组合成固定协作编组。",
+    "previewBanner": {
+      "title": "Agent Team 处于早期预览阶段",
+      "description": "工作流设计、协作配置、测试等步骤暂未上线；已发布的团队仅在本次会话内保留，重启应用后会丢失。"
+    },
     "agentType": {
       "sync": "sync（同步子体）",
       "async": "async（异步子体）",
