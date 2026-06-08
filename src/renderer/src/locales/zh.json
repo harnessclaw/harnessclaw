@@ -103,7 +103,8 @@
       "missingKey": "{{name}} 缺少 API 密钥",
       "missingBase": "{{name}} 缺少 API 地址",
       "noModels": "{{name}} 至少需要添加一个模型",
-      "noneSelected": "{{name}} 至少需要勾选一个模型"
+      "noneSelected": "{{name}} 至少需要勾选一个模型",
+      "providerDisabledModelSaved": "{{name}} 供应商尚未启用 —— 已保存模型选择，启用 {{name}} 后将立即生效。"
     },
     "capabilities": {
       "vision": "视觉",
@@ -1090,7 +1091,8 @@
         "missingKey": "{{name}} 缺少 API 密钥",
         "missingBase": "{{name}} 缺少 API 地址",
         "noModels": "{{name}} 至少需要添加一个模型",
-        "noneSelected": "{{name}} 至少需要勾选一个模型"
+        "noneSelected": "{{name}} 至少需要勾选一个模型",
+        "providerDisabledModelSaved": "{{name}} 供应商尚未启用 —— 已保存模型选择，启用 {{name}} 后将立即生效。"
       },
       "persist": {
         "readFailed": "模型配置读取失败",

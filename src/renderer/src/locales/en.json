@@ -157,7 +157,8 @@
       "missingKey": "{{name}} is missing API key",
       "missingBase": "{{name}} is missing API base URL",
       "noModels": "{{name}} needs at least one model added",
-      "noneSelected": "{{name}} needs at least one model selected"
+      "noneSelected": "{{name}} needs at least one model selected",
+      "providerDisabledModelSaved": "{{name}} provider isn't enabled yet — your model selection is saved and will apply once you enable {{name}}."
     },
     "persist": {
       "readFailed": "Failed to read model config",
@@ -1080,7 +1081,8 @@
         "missingKey": "{{name}} is missing API key",
         "missingBase": "{{name}} is missing API base URL",
         "noModels": "{{name}} needs at least one model added",
-        "noneSelected": "{{name}} needs at least one model selected"
+        "noneSelected": "{{name}} needs at least one model selected",
+        "providerDisabledModelSaved": "{{name}} provider isn't enabled yet — your model selection is saved and will apply once you enable {{name}}."
       },
       "persist": {
         "readFailed": "Failed to read model config",

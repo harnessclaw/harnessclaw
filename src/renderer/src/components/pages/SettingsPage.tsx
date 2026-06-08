@@ -3803,6 +3803,31 @@ function ModelSection({
 
     updateProvider(selectedProvider, patch)
 
+    // Skip engine sync when the provider itself isn't enabled yet.
+    //
+    // Without this guard, toggling a model on a disabled provider posts
+    // an endpoint to an engine entry that has no credentials applied,
+    // so the engine bounces the request with a misleading
+    // "API Key is Required" — even when the user already filled (and
+    // successfully tested) the API key in the form (#77).
+    //
+    // The renderer state is still updated above, so the model selection
+    // is remembered. When the user later enables the provider via
+    // handleToggleProviderEnabled, its bulk-sync pass walks
+    // `previous.models` and POSTs every enabled entry to the engine in
+    // one go — so deferring the sync here is loss-free.
+    if (!current.enabled) {
+      if (willEnable) {
+        setToastNotice({
+          tone: 'success',
+          message: t('models.validation.providerDisabledModelSaved', {
+            name: getDisplayName(selectedProvider),
+          }),
+        })
+      }
+      return
+    }
+
     // Hot-reload to the engine. Fire-and-forget; failures surface as toasts.
     // Pass the entry's tags so model_type lands in the engine the same
     // moment the endpoint is created — saves the user from having to
