@@ -1579,6 +1579,10 @@
     "newTeam": "New Agent Team",
     "emptyAgents": "No Agents yet",
     "emptyAgentsDesc": "Create your first agent above to use in teams later.",
+    "agentsScopeBanner": {
+      "title": "Custom Agents live in the Agent Team registry",
+      "description": "Agents you create here are wired into Agent Teams. The chat console (Emma) still dispatches the engine's built-in roles such as scheduler / freelancer; to invoke a custom agent, add it to a Team."
+    },
     "emptyTeams": "No Agent Teams yet",
     "emptyTeamsDesc": "Create a team to combine multiple agents into fixed collaborative groups.",
     "agentType": {

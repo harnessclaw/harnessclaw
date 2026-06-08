@@ -1589,6 +1589,10 @@
     "newTeam": "新建 Agent Team",
     "emptyAgents": "还没有角色",
     "emptyAgentsDesc": "从上方创建第一个角色，后续可用于 Team 组合。",
+    "agentsScopeBanner": {
+      "title": "自定义角色目前归 Agent Team 注册表管",
+      "description": "在这里创建的角色会接入 Agent Team。聊天台（Emma）目前调度的仍是引擎内置的 scheduler / freelancer 等角色；要调用自定义角色，请把它编入某个 Team。"
+    },
     "emptyTeams": "还没有 Agent Team",
     "emptyTeamsDesc": "创建一个 Team，把多个角色组合成固定协作编组。",
     "agentType": {
