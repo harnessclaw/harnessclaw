@@ -30,6 +30,13 @@ Harnessclaw is a powerful, Electron-based desktop application designed to manage
 - Node.js (v18 or higher recommended)
 - Yarn package manager
 
+If `yarn` is not available globally, use Corepack, which ships with recent
+Node.js releases:
+
+```bash
+corepack yarn --version
+```
+
 ### Installation
 
 Clone the repository and install the dependencies:
@@ -37,7 +44,7 @@ Clone the repository and install the dependencies:
 ```bash
 git clone https://github.com/harnessclaw/harnessclaw.git
 cd harnessclaw
-yarn install
+corepack yarn install
 ```
 
 ### Development
@@ -45,7 +52,7 @@ yarn install
 Start the application in development mode:
 
 ```bash
-yarn dev
+corepack yarn dev
 ```
 
 ### Build & Release
@@ -53,13 +60,13 @@ yarn dev
 To build the application for your local platform:
 
 ```bash
-yarn build
-yarn dist
+corepack yarn build
+corepack yarn dist
 ```
 
 To build for specific platforms:
-- Mac: `yarn dist:mac`
-- Windows: `yarn dist:win`
+- Mac: `corepack yarn dist:mac`
+- Windows: `corepack yarn dist:win`
 
 Commit, release, and changelog rules are documented in [docs/release-rules.md](./docs/release-rules.md).
 

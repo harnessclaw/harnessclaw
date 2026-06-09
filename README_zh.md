@@ -30,6 +30,12 @@ Harnessclaw 是一款基于 Electron 构建的强大桌面应用程序，旨在�
 - Node.js (推荐 v18 或更高版本)
 - Yarn 包管理器
 
+如果本机没有全局 `yarn` 命令，可以使用新版 Node.js 自带的 Corepack：
+
+```bash
+corepack yarn --version
+```
+
 ### 安装
 
 克隆仓库并安装依赖：
@@ -37,7 +43,7 @@ Harnessclaw 是一款基于 Electron 构建的强大桌面应用程序，旨在�
 ```bash
 git clone https://github.com/harnessclaw/harnessclaw.git
 cd harnessclaw
-yarn install
+corepack yarn install
 ```
 
 ### 开发
@@ -45,7 +51,7 @@ yarn install
 在开发模式下启动应用程序：
 
 ```bash
-yarn dev
+corepack yarn dev
 ```
 
 ### 构建与发布
@@ -53,13 +59,13 @@ yarn dev
 构建适用于本地平台的应用程序：
 
 ```bash
-yarn build
-yarn dist
+corepack yarn build
+corepack yarn dist
 ```
 
 构建特定平台的应用程序：
-- Mac: `yarn dist:mac`
-- Windows: `yarn dist:win`
+- Mac: `corepack yarn dist:mac`
+- Windows: `corepack yarn dist:win`
 
 提交、版本与更新日志规则请见 [docs/release-rules.md](./docs/release-rules.md)。
 
