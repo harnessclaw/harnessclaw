@@ -684,6 +684,14 @@ function ProviderStrategyRow({
   const [chain, setChain] = useState<string[]>([])
   const [chainEntries, setChainEntries] = useState<ProviderChainEntry[]>([])
   const [imageGeneration, setImageGeneration] = useState('')
+  // Video generation tool target ref (`provider:endpoint`). Sourced from
+  // the videogen config tree (listVideoProviders) for the options and
+  // from agent.video_generation for the current value — independent of
+  // the model-provider chain that drives image_generation.
+  const [videoGeneration, setVideoGeneration] = useState('')
+  const [videoProviders, setVideoProviders] = useState<
+    Record<string, { endpoints?: Record<string, { model?: string }> }>
+  >({})
   const [loading, setLoading] = useState(true)
   const [unavailable, setUnavailable] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -725,10 +733,16 @@ function ProviderStrategyRow({
       setImageGeneration(
         typeof aRes.data?.image_generation === 'string' ? aRes.data.image_generation : '',
       )
+      // `video_generation` rides on the same GET /agent payload but the
+      // ambient AgentConfigInfo type predates the field, so read it via a
+      // narrow cast rather than widening the shared type.
+      const videoRef = (aRes.data as { video_generation?: string } | undefined)?.video_generation
+      setVideoGeneration(typeof videoRef === 'string' ? videoRef : '')
     } else {
       setChain([])
       setChainEntries([])
       setImageGeneration('')
+      setVideoGeneration('')
     }
     setLoading(false)
   }, [t])
@@ -736,6 +750,18 @@ function ProviderStrategyRow({
   useEffect(() => {
     void loadAll()
   }, [loadAll])
+
+  // Video endpoints come from the separate videogen config tree, not the
+  // model-provider chain. Load once; failures leave the dropdown with just
+  // the "(none)" option (and any unrecognized saved value).
+  useEffect(() => {
+    void (async () => {
+      const res = await window.agentApi.listVideoProviders()
+      if (res.ok) {
+        setVideoProviders(res.data?.providers ?? {})
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     if (!addOpen) return
@@ -908,6 +934,21 @@ function ProviderStrategyRow({
     return opts
   }, [allEndpoints, imageGeneration, t])
 
+  const videoGenerationOptions = useMemo<{ label: string; value: string }[]>(() => {
+    const opts: { label: string; value: string }[] = [{ label: t('models.select'), value: '' }]
+    for (const [provider, listing] of Object.entries(videoProviders)) {
+      for (const [endpoint, info] of Object.entries(listing?.endpoints ?? {})) {
+        const ref = `${provider}:${endpoint}`
+        const model = info?.model?.trim()
+        opts.push({ label: model ? `${ref}（${model}）` : ref, value: ref })
+      }
+    }
+    if (videoGeneration && !opts.some((o) => o.value === videoGeneration)) {
+      opts.push({ label: t('models.unrecognized', { name: videoGeneration }), value: videoGeneration })
+    }
+    return opts
+  }, [videoProviders, videoGeneration, t])
+
   // persistChain takes the full flat chain; the main-process adapter
   // splits it back into `{primary, fallback_chain}` for PATCH /agent.
   // Empty chain (length 0) intentionally allowed — the engine treats
@@ -1072,6 +1113,25 @@ function ProviderStrategyRow({
     setBusy(false)
   }
 
+  // Mirrors handleImageGenerationChange's optimistic-then-confirm flow.
+  // No endpoint-readiness step: video targets live in the videogen config
+  // tree, which isn't subject to the model-chain repair logic.
+  const handleVideoGenerationChange = async (newRef: string) => {
+    if (newRef === videoGeneration) return
+    setBusy(true)
+    const prev = videoGeneration
+    setVideoGeneration(newRef)
+    const res = await window.agentApi.patchAgentConfig({ video_generation: newRef })
+    if (!res.ok) {
+      setVideoGeneration(prev)
+      setBusy(false)
+      return
+    }
+    const confirmed = (res.data as { video_generation?: string } | undefined)?.video_generation
+    setVideoGeneration(typeof confirmed === 'string' ? confirmed : '')
+    setBusy(false)
+  }
+
   useEffect(() => {
     if (loading || !imageGeneration) return
     const selected = allEndpoints.find((endpoint) => endpoint.ref === imageGeneration)
@@ -1231,6 +1291,24 @@ function ProviderStrategyRow({
             value={imageGeneration}
             onChange={handleImageGenerationChange}
             options={imageGenerationOptions}
+          />
+          {busy && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
+        </div>
+      </SettingRow>
+
+      {/* Label/description use inline literals rather than i18n keys: the
+          videoGenerationProvider locale entries don't exist yet, and this
+          task is scoped to SettingsPage.tsx only. Mirror the image row's
+          structure otherwise. */}
+      <SettingRow
+        label="视频生成模型"
+        description="供视频生成工具使用，不参与主回答模型和 fallback_chain"
+      >
+        <div className="flex items-center gap-2">
+          <SelectInput
+            value={videoGeneration}
+            onChange={handleVideoGenerationChange}
+            options={videoGenerationOptions}
           />
           {busy && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
         </div>
