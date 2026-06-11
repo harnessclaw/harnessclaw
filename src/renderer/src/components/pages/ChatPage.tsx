@@ -26,7 +26,6 @@ import {
 } from '../common/SkillComposerInput'
 import { useAppConfig } from '@/hooks/useEngineConfig'
 import { getProjectDisplayDescription, getProjectDisplayName } from '@/lib/projectDisplay'
-import { useActiveModelCapabilities } from '@/hooks/useActiveModelCapabilities'
 import { PastedBlocksBar, usePastedBlocks } from '../common/PastedBlocksBar'
 import { PlanDraftCard, type PlanDraftStep } from '../common/PlanDraftCard'
 import { PlanStatusButton } from '../common/PlanStatusButton'
@@ -4062,11 +4061,6 @@ export function ChatPage() {
   const [sendBurstActive, setSendBurstActive] = useState(false)
   const [dropBurstActive, setDropBurstActive] = useState(false)
   const pasted = usePastedBlocks()
-  // Active model's resolved supports — used to gate image attachments
-  // before sending. Loads asynchronously on mount; until then we treat
-  // the model as vision-less to err on the side of caution (the gate
-  // never fails closed for text-only sends).
-  const modelCaps = useActiveModelCapabilities()
   const messagesViewportRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -4150,35 +4144,10 @@ export function ChatPage() {
     const imageFiles = initialFiles.filter((a) => a.kind === 'image')
     const otherFiles = initialFiles.filter((a) => a.kind !== 'image')
 
-    // Vision gate. modelCaps may still be loading on a fast first send;
-    // when it is, we err on the side of letting the message through and
-    // rely on the server-side multimodal.Gate (which always runs) to
-    // catch incompatible model + image combinations.
-    if (imageFiles.length > 0 && !modelCaps.loading && !modelCaps.supports.vision) {
-      const noticeAt = Date.now()
-      ensureLocalSession(sid)
-      updateSession(sid, (prev) => ({
-        ...prev,
-        messages: [
-          ...prev.messages,
-          {
-            id: `cap-${noticeAt}`,
-            role: 'assistant',
-            content: '',
-            timestamp: noticeAt,
-            systemNotice: {
-              kind: 'error',
-              title: '当前模型不支持图片输入',
-              message: `模型 ${modelCaps.modelKey || '(未配置)'} 没有 vision 能力，无法识别附带的图片。`,
-              hint: '请在右上角切换到具备多模态能力的模型（如 Claude Opus 4.7 或 GPT-5.5）后重试。',
-            },
-          },
-        ],
-      }))
-      setInput('')
-      setAttachments([])
-      return
-    }
+    // No vision pre-gate: images always pass through. The server no
+    // longer rejects image input for non-vision models either — many
+    // tools consume images (image_generate, video_create i2v, browser
+    // agent), so the downstream model/provider decides what to do.
 
     // Read each image to base64 + sniffed MIME. Limit (10MB) and MIME
     // whitelist enforced in main.
@@ -4251,7 +4220,7 @@ export function ChatPage() {
       has_attachments: initialFiles.length > 0,
       coordinator_mode: coordinatorMode,
     })
-  }, [ensureLocalSession, updateSession, modelCaps])
+  }, [ensureLocalSession, updateSession])
 
   const respondPermission = useCallback(async (requestId: string, approved: boolean, scope: 'once' | 'session') => {
     if (!requestId) return
@@ -6617,34 +6586,10 @@ export function ChatPage() {
     // option to window.harnessclaw.send.
     const imageAttachments = attachments.filter((a) => a.kind === 'image')
 
-    // Pre-send capability gate. The server runs the same check
-    // (multimodal.Gate in the router) and will reject with an
-    // unsupported_modality error frame, but checking client-side
-    // gives instant UX and prevents a pointless WebSocket round-trip.
-    // We skip the gate while caps are still loading (modelCaps.loading)
-    // so a fast user doesn't see false positives on app start.
-    if (imageAttachments.length > 0 && !modelCaps.loading && !modelCaps.supports.vision) {
-      const noticeAt = Date.now()
-      updateSession(sid, (prev) => ({
-        ...prev,
-        messages: [
-          ...prev.messages,
-          {
-            id: `cap-${noticeAt}`,
-            role: 'assistant',
-            content: '',
-            timestamp: noticeAt,
-            systemNotice: {
-              kind: 'error',
-              title: '当前模型不支持图片输入',
-              message: `模型 ${modelCaps.modelKey || '(未配置)'} 没有 vision 能力，无法识别附带的图片。`,
-              hint: '请在右上角切换到具备多模态能力的模型（如 Claude Opus 4.7 或 GPT-5.5）后重试。',
-            },
-          },
-        ],
-      }))
-      return
-    }
+    // No vision pre-gate: images always pass through. The server no
+    // longer rejects image input for non-vision models either — many
+    // tools consume images (image_generate, video_create i2v, browser
+    // agent), so the downstream model/provider decides what to do.
 
     // Read each image to base64 + sniffed MIME via the main-process
     // IPC. Hard limit (10 MB / file) and MIME whitelist are enforced
