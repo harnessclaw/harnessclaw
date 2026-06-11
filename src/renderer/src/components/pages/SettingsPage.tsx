@@ -13,6 +13,8 @@ import {
   ChevronDown, ChevronRight, ExternalLink,
   SlidersHorizontal, RefreshCw, Settings2,
   Globe, Image, Sun, GripVertical, Plus,
+  // Video = sidebar icon for the 视频生成模型 settings section.
+  Video,
   // Keyboard = typing hint icon shown inside the hotkey-capture input
   // while we're waiting for the user to press a combination.
   Keyboard,
@@ -7248,9 +7250,238 @@ function SoftwareSection() {
   )
 }
 
+// ─── Video generation models ────────────────────────────────────────────────
+
+const DOUBAO_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+
+// Local editable shape for one endpoint row. We keep `name` in the row
+// (rather than as the map key) so the user can rename an endpoint freely
+// without React losing the row's input focus on every keystroke.
+interface VideoEndpointRow {
+  name: string
+  model: string
+}
+
+// 视频生成模型配置。GET /api/v1/videogen → 渲染 doubao provider 卡片;
+// 编辑后通过 PATCH /api/v1/videogen 持久化。结构刻意对齐 ModelSection:
+// loading spinner + NoticeToast 反馈 + 密码框 show/hide。
+function VideoModelSection() {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [toastNotice, setToastNotice] = useState<{ tone: 'error' | 'success'; message: string } | null>(null)
+
+  const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [endpoints, setEndpoints] = useState<VideoEndpointRow[]>([])
+
+  // Hydrate form state from a GET/PATCH response. doubao is the only
+  // provider we render today; if the engine ever returns more we still
+  // only surface doubao here (Task 18 scope). Typed structurally rather
+  // than via the ambient `VideoGenListing` name (preload's interfaces
+  // aren't visible to the renderer tsconfig — same reason `ProviderInfo`
+  // is referenced structurally throughout this file).
+  const hydrate = useCallback(
+    (listing: {
+      providers?: Record<
+        string,
+        { api_key?: string; base_url?: string; endpoints?: Record<string, { model?: string }> }
+      >
+    }) => {
+      const doubao = listing.providers?.doubao
+      setApiKey(doubao?.api_key ?? '')
+      setBaseUrl(doubao?.base_url ?? '')
+      setEndpoints(
+        Object.entries(doubao?.endpoints ?? {}).map(([name, info]) => ({
+          name,
+          model: info?.model ?? '',
+        }))
+      )
+    },
+    []
+  )
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await window.agentApi.listVideoProviders()
+        if (res.ok) {
+          hydrate(res.data)
+        } else {
+          setToastNotice({ tone: 'error', message: res.message || res.error })
+        }
+      } catch {
+        setToastNotice({ tone: 'error', message: '加载失败' })
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [hydrate])
+
+  // Auto-dismiss toast — mirrors ModelSection's 2.6s budget.
+  useEffect(() => {
+    if (!toastNotice) return
+    const timer = window.setTimeout(() => setToastNotice(null), 2600)
+    return () => window.clearTimeout(timer)
+  }, [toastNotice])
+
+  const updateEndpoint = (index: number, patch: Partial<VideoEndpointRow>) => {
+    setEndpoints((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+  const addEndpoint = () => setEndpoints((rows) => [...rows, { name: '', model: '' }])
+  const removeEndpoint = (index: number) =>
+    setEndpoints((rows) => rows.filter((_, i) => i !== index))
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      // Skip rows with a blank name; trim everything so stray whitespace
+      // doesn't leak into the yaml. Later duplicate names win (map insert).
+      const endpointsMap: Record<string, { model: string }> = {}
+      for (const row of endpoints) {
+        const name = row.name.trim()
+        if (!name) continue
+        endpointsMap[name] = { model: row.model.trim() }
+      }
+      // Patch shape matches the ambient `VideoGenPatchPayload`; passed
+      // inline so it's structurally checked at the call site without
+      // naming the (renderer-invisible) type.
+      const res = await window.agentApi.patchVideoConfig({
+        providers: {
+          doubao: {
+            api_key: apiKey.trim(),
+            base_url: baseUrl.trim(),
+            endpoints: endpointsMap,
+          },
+        },
+      })
+      if (res.ok) {
+        hydrate(res.data)
+        setToastNotice({ tone: 'success', message: '已保存' })
+      } else {
+        setToastNotice({ tone: 'error', message: res.message || res.error })
+      }
+    } catch {
+      setToastNotice({ tone: 'error', message: '保存失败' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+  }
+
+  return (
+    <div>
+      <SectionHeader icon={Video} title="视频生成模型" subtitle="配置视频生成服务商的密钥与模型绑定" />
+
+      <GroupCard title="doubao 豆包视频">
+        {/* API 密钥 */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 密钥</p>
+          <div className="relative">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="输入 doubao API Key"
+              className="h-10 w-full rounded-md border border-border bg-background pl-3 pr-10 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+            />
+            <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* API 地址 */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 地址</p>
+          <input
+            type="text"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={DOUBAO_DEFAULT_BASE_URL}
+            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">留空则使用默认地址 {DOUBAO_DEFAULT_BASE_URL}</p>
+        </div>
+
+        {/* Endpoints */}
+        <div className="py-3.5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-foreground">Endpoints</p>
+            <button
+              onClick={addEndpoint}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Plus size={13} /> 添加 endpoint
+            </button>
+          </div>
+          {endpoints.length === 0 ? (
+            <p className="py-2 text-xs text-muted-foreground">暂无 endpoint,点击“添加 endpoint”新增一行。</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {endpoints.map((row, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) => updateEndpoint(index, { name: e.target.value })}
+                    placeholder="endpoint 名称"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <input
+                    type="text"
+                    value={row.model}
+                    onChange={(e) => updateEndpoint(index, { model: e.target.value })}
+                    placeholder="模型 ID"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <button
+                    onClick={() => removeEndpoint(index)}
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-status-disconnected"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </GroupCard>
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          {saving && <Loader2 size={14} className="animate-spin" />}
+          {saving ? '保存中…' : '保存'}
+        </button>
+      </div>
+
+      {toastNotice && (
+        <NoticeToast
+          tone={toastNotice.tone}
+          message={toastNotice.message}
+          position="top"
+          anchor="viewport"
+        />
+      )}
+    </div>
+  )
+}
+
 // ─── Nav ───────────────────────────────────────────────────────────────────
 
-type SectionKey = 'connection' | 'auth' | 'models' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher'
+type SectionKey = 'connection' | 'auth' | 'models' | 'videoModels' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher'
 
 const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'search', 'logs'])
 
@@ -7272,6 +7503,7 @@ export function SettingsPage() {
       items: [
         { key: 'connection', icon: Wifi, label: t('settings.nav.connection') },
         { key: 'models', icon: Cpu, label: t('settings.nav.models') },
+        { key: 'videoModels', icon: Video, label: '视频生成模型' },
         { key: 'agents', icon: Bot, label: t('settings.nav.agents') },
         { key: 'search', icon: Search, label: t('settings.nav.search') },
         { key: 'tools', icon: Wrench, label: t('settings.nav.tools') },
@@ -7351,6 +7583,7 @@ export function SettingsPage() {
                 blinkPrimarySignal={agentBlinkSignal}
               />
             )}
+            {active === 'videoModels' && <VideoModelSection />}
             {active === 'tools' && <ToolsSection />}
             {active === 'updates' && <UpdateSection />}
             {active === 'software' && <SoftwareSection />}
