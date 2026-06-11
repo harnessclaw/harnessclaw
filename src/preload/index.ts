@@ -244,6 +244,36 @@ const workspaceAPI = {
     >,
 }
 
+// Video Generation Management API types. Mirrors the providers/agent
+// IPC: main forwards GET|PATCH /api/v1/videogen and returns the
+// `{ ok, data } | { ok:false, status, error, message }` result shape
+// used by every other console: provider handler.
+export interface VideoEndpoint {
+  model: string
+}
+export interface VideoProviderListing {
+  api_key: string
+  base_url: string
+  endpoints: Record<string, VideoEndpoint>
+}
+export interface VideoGenListing {
+  config_source: string
+  providers: Record<string, VideoProviderListing>
+}
+export interface VideoGenPatch {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
+}
+type VideoGenResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status: number; error: string; message?: string }
+
 const agentAPI = {
   listAgents: (params?: { agent_type?: string; source?: string; limit?: number; offset?: number }) =>
     ipcRenderer.invoke('console:listAgents', params),
@@ -332,10 +362,19 @@ const agentAPI = {
     primary?: string
     fallback_chain?: string[]
     image_generation?: string
+    video_generation?: string
     max_tokens?: number
     temperature?: number
     context_window?: number
   }) => ipcRenderer.invoke('console:patchAgentConfig', patch),
+  // GET /api/v1/videogen — list videogen providers (credentials +
+  // per-endpoint model bindings) + config_source. Proxied through main.
+  listVideoProviders: (): Promise<VideoGenResult<VideoGenListing>> =>
+    ipcRenderer.invoke('console:listVideoProviders'),
+  // PATCH /api/v1/videogen — partial update of the videogen providers
+  // block. Omitted fields left unchanged (mirrors providers PATCH).
+  patchVideoConfig: (patch: VideoGenPatch): Promise<VideoGenResult<VideoGenListing>> =>
+    ipcRenderer.invoke('console:patchVideoConfig', patch),
   // PATCH /providers/{p} — credentials (type / api_key / base_url) or
   // `disabled` flag (engine 2026-05-14+: toggles all endpoints under
   // this provider in one shot).
