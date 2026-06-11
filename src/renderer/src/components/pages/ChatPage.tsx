@@ -12,7 +12,7 @@ import {
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit, SKIP } from 'unist-util-visit'
-import { cn, localFileUrl } from '@/lib/utils'
+import { cn, localFileUrl, normalizeMarkdownImageSrc } from '@/lib/utils'
 import { trackSessionCreate, trackMessageSent } from '@/lib/telemetry'
 import {
   AttachmentPreviewPanel,
@@ -8017,13 +8017,16 @@ function MessageBubble({
         )}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkFilePaths]}
-            // react-markdown v9 sanitizes hrefs by protocol via a default
+            // react-markdown v9 sanitizes href/src values by protocol via a default
             // `urlTransform` (only http/https/mailto/tel/... are kept). That
             // strips our custom `artifact://` and `filepath://` schemes to ''
             // so the `<a>` handler below can never see them. Whitelist them
-            // explicitly while still falling back to the safe default for
-            // every other URL.
-            urlTransform={(url) => {
+            // explicitly, and route Markdown image local paths through the
+            // renderer's `local-file://` protocol before they reach <img>.
+            urlTransform={(url, key, node) => {
+              if (key === 'src' && node?.tagName === 'img') {
+                return normalizeMarkdownImageSrc(url) || ''
+              }
               if (typeof url === 'string' && (url.startsWith('artifact:') || url.startsWith(FILEPATH_HREF_PREFIX))) {
                 return url
               }

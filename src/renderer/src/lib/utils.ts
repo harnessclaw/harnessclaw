@@ -30,3 +30,63 @@ export function localFileUrl(absolutePath: string): string {
   if (!p.startsWith('/')) p = `/${p}`
   return `local-file://local${encodeURI(p).replace(/#/g, '%23').replace(/\?/g, '%3F')}`
 }
+
+const POSIX_LOCAL_PATH_RE = /^\/(?:Users|home|var|tmp|usr|opt|etc|private|Library|Applications|System|mnt|media|dev|srv|root)\//
+const WINDOWS_LOCAL_PATH_RE = /^[A-Za-z]:[\\/]/
+const DATA_IMAGE_RE = /^data:image\/(?:png|jpe?g|gif|webp|bmp);base64,[A-Za-z0-9+/=\s]+$/i
+
+function protocolOfUrlLike(value: string): string | undefined {
+  const colon = value.indexOf(':')
+  if (colon === -1) return undefined
+
+  const slash = value.indexOf('/')
+  const questionMark = value.indexOf('?')
+  const numberSign = value.indexOf('#')
+  if (
+    (slash !== -1 && colon > slash) ||
+    (questionMark !== -1 && colon > questionMark) ||
+    (numberSign !== -1 && colon > numberSign)
+  ) {
+    return undefined
+  }
+  return value.slice(0, colon).toLowerCase()
+}
+
+function fileUrlToPath(value: string): string | undefined {
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'file:') return undefined
+    const decodedPath = decodeURIComponent(parsed.pathname)
+    return /^\/[A-Za-z]:/.test(decodedPath) ? decodedPath.slice(1) : decodedPath
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Markdown image URLs can come back from image-generation tools as local paths
+ * or file:// URLs. Renderer pages cannot load those directly under Electron's
+ * default webSecurity settings, so route them through the app's local-file
+ * protocol. Non-image data URLs are rejected here before React renders <img>.
+ */
+export function normalizeMarkdownImageSrc(src: string | null | undefined): string | undefined {
+  const value = (src || '').trim()
+  if (!value) return undefined
+
+  if (/^local-file:\/\//i.test(value)) return value
+  if (DATA_IMAGE_RE.test(value)) return value
+  if (/^data:/i.test(value)) return undefined
+
+  if (/^file:/i.test(value)) {
+    const filePath = fileUrlToPath(value)
+    return filePath ? localFileUrl(filePath) : undefined
+  }
+
+  if (POSIX_LOCAL_PATH_RE.test(value) || WINDOWS_LOCAL_PATH_RE.test(value)) {
+    return localFileUrl(value)
+  }
+
+  const protocol = protocolOfUrlLike(value)
+  if (protocol && protocol !== 'http' && protocol !== 'https') return undefined
+  return value
+}

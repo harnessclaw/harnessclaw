@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, with versions tracked in the repository and published to GitHub Releases.
 
+## [0.0.21-beta.4] - 2026-06-11
+
+### Fixed
+
+- Fixed generated image links in assistant replies so Markdown image previews render local `file://` and absolute-path outputs through HarnessClaw's safe local file protocol instead of showing broken images.
+
 ## [0.0.21-beta.3] - 2026-06-10
 
 ### Added
