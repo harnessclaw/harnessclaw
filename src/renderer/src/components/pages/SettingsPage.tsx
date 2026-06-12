@@ -164,7 +164,7 @@ function SectionHeader({
 // sub-sections (文本/图片/视频) inside the unified 模型 page.
 function SectionDivider({ label, className }: { label: string; className?: string }) {
   return (
-    <div className={cn('flex items-center gap-3 my-6', className)}>
+    <div className={cn('flex items-center gap-3 mt-1 mb-3', className)}>
       <div className="h-px flex-1 bg-border" />
       <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
       <div className="h-px flex-1 bg-border" />
@@ -4392,7 +4392,7 @@ function ModelSection({
 
         <div className="flex-1 overflow-y-auto px-1.5 pb-2">
           {/* ── 对话模型 (text / LLM providers) ── */}
-          <SectionDivider label="对话模型" className="mt-1 mb-3" />
+          <SectionDivider label="对话模型" />
           {providerKeys.map((key) => {
             const isActive = selectedKind === 'text' && key === selectedProvider
             const isEnabled = Boolean(providers[key]?.enabled)
