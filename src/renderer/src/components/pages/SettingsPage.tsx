@@ -7386,8 +7386,10 @@ function ImageModelSection({ providerName }: { providerName: string }) {
   const [toastNotice, setToastNotice] = useState<{ tone: 'error' | 'success'; message: string } | null>(null)
 
   const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [path, setPath] = useState('')
+  // Unified「API 地址」= the full endpoint URL (base_url + path joined). The
+  // backend stores it as base_url with an empty path, so split-form configs
+  // (base_url + path) are joined here on load and flattened on save.
+  const [apiUrl, setApiUrl] = useState('')
   const [endpoints, setEndpoints] = useState<VideoEndpointRow[]>([])
 
   // Hydrate form state from a GET/PATCH response, scoped to providerName.
@@ -7404,8 +7406,7 @@ function ImageModelSection({ providerName }: { providerName: string }) {
       const prov = listing.providers?.[providerName]
       if (prov) {
         setApiKey(prov.api_key ?? '')
-        setBaseUrl(prov.base_url ?? '')
-        setPath(prov.path ?? '')
+        setApiUrl((prov.base_url ?? '') + (prov.path ?? ''))
         setEndpoints(
           Object.entries(prov.endpoints ?? {}).map(([name, info]) => ({
             name,
@@ -7418,8 +7419,7 @@ function ImageModelSection({ providerName }: { providerName: string }) {
       // only needs to enter the api_key (火山引擎/openai).
       const d = IMAGE_PROVIDER_DEFAULTS[providerName]
       setApiKey('')
-      setBaseUrl(d?.baseUrl ?? '')
-      setPath(d?.path ?? '')
+      setApiUrl(d ? d.baseUrl + d.path : '')
       setEndpoints(d ? d.endpoints.map((e) => ({ ...e })) : [])
     },
     [providerName]
@@ -7472,8 +7472,8 @@ function ImageModelSection({ providerName }: { providerName: string }) {
         providers: {
           [providerName]: {
             api_key: apiKey.trim(),
-            base_url: baseUrl.trim(),
-            path: path.trim(),
+            base_url: apiUrl.trim(), // full endpoint URL; path flattened in
+            path: '',
             endpoints: endpointsMap,
           },
         },
@@ -7520,30 +7520,17 @@ function ImageModelSection({ providerName }: { providerName: string }) {
           </div>
         </div>
 
-        {/* API 地址 */}
+        {/* API 地址（完整接口 URL） */}
         <div className="py-3.5 border-b border-border">
           <p className="text-sm font-semibold text-foreground mb-2">API 地址</p>
           <input
             type="text"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.openai.com"
+            value={apiUrl}
+            onChange={(e) => setApiUrl(e.target.value)}
+            placeholder={`https://api.openai.com${IMAGE_DEFAULT_PATH}`}
             className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
           />
-          <p className="mt-1.5 text-xs text-muted-foreground">留空则使用默认地址</p>
-        </div>
-
-        {/* API 地址 path */}
-        <div className="py-3.5 border-b border-border">
-          <p className="text-sm font-semibold text-foreground mb-2">API 地址 path</p>
-          <input
-            type="text"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder={IMAGE_DEFAULT_PATH}
-            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
-          />
-          <p className="mt-1.5 text-xs text-muted-foreground">留空用默认 {IMAGE_DEFAULT_PATH}</p>
+          <p className="mt-1.5 text-xs text-muted-foreground">完整的图片生成接口地址，例如 {`https://api.openai.com${IMAGE_DEFAULT_PATH}`}</p>
         </div>
 
         {/* Endpoints */}
