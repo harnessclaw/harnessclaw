@@ -1945,6 +1945,28 @@ function mediaProviderDisplayName(key: string): string {
   return MEDIA_PROVIDER_DISPLAY_NAMES[key] ?? key
 }
 
+// Brand icons for image/video provider keys. Falls back to a generic lucide
+// icon (passed by the caller) for keys without a brand asset.
+const MEDIA_PROVIDER_ICONS: Record<string, string> = {
+  openai: new URL('../../assets/providers/openai.svg', import.meta.url).href,
+  volcengine: new URL('../../assets/providers/volcengine.svg', import.meta.url).href,
+}
+function MediaProviderIcon({
+  providerKey,
+  size = 16,
+  fallback,
+}: {
+  providerKey: string
+  size?: number
+  fallback: React.ReactNode
+}): React.ReactElement {
+  const url = MEDIA_PROVIDER_ICONS[providerKey]
+  if (url) {
+    return <img src={url} alt={providerKey} width={size} height={size} style={{ display: 'block' }} />
+  }
+  return <>{fallback}</>
+}
+
 const PROVIDER_APIKEY_PAGES: Record<ManagedProviderKey, string> = {
   xunfei: 'https://console.xfyun.cn/services/bm4',
   anthropic: 'https://console.anthropic.com/settings/keys',
@@ -4364,6 +4386,9 @@ function ModelSection({
       || providers.custom.models.length > 0
     )
   const providerKeys = MANAGED_PROVIDER_KEYS.filter((key) => {
+    // Image-generation providers (doubao/Doubao Seedream, gpt-image) are not
+    // chat models — they belong to the 图片生成 segment, not 对话模型.
+    if (!isAgentProviderKey(key)) return false
     if (key === selectedProvider) return true
     if (key === 'custom' && !showCustomProvider) return false
     if (!searchQuery) return true
@@ -4462,7 +4487,7 @@ function ModelSection({
                 )}
               >
                 <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <Image size={16} />
+                  <MediaProviderIcon providerKey={key} fallback={<Image size={16} />} />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
               </button>
@@ -4491,7 +4516,7 @@ function ModelSection({
                 )}
               >
                 <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <Film size={16} />
+                  <MediaProviderIcon providerKey={key} fallback={<Film size={16} />} />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
               </button>
