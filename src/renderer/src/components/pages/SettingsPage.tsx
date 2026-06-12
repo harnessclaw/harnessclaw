@@ -702,6 +702,12 @@ function ProviderStrategyRow({
   const [videoProviders, setVideoProviders] = useState<
     Record<string, { endpoints?: Record<string, { model?: string }> }>
   >({})
+  // Image endpoints come from the independent imagegen config tree
+  // (cfg.ImageGen via listImageProviders), parallel to videoProviders —
+  // no longer derived from the model-provider chain.
+  const [imageProviders, setImageProviders] = useState<
+    Record<string, { endpoints?: Record<string, { model?: string }> }>
+  >({})
   const [loading, setLoading] = useState(true)
   const [unavailable, setUnavailable] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -710,7 +716,6 @@ function ProviderStrategyRow({
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
   const addMenuRef = useRef<HTMLDivElement | null>(null)
-  const repairingImageEndpointRef = useRef<string | null>(null)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -769,6 +774,18 @@ function ProviderStrategyRow({
       const res = await window.agentApi.listVideoProviders()
       if (res.ok) {
         setVideoProviders(res.data?.providers ?? {})
+      }
+    })()
+  }, [])
+
+  // Image endpoints come from the separate imagegen config tree, not the
+  // model-provider chain. Load once; failures leave the dropdown with just
+  // the "(none)" option (and any unrecognized saved value).
+  useEffect(() => {
+    void (async () => {
+      const res = await window.agentApi.listImageProviders()
+      if (res.ok) {
+        setImageProviders(res.data?.providers ?? {})
       }
     })()
   }, [])
@@ -931,18 +948,18 @@ function ProviderStrategyRow({
 
   const imageGenerationOptions = useMemo<{ label: string; value: string }[]>(() => {
     const opts: { label: string; value: string }[] = [{ label: t('models.select'), value: '' }]
-    for (const e of allEndpoints) {
-      if (!e.providerEnabled) continue
-      if (e.providerDisabled) continue
-      if (e.endpointDisabled) continue
-      if (!isImageGenerationEndpointRef(e)) continue
-      opts.push({ label: e.ref, value: e.ref })
+    for (const [provider, listing] of Object.entries(imageProviders)) {
+      for (const [endpoint, info] of Object.entries(listing?.endpoints ?? {})) {
+        const ref = `${provider}:${endpoint}`
+        const model = (info as { model?: string })?.model?.trim()
+        opts.push({ label: model ? `${ref}（${model}）` : ref, value: ref })
+      }
     }
-    if (imageGeneration && !allEndpoints.some((e) => e.ref === imageGeneration)) {
+    if (imageGeneration && !opts.some((o) => o.value === imageGeneration)) {
       opts.push({ label: t('models.unrecognized', { name: imageGeneration }), value: imageGeneration })
     }
     return opts
-  }, [allEndpoints, imageGeneration, t])
+  }, [imageProviders, imageGeneration, t])
 
   const videoGenerationOptions = useMemo<{ label: string; value: string }[]>(() => {
     const opts: { label: string; value: string }[] = [{ label: t('models.select'), value: '' }]
@@ -978,139 +995,14 @@ function ProviderStrategyRow({
     setBusy(false)
   }
 
-  const ensureImageGenerationEndpointReady = useCallback(async (endpoint: ProviderEndpointRef) => {
-    if (!isImageGenerationEndpointRef(endpoint)) return false
-
-    if (endpoint.providerMissing) {
-      const createProviderPayload: {
-        name: string
-        type: ProviderType
-        base_url?: string
-        api_key?: string
-        disabled?: boolean
-      } = {
-        name: endpoint.provider,
-        type: endpoint.providerEngineType ?? endpoint.type,
-        disabled: false,
-      }
-      const baseUrl = endpoint.providerApiBase?.trim() || ''
-      const apiKey = endpoint.providerApiKey?.trim() || ''
-      if (baseUrl) createProviderPayload.base_url = baseUrl
-      if (apiKey) createProviderPayload.api_key = apiKey
-      const providerRes = await window.agentApi.createProvider(createProviderPayload)
-      if (!providerRes.ok && !(providerRes.status === 400 && /exist/i.test(providerRes.message || ''))) {
-        return false
-      }
-    } else if (endpoint.engineProviderDisabled) {
-      const providerRes = await window.agentApi.patchProvider(endpoint.provider, { disabled: false })
-      if (!providerRes.ok) return false
-    }
-
-    if (endpoint.endpointMissing) {
-      const createEndpointPayload: {
-        name: string
-        model: string
-        disabled?: boolean
-        group?: string
-      } = {
-        name: endpoint.endpoint,
-        model: endpoint.model || endpoint.endpoint,
-        disabled: false,
-      }
-      if (endpoint.endpointGroup) createEndpointPayload.group = endpoint.endpointGroup
-      const createRes = await window.agentApi.createEndpoint(endpoint.provider, createEndpointPayload)
-      if (!createRes.ok && !(createRes.status === 400 && /exist/i.test(createRes.message || ''))) {
-        return false
-      }
-    }
-
-    const endpointPatch: { disabled?: boolean; model_type?: string[] } = {}
-    if (endpoint.engineEndpointDisabled) endpointPatch.disabled = false
-    if (endpoint.modelType && endpoint.modelType.length > 0) endpointPatch.model_type = endpoint.modelType
-
-    if (Object.keys(endpointPatch).length > 0) {
-      const endpointRes = await window.agentApi.patchEndpoint(
-        endpoint.provider,
-        endpoint.endpoint,
-        endpointPatch,
-      )
-      if (!endpointRes.ok) return false
-    }
-
-    setProviders((prev) => {
-      let providerFound = false
-      const next = prev.map((provider) => {
-        if (provider.name !== endpoint.provider) return provider
-        providerFound = true
-        let endpointFound = false
-        const endpoints = provider.endpoints.map((item) => {
-          if (item.name !== endpoint.endpoint) return item
-          endpointFound = true
-          return {
-            ...item,
-            disabled: false,
-            model_type: endpoint.modelType,
-          }
-        })
-        if (!endpointFound) {
-          endpoints.push({
-            name: endpoint.endpoint,
-            model: endpoint.model || endpoint.endpoint,
-            disabled: false,
-            in_chain: false,
-            model_type: endpoint.modelType,
-            ...(endpoint.endpointGroup ? { group: endpoint.endpointGroup } : {}),
-          })
-        }
-        return {
-          ...provider,
-          disabled: false,
-          endpoints,
-        }
-      })
-      if (!providerFound) {
-        next.push({
-          name: endpoint.provider,
-          type: endpoint.providerEngineType ?? endpoint.type,
-          base_url: endpoint.providerApiBase ?? '',
-          api_key: endpoint.providerApiKey ?? '',
-          disabled: false,
-          endpoints: [
-            {
-              name: endpoint.endpoint,
-              model: endpoint.model || endpoint.endpoint,
-              disabled: false,
-              in_chain: false,
-              model_type: endpoint.modelType,
-              ...(endpoint.endpointGroup ? { group: endpoint.endpointGroup } : {}),
-            },
-          ],
-        })
-      }
-      return next
-    })
-    return true
-  }, [])
-
+  // Mirrors handleVideoGenerationChange's optimistic-then-confirm flow.
+  // No endpoint-readiness step: image targets live in the imagegen config
+  // tree (cfg.ImageGen), which isn't subject to the model-chain repair logic.
   const handleImageGenerationChange = async (newRef: string) => {
     if (newRef === imageGeneration) return
     setBusy(true)
     const prev = imageGeneration
     setImageGeneration(newRef)
-    if (newRef) {
-      const selected = allEndpoints.find((endpoint) => endpoint.ref === newRef)
-      if (!selected || !isImageGenerationEndpointRef(selected)) {
-        setImageGeneration(prev)
-        setBusy(false)
-        return
-      }
-      const ready = await ensureImageGenerationEndpointReady(selected)
-      if (!ready) {
-        setImageGeneration(prev)
-        setBusy(false)
-        return
-      }
-    }
     const res = await window.agentApi.patchAgentConfig({ image_generation: newRef })
     if (!res.ok) {
       setImageGeneration(prev)
@@ -1141,34 +1033,6 @@ function ProviderStrategyRow({
     setVideoGeneration(typeof confirmed === 'string' ? confirmed : '')
     setBusy(false)
   }
-
-  useEffect(() => {
-    if (loading || !imageGeneration) return
-    const selected = allEndpoints.find((endpoint) => endpoint.ref === imageGeneration)
-    const selectable = Boolean(
-      selected
-      && selected.providerEnabled
-      && !selected.providerDisabled
-      && !selected.endpointDisabled
-      && isImageGenerationEndpointRef(selected),
-    )
-    if (selectable) {
-      if (
-        selected
-        && (selected.engineProviderDisabled || selected.engineEndpointDisabled)
-        && repairingImageEndpointRef.current !== selected.ref
-      ) {
-        repairingImageEndpointRef.current = selected.ref
-        void ensureImageGenerationEndpointReady(selected).finally(() => {
-          repairingImageEndpointRef.current = null
-        })
-      }
-      return
-    }
-
-    setImageGeneration('')
-    void window.agentApi.patchAgentConfig({ image_generation: '' })
-  }, [allEndpoints, ensureImageGenerationEndpointReady, imageGeneration, loading])
 
   // Picking a new primary: if it currently lives in fallback we strip
   // it (engine constraint: fallback_chain items must differ from
