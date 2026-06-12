@@ -12,7 +12,7 @@ import {
   Pause, Play, RotateCcw, AlertTriangle,
   ChevronDown, ChevronRight, ExternalLink,
   SlidersHorizontal, RefreshCw, Settings2,
-  Globe, Image, Sun, GripVertical, Plus,
+  Globe, Image, Film, Sun, GripVertical, Plus,
   // Keyboard = typing hint icon shown inside the hotkey-capture input
   // while we're waiting for the user to press a combination.
   Keyboard,
@@ -2964,6 +2964,19 @@ function ModelSection({
   )
   const [defaultProvider, setDefaultProvider] = useState<ManagedProviderKey>('anthropic')
   const [selectedProvider, setSelectedProvider] = useState<ManagedProviderKey>('anthropic')
+  // Minimal-risk polymorphic selection: the existing text-provider logic
+  // keeps using the string `selectedProvider` untouched. A separate
+  // `selectedKind` + `selectedExtraKey` overlays the image/video segments:
+  // when kind !== 'text', the right pane renders the corresponding
+  // per-provider section instead of the text-provider card. Clicking any
+  // text provider resets kind back to 'text'.
+  const [selectedKind, setSelectedKind] = useState<'text' | 'image' | 'video'>('text')
+  const [selectedExtraKey, setSelectedExtraKey] = useState<string>('')
+  // Provider keys for the image/video config trees, hydrated on mount from
+  // the imagegen/videogen management listings (default config ships
+  // `openai` image + `doubao` video, so these are normally non-empty).
+  const [imageProviderKeys, setImageProviderKeys] = useState<string[]>([])
+  const [videoProviderKeys, setVideoProviderKeys] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -3132,6 +3145,26 @@ function ModelSection({
         setPersistMessage(t('models.persist.readFailed'))
       } finally {
         setLoading(false)
+      }
+    })()
+  }, [])
+
+  // Load the image/video provider key lists for the left-rail segments.
+  // Independent of the text-provider load above — failures just leave the
+  // segment empty (a muted hint is shown). The default config ships an
+  // `openai` image provider + a `doubao` video provider, so these are
+  // normally populated.
+  useEffect(() => {
+    void (async () => {
+      const [imgRes, vidRes] = await Promise.all([
+        window.agentApi.listImageProviders(),
+        window.agentApi.listVideoProviders(),
+      ])
+      if (imgRes.ok) {
+        setImageProviderKeys(Object.keys(imgRes.data?.providers ?? {}))
+      }
+      if (vidRes.ok) {
+        setVideoProviderKeys(Object.keys(vidRes.data?.providers ?? {}))
       }
     })()
   }, [])
@@ -4482,14 +4515,17 @@ function ModelSection({
         </div>
 
         <div className="flex-1 overflow-y-auto px-1.5 pb-2">
+          {/* ── 对话模型 (text / LLM providers) ── */}
+          <SectionDivider label="对话模型" />
           {providerKeys.map((key) => {
-            const isActive = key === selectedProvider
+            const isActive = selectedKind === 'text' && key === selectedProvider
             const isEnabled = Boolean(providers[key]?.enabled)
 
             return (
               <button
                 key={key}
                 onClick={() => {
+                  setSelectedKind('text')
                   setSelectedProvider(key)
                   setShowApiKey(false)
                   setTestState('idle')
@@ -4524,6 +4560,64 @@ function ModelSection({
               </div>
             </div>
           )}
+
+          {/* ── 图片生成 (image providers) ── */}
+          <SectionDivider label="图片生成" />
+          {imageProviderKeys.map((key) => {
+            const isActive = selectedKind === 'image' && key === selectedExtraKey
+            return (
+              <button
+                key={`image:${key}`}
+                onClick={() => {
+                  setSelectedKind('image')
+                  setSelectedExtraKey(key)
+                }}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
+                  isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
+                )}
+              >
+                <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <Image size={16} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{key}</span>
+              </button>
+            )
+          })}
+          {imageProviderKeys.length === 0 && (
+            <p className="px-2.5 py-2 text-xs text-muted-foreground">
+              在 config 里添加 imagegen provider 后显示
+            </p>
+          )}
+
+          {/* ── 视频生成 (video providers) ── */}
+          <SectionDivider label="视频生成" />
+          {videoProviderKeys.map((key) => {
+            const isActive = selectedKind === 'video' && key === selectedExtraKey
+            return (
+              <button
+                key={`video:${key}`}
+                onClick={() => {
+                  setSelectedKind('video')
+                  setSelectedExtraKey(key)
+                }}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
+                  isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
+                )}
+              >
+                <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <Film size={16} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{key}</span>
+              </button>
+            )
+          })}
+          {videoProviderKeys.length === 0 && (
+            <p className="px-2.5 py-2 text-xs text-muted-foreground">
+              在 config 里添加 videogen provider 后显示
+            </p>
+          )}
         </div>
       </div>
 
@@ -4540,8 +4634,15 @@ function ModelSection({
             </div>
           )}
 
-          <SectionDivider label="文本模型" />
+          {selectedKind === 'image' && (
+            <ImageModelSection providerName={selectedExtraKey} />
+          )}
 
+          {selectedKind === 'video' && (
+            <VideoModelSection providerName={selectedExtraKey} />
+          )}
+
+          {selectedKind === 'text' && (
           <div className="rounded-2xl border border-border bg-card shadow-sm">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-border">
@@ -4960,14 +5061,9 @@ function ModelSection({
               </div>
             </div>
           </div>
+          )}
 
-          <SectionDivider label="图片生成模型" />
-          <ImageGenerationSection />
-
-          <SectionDivider label="视频生成模型" />
-          <VideoModelSection />
-
-          {selectedProviderEnabled && onNavigateToAgents && (
+          {selectedKind === 'text' && selectedProviderEnabled && onNavigateToAgents && (
             <div className="sticky bottom-0 left-0 right-0 z-20 mt-6 -mx-8 px-8 pb-6 pt-3 bg-gradient-to-t from-background via-background/95 to-background/0 pointer-events-none">
               <div className="flex justify-center pointer-events-auto">
                 <button
@@ -7358,117 +7454,243 @@ interface VideoEndpointRow {
   model: string
 }
 
-// 视频生成模型配置。GET /api/v1/videogen → 渲染 doubao provider 卡片;
-// 编辑后通过 PATCH /api/v1/videogen 持久化。结构刻意对齐 ModelSection:
-// loading spinner + NoticeToast 反馈 + 密码框 show/hide。
-// Self-contained image-generation endpoint selector. Mirrors the
-// image_generation logic from ProviderStrategyRow but reads its option
-// list straight off the live provider listing (each endpoint already
-// carries `model_type`), so it needs no prop wiring and can render
-// inline inside ModelSection. Backend is unchanged: image generation
-// still reuses chat endpoints tagged with the image_generation
-// capability; this just patches agent.image_generation.
-function ImageGenerationSection() {
-  const { t } = useTranslation()
-  const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [imageGeneration, setImageGeneration] = useState('')
-  // Endpoint refs (`provider:endpoint`) that advertise the
-  // image_generation capability and live under a routable provider.
-  const [imageEndpoints, setImageEndpoints] = useState<string[]>([])
+const IMAGE_DEFAULT_PATH = '/v1/images/generations'
 
-  const loadAll = useCallback(async () => {
-    setLoading(true)
-    const [pRes, aRes] = await Promise.all([
-      window.agentApi.listProviders(),
-      window.agentApi.getAgentConfig(),
-    ])
-    if (pRes.ok) {
-      const refs: string[] = []
-      // `pRes.data.providers` matches the ambient ProviderInfo shape; the
-      // renderer tsconfig can't see that name (same reason the rest of
-      // this file references it structurally), so destructure inline.
-      const providers = Array.isArray(pRes.data?.providers) ? pRes.data.providers : []
-      for (const p of providers) {
-        if (p?.disabled === true) continue
-        for (const e of p?.endpoints ?? []) {
-          if (e?.disabled === true) continue
-          const modelType = toStringList(e?.model_type)
-          if (modelType.includes('image_generation')) {
-            refs.push(`${p.name}:${e.name}`)
-          }
-        }
-      }
-      setImageEndpoints(refs)
-    }
-    if (aRes.ok) {
-      setImageGeneration(
-        typeof aRes.data?.image_generation === 'string' ? aRes.data.image_generation : '',
+// 图片生成 provider 配置。GET /api/v1/imagegen → 渲染指定 provider 的
+// 凭证 + path + 每个 endpoint 的 model 绑定;编辑后 PATCH /api/v1/imagegen
+// 持久化。结构对齐 VideoModelSection,额外多一个「API 地址 path」字段
+// (videogen 没有 path,imagegen 有)。每个 provider 一个卡片,由
+// ModelSection 左栏选中的 providerName 决定渲染哪一个。
+function ImageModelSection({ providerName }: { providerName: string }) {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [toastNotice, setToastNotice] = useState<{ tone: 'error' | 'success'; message: string } | null>(null)
+
+  const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [path, setPath] = useState('')
+  const [endpoints, setEndpoints] = useState<VideoEndpointRow[]>([])
+
+  // Hydrate form state from a GET/PATCH response, scoped to providerName.
+  // Typed structurally rather than via the ambient `ImageGenListing` name
+  // (preload's interfaces aren't visible to the renderer tsconfig — same
+  // reason `ProviderInfo` is referenced structurally throughout this file).
+  const hydrate = useCallback(
+    (listing: {
+      providers?: Record<
+        string,
+        { api_key?: string; base_url?: string; path?: string; endpoints?: Record<string, { model?: string }> }
+      >
+    }) => {
+      const prov = listing.providers?.[providerName]
+      setApiKey(prov?.api_key ?? '')
+      setBaseUrl(prov?.base_url ?? '')
+      setPath(prov?.path ?? '')
+      setEndpoints(
+        Object.entries(prov?.endpoints ?? {}).map(([name, info]) => ({
+          name,
+          model: info?.model ?? '',
+        }))
       )
-    }
-    setLoading(false)
-  }, [])
+    },
+    [providerName]
+  )
 
   useEffect(() => {
-    void loadAll()
-  }, [loadAll])
+    setLoading(true)
+    void (async () => {
+      try {
+        const res = await window.agentApi.listImageProviders()
+        if (res.ok) {
+          hydrate(res.data)
+        } else {
+          setToastNotice({ tone: 'error', message: res.message || res.error })
+        }
+      } catch {
+        setToastNotice({ tone: 'error', message: '加载失败' })
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [hydrate])
 
-  const options = useMemo<{ label: string; value: string }[]>(() => {
-    const opts: { label: string; value: string }[] = [{ label: t('models.select'), value: '' }]
-    for (const ref of imageEndpoints) {
-      opts.push({ label: ref, value: ref })
-    }
-    // Keep the saved value visible even if it isn't in the current list
-    // (e.g. its endpoint was just disabled), so the user can see state.
-    if (imageGeneration && !imageEndpoints.includes(imageGeneration)) {
-      opts.push({ label: t('models.unrecognized', { name: imageGeneration }), value: imageGeneration })
-    }
-    return opts
-  }, [imageEndpoints, imageGeneration, t])
+  // Auto-dismiss toast — mirrors ModelSection's 2.6s budget.
+  useEffect(() => {
+    if (!toastNotice) return
+    const timer = window.setTimeout(() => setToastNotice(null), 2600)
+    return () => window.clearTimeout(timer)
+  }, [toastNotice])
 
-  const handleChange = async (newRef: string) => {
-    if (newRef === imageGeneration) return
-    setBusy(true)
-    const prev = imageGeneration
-    setImageGeneration(newRef)
-    const res = await window.agentApi.patchAgentConfig({ image_generation: newRef })
-    if (!res.ok) {
-      setImageGeneration(prev)
-      setBusy(false)
-      return
+  const updateEndpoint = (index: number, patch: Partial<VideoEndpointRow>) => {
+    setEndpoints((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+  const addEndpoint = () => setEndpoints((rows) => [...rows, { name: '', model: '' }])
+  const removeEndpoint = (index: number) =>
+    setEndpoints((rows) => rows.filter((_, i) => i !== index))
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      // Skip rows with a blank name; trim everything so stray whitespace
+      // doesn't leak into the yaml. Later duplicate names win (map insert).
+      const endpointsMap: Record<string, { model: string }> = {}
+      for (const row of endpoints) {
+        const name = row.name.trim()
+        if (!name) continue
+        endpointsMap[name] = { model: row.model.trim() }
+      }
+      const res = await window.agentApi.patchImageConfig({
+        providers: {
+          [providerName]: {
+            api_key: apiKey.trim(),
+            base_url: baseUrl.trim(),
+            path: path.trim(),
+            endpoints: endpointsMap,
+          },
+        },
+      })
+      if (res.ok) {
+        hydrate(res.data)
+        setToastNotice({ tone: 'success', message: '已保存' })
+      } else {
+        setToastNotice({ tone: 'error', message: res.message || res.error })
+      }
+    } catch {
+      setToastNotice({ tone: 'error', message: '保存失败' })
+    } finally {
+      setSaving(false)
     }
-    setImageGeneration(
-      typeof res.data?.image_generation === 'string' ? res.data.image_generation : '',
-    )
-    setBusy(false)
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
   }
 
   return (
     <div>
-      <GroupCard title="图片生成模型">
-        <SettingRow
-          label="图片生成模型"
-          description="从带图片生成能力的对话模型中选择;图片生成工具会用它,不参与主回答模型和 fallback_chain。"
-        >
-          <div className="flex items-center gap-2">
-            {(loading || busy) && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
-            <SelectInput
-              value={imageGeneration}
-              onChange={handleChange}
-              options={options}
-              className="min-w-[16rem]"
+      <GroupCard title={`${providerName} 图片生成`}>
+        {/* API 密钥 */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 密钥</p>
+          <div className="relative">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={`输入 ${providerName} API Key`}
+              className="h-10 w-full rounded-md border border-border bg-background pl-3 pr-10 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
             />
+            <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
           </div>
-        </SettingRow>
+        </div>
+
+        {/* API 地址 */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 地址</p>
+          <input
+            type="text"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.openai.com"
+            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">留空则使用默认地址</p>
+        </div>
+
+        {/* API 地址 path */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 地址 path</p>
+          <input
+            type="text"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder={IMAGE_DEFAULT_PATH}
+            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">留空用默认 {IMAGE_DEFAULT_PATH}</p>
+        </div>
+
+        {/* Endpoints */}
+        <div className="py-3.5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-foreground">Endpoints</p>
+            <button
+              onClick={addEndpoint}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Plus size={13} /> 添加 endpoint
+            </button>
+          </div>
+          {endpoints.length === 0 ? (
+            <p className="py-2 text-xs text-muted-foreground">暂无 endpoint,点击“添加 endpoint”新增一行。</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {endpoints.map((row, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) => updateEndpoint(index, { name: e.target.value })}
+                    placeholder="endpoint 名称"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <input
+                    type="text"
+                    value={row.model}
+                    onChange={(e) => updateEndpoint(index, { model: e.target.value })}
+                    placeholder="模型 ID"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <button
+                    onClick={() => removeEndpoint(index)}
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-status-disconnected"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </GroupCard>
-      <p className="px-1 -mt-2 mb-1 text-xs text-muted-foreground">
-        图片生成复用对话模型——在「文本模型」里给某个 endpoint 勾选图片生成能力后,这里即可选择。
-      </p>
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          {saving && <Loader2 size={14} className="animate-spin" />}
+          {saving ? '保存中…' : '保存'}
+        </button>
+      </div>
+
+      {toastNotice && (
+        <NoticeToast
+          tone={toastNotice.tone}
+          message={toastNotice.message}
+          position="top"
+          anchor="viewport"
+        />
+      )}
     </div>
   )
 }
 
-function VideoModelSection() {
+// 视频生成 provider 配置。GET /api/v1/videogen → 渲染指定 provider 卡片;
+// 编辑后通过 PATCH /api/v1/videogen 持久化。结构刻意对齐 ModelSection:
+// loading spinner + NoticeToast 反馈 + 密码框 show/hide。providerName 由
+// ModelSection 左栏选中的视频 provider 决定。
+
+function VideoModelSection({ providerName }: { providerName: string }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -7478,12 +7700,10 @@ function VideoModelSection() {
   const [baseUrl, setBaseUrl] = useState('')
   const [endpoints, setEndpoints] = useState<VideoEndpointRow[]>([])
 
-  // Hydrate form state from a GET/PATCH response. doubao is the only
-  // provider we render today; if the engine ever returns more we still
-  // only surface doubao here (Task 18 scope). Typed structurally rather
-  // than via the ambient `VideoGenListing` name (preload's interfaces
-  // aren't visible to the renderer tsconfig — same reason `ProviderInfo`
-  // is referenced structurally throughout this file).
+  // Hydrate form state from a GET/PATCH response, scoped to providerName.
+  // Typed structurally rather than via the ambient `VideoGenListing` name
+  // (preload's interfaces aren't visible to the renderer tsconfig — same
+  // reason `ProviderInfo` is referenced structurally throughout this file).
   const hydrate = useCallback(
     (listing: {
       providers?: Record<
@@ -7491,20 +7711,21 @@ function VideoModelSection() {
         { api_key?: string; base_url?: string; endpoints?: Record<string, { model?: string }> }
       >
     }) => {
-      const doubao = listing.providers?.doubao
-      setApiKey(doubao?.api_key ?? '')
-      setBaseUrl(doubao?.base_url ?? '')
+      const prov = listing.providers?.[providerName]
+      setApiKey(prov?.api_key ?? '')
+      setBaseUrl(prov?.base_url ?? '')
       setEndpoints(
-        Object.entries(doubao?.endpoints ?? {}).map(([name, info]) => ({
+        Object.entries(prov?.endpoints ?? {}).map(([name, info]) => ({
           name,
           model: info?.model ?? '',
         }))
       )
     },
-    []
+    [providerName]
   )
 
   useEffect(() => {
+    setLoading(true)
     void (async () => {
       try {
         const res = await window.agentApi.listVideoProviders()
@@ -7551,7 +7772,7 @@ function VideoModelSection() {
       // naming the (renderer-invisible) type.
       const res = await window.agentApi.patchVideoConfig({
         providers: {
-          doubao: {
+          [providerName]: {
             api_key: apiKey.trim(),
             base_url: baseUrl.trim(),
             endpoints: endpointsMap,
@@ -7577,7 +7798,7 @@ function VideoModelSection() {
 
   return (
     <div>
-      <GroupCard title="doubao 豆包视频">
+      <GroupCard title={`${providerName} 视频生成`}>
         {/* API 密钥 */}
         <div className="py-3.5 border-b border-border">
           <p className="text-sm font-semibold text-foreground mb-2">API 密钥</p>
@@ -7586,7 +7807,7 @@ function VideoModelSection() {
               type={showApiKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="输入 doubao API Key"
+              placeholder={`输入 ${providerName} API Key`}
               className="h-10 w-full rounded-md border border-border bg-background pl-3 pr-10 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
             />
             <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
