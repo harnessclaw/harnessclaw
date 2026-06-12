@@ -655,6 +655,52 @@ export function patchVideoConfig(patch: VideoGenPatch): Promise<ProvidersResult<
   return providersRequest<VideoGenInfo>('PATCH', '/videogen', patch)
 }
 
+// ─── Image Generation Management API ────────────────────────────────────
+//
+// GET|PATCH /api/v1/imagegen — hot-edit the image generation providers
+// block (credentials + path + per-endpoint model bindings), mirroring the
+// videogen management API but scoped to the `imagegen` config tree.
+// Responses wrap data as `{ code, data }` so they go through the same
+// `providersRequest` helper.
+
+export interface ImageEndpointInfo {
+  model: string
+}
+
+export interface ImageProviderInfo {
+  api_key: string
+  base_url: string
+  path: string
+  endpoints: Record<string, ImageEndpointInfo>
+}
+
+export interface ImageGenInfo {
+  config_source: string
+  providers: Record<string, ImageProviderInfo>
+}
+
+// PATCH body. Any subset; omitted = unchanged. Mirrors the engine's
+// imagegen management contract.
+export interface ImageGenPatch {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      path?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
+}
+
+export function listImageProviders(): Promise<ProvidersResult<ImageGenInfo>> {
+  return providersRequest<ImageGenInfo>('GET', '/imagegen')
+}
+
+export function patchImageConfig(patch: ImageGenPatch): Promise<ProvidersResult<ImageGenInfo>> {
+  return providersRequest<ImageGenInfo>('PATCH', '/imagegen', patch)
+}
+
 // Flatten the agent payload into the legacy `{chain, entries}` shape
 // the renderer's drag-list still consumes. `entries[]` already covers
 // `[primary, ...fallback_chain]` in order, so chain is reconstructable

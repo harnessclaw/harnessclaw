@@ -681,6 +681,34 @@ interface VideoGenPatchPayload {
   >
 }
 
+// Image Generation Management API — GET|PATCH /api/v1/imagegen. Mirrors
+// the videogen management types but scoped to the `imagegen` config tree
+// (credentials + path + per-endpoint model bindings).
+interface ImageEndpoint {
+  model: string
+}
+interface ImageProviderListing {
+  api_key: string
+  base_url: string
+  path: string
+  endpoints: Record<string, ImageEndpoint>
+}
+interface ImageGenListing {
+  config_source: string
+  providers: Record<string, ImageProviderListing>
+}
+interface ImageGenPatch {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      path?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
+}
+
 type ProvidersResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; error: string; message?: string }
@@ -759,6 +787,12 @@ interface AgentApiInterface {
   patchVideoConfig: (
     patch: VideoGenPatchPayload,
   ) => Promise<ProvidersResult<VideoGenListing>>
+  /** GET /api/v1/imagegen — imagegen providers + per-endpoint model bindings. */
+  listImageProviders: () => Promise<ProvidersResult<ImageGenListing>>
+  /** PATCH /api/v1/imagegen — partial update; omitted fields unchanged. */
+  patchImageConfig: (
+    patch: ImageGenPatch,
+  ) => Promise<ProvidersResult<ImageGenListing>>
   patchProvider: (
     name: string,
     patch: ProviderPatchPayload,

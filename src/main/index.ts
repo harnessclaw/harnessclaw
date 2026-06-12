@@ -93,6 +93,8 @@ import {
   patchAgentConfig,
   listVideoProviders,
   patchVideoConfig,
+  listImageProviders,
+  patchImageConfig,
   patchProvider,
   listEndpoints,
   createEndpoint,
@@ -108,6 +110,7 @@ import {
   type EndpointPatch,
   type AgentPatch,
   type VideoGenPatch,
+  type ImageGenPatch,
   type ToolPatchPayload,
 } from './console-api'
 
@@ -2293,6 +2296,29 @@ app.whenReady().then(() => {
         return { ok: false, status: 400, error: 'bad_request', message: 'patch.providers required' }
       }
       return await patchVideoConfig(patch)
+    } catch (error) {
+      return { ok: false, status: 0, error: 'network_error', message: String(error) }
+    }
+  })
+
+  // Image Generation Management API — GET|PATCH /api/v1/imagegen. Mirrors
+  // the videogen handlers: hot-edit the imagegen provider credentials + path
+  // + per-endpoint model bindings at runtime. See the engine's
+  // imagegen-management contract.
+  ipcMain.handle('console:listImageProviders', async () => {
+    try {
+      return await listImageProviders()
+    } catch (error) {
+      return { ok: false, status: 0, error: 'network_error', message: String(error) }
+    }
+  })
+
+  ipcMain.handle('console:patchImageConfig', async (_, patch: ImageGenPatch) => {
+    try {
+      if (!patch || typeof patch !== 'object' || !patch.providers || typeof patch.providers !== 'object') {
+        return { ok: false, status: 400, error: 'bad_request', message: 'patch.providers required' }
+      }
+      return await patchImageConfig(patch)
     } catch (error) {
       return { ok: false, status: 0, error: 'network_error', message: String(error) }
     }

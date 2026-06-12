@@ -274,6 +274,35 @@ type VideoGenResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; error: string; message?: string }
 
+// Image Generation Management API types. Mirrors the videogen IPC: main
+// forwards GET|PATCH /api/v1/imagegen and returns the same
+// `{ ok, data } | { ok:false, status, error, message }` result shape.
+// The image provider/patch carry an extra `path` field vs. videogen.
+export interface ImageEndpoint {
+  model: string
+}
+export interface ImageProviderListing {
+  api_key: string
+  base_url: string
+  path: string
+  endpoints: Record<string, ImageEndpoint>
+}
+export interface ImageGenListing {
+  config_source: string
+  providers: Record<string, ImageProviderListing>
+}
+export interface ImageGenPatch {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      path?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
+}
+
 const agentAPI = {
   listAgents: (params?: { agent_type?: string; source?: string; limit?: number; offset?: number }) =>
     ipcRenderer.invoke('console:listAgents', params),
@@ -375,6 +404,14 @@ const agentAPI = {
   // block. Omitted fields left unchanged (mirrors providers PATCH).
   patchVideoConfig: (patch: VideoGenPatch): Promise<VideoGenResult<VideoGenListing>> =>
     ipcRenderer.invoke('console:patchVideoConfig', patch),
+  // GET /api/v1/imagegen — list imagegen providers (credentials + path +
+  // per-endpoint model bindings) + config_source. Proxied through main.
+  listImageProviders: (): Promise<VideoGenResult<ImageGenListing>> =>
+    ipcRenderer.invoke('console:listImageProviders'),
+  // PATCH /api/v1/imagegen — partial update of the imagegen providers
+  // block. Omitted fields left unchanged (mirrors videogen PATCH).
+  patchImageConfig: (patch: ImageGenPatch): Promise<VideoGenResult<ImageGenListing>> =>
+    ipcRenderer.invoke('console:patchImageConfig', patch),
   // PATCH /providers/{p} — credentials (type / api_key / base_url) or
   // `disabled` flag (engine 2026-05-14+: toggles all endpoints under
   // this provider in one shot).
