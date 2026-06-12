@@ -162,9 +162,9 @@ function SectionHeader({
 
 // Centered divider heading used to visually separate the three model
 // sub-sections (文本/图片/视频) inside the unified 模型 page.
-function SectionDivider({ label }: { label: string }) {
+function SectionDivider({ label, className }: { label: string; className?: string }) {
   return (
-    <div className="flex items-center gap-3 my-6">
+    <div className={cn('flex items-center gap-3 my-6', className)}>
       <div className="h-px flex-1 bg-border" />
       <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
       <div className="h-px flex-1 bg-border" />
@@ -1931,6 +1931,18 @@ function BrandMark({ brand, size, color }: { brand: BrandKey; size: number; colo
 
 function getDisplayName(key: ManagedProviderKey): string {
   return PROVIDER_DISPLAY_NAMES[key]
+}
+
+// Friendly labels for image/video provider keys (cfg.ImageGen / cfg.VideoGen).
+// Unknown keys fall back to the raw key so user-added providers still render.
+const MEDIA_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  openai: 'OpenAI',
+  jimeng: '即梦',
+  doubao: '豆包',
+  volcengine: '火山引擎',
+}
+function mediaProviderDisplayName(key: string): string {
+  return MEDIA_PROVIDER_DISPLAY_NAMES[key] ?? key
 }
 
 const PROVIDER_APIKEY_PAGES: Record<ManagedProviderKey, string> = {
@@ -4380,7 +4392,7 @@ function ModelSection({
 
         <div className="flex-1 overflow-y-auto px-1.5 pb-2">
           {/* ── 对话模型 (text / LLM providers) ── */}
-          <SectionDivider label="对话模型" />
+          <SectionDivider label="对话模型" className="mt-1 mb-3" />
           {providerKeys.map((key) => {
             const isActive = selectedKind === 'text' && key === selectedProvider
             const isEnabled = Boolean(providers[key]?.enabled)
@@ -4444,7 +4456,7 @@ function ModelSection({
                 <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                   <Image size={16} />
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{key}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
               </button>
             )
           })}
@@ -4473,7 +4485,7 @@ function ModelSection({
                 <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                   <Film size={16} />
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{key}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
               </button>
             )
           })}
@@ -7433,7 +7445,7 @@ function ImageModelSection({ providerName }: { providerName: string }) {
 
   return (
     <div>
-      <GroupCard title={`${providerName} 图片生成`}>
+      <GroupCard title={`${mediaProviderDisplayName(providerName)} 图片生成`}>
         {/* API 密钥 */}
         <div className="py-3.5 border-b border-border">
           <p className="text-sm font-semibold text-foreground mb-2">API 密钥</p>
@@ -7662,7 +7674,7 @@ function VideoModelSection({ providerName }: { providerName: string }) {
 
   return (
     <div>
-      <GroupCard title={`${providerName} 视频生成`}>
+      <GroupCard title={`${mediaProviderDisplayName(providerName)} 视频生成`}>
         {/* API 密钥 */}
         <div className="py-3.5 border-b border-border">
           <p className="text-sm font-semibold text-foreground mb-2">API 密钥</p>
