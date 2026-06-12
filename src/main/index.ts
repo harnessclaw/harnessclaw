@@ -1114,7 +1114,9 @@ function createWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    trafficLightPosition: { x: 16, y: 16 },
+    // Center the macOS traffic lights within the 78px collapsed sidebar rail
+    // so the left/right gaps match ((78 - ~52px cluster) / 2 ≈ 13).
+    trafficLightPosition: { x: 13, y: 16 },
     backgroundColor: '#F5F5F7',
     ...(process.platform === 'darwin'
       ? {}
