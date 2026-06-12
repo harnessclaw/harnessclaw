@@ -3037,10 +3037,18 @@ function ModelSection({
         window.agentApi.listVideoProviders(),
       ])
       if (imgRes.ok) {
-        setImageProviderKeys(Object.keys(imgRes.data?.providers ?? {}))
+        setImageProviderKeys(
+          Array.from(new Set([...IMAGE_BUILTIN_PROVIDERS, ...Object.keys(imgRes.data?.providers ?? {})])),
+        )
+      } else {
+        setImageProviderKeys([...IMAGE_BUILTIN_PROVIDERS])
       }
       if (vidRes.ok) {
-        setVideoProviderKeys(Object.keys(vidRes.data?.providers ?? {}))
+        setVideoProviderKeys(
+          Array.from(new Set([...VIDEO_BUILTIN_PROVIDERS, ...Object.keys(vidRes.data?.providers ?? {})])),
+        )
+      } else {
+        setVideoProviderKeys([...VIDEO_BUILTIN_PROVIDERS])
       }
     })()
   }, [])
@@ -7322,6 +7330,40 @@ function SoftwareSection() {
 
 const DOUBAO_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
 
+// Built-in image/video provider keys always offered in the model page, even
+// when the active config hasn't declared them yet (OpenAI + 火山引擎/Ark). The
+// backend registers these names too, so a freshly-filled-in provider works
+// immediately after saving.
+const IMAGE_BUILTIN_PROVIDERS = ['openai', 'volcengine']
+const VIDEO_BUILTIN_PROVIDERS = ['volcengine']
+
+// Sensible prefills used when a built-in provider isn't in the active config
+// yet — so the user only has to enter the api_key.
+const IMAGE_PROVIDER_DEFAULTS: Record<
+  string,
+  { baseUrl: string; path: string; endpoints: { name: string; model: string }[] }
+> = {
+  openai: {
+    baseUrl: 'https://api.openai.com',
+    path: '/v1/images/generations',
+    endpoints: [{ name: 'gpt-image', model: 'gpt-image-1' }],
+  },
+  volcengine: {
+    baseUrl: DOUBAO_DEFAULT_BASE_URL,
+    path: '/images/generations',
+    endpoints: [{ name: 'seedream', model: 'doubao-seedream-3-0-t2i-250415' }],
+  },
+}
+const VIDEO_PROVIDER_DEFAULTS: Record<
+  string,
+  { baseUrl: string; endpoints: { name: string; model: string }[] }
+> = {
+  volcengine: {
+    baseUrl: DOUBAO_DEFAULT_BASE_URL,
+    endpoints: [{ name: 'seedance', model: 'doubao-seedance-1-0-lite-i2v-250428' }],
+  },
+}
+
 // Local editable shape for one endpoint row. We keep `name` in the row
 // (rather than as the map key) so the user can rename an endpoint freely
 // without React losing the row's input focus on every keystroke.
@@ -7360,15 +7402,25 @@ function ImageModelSection({ providerName }: { providerName: string }) {
       >
     }) => {
       const prov = listing.providers?.[providerName]
-      setApiKey(prov?.api_key ?? '')
-      setBaseUrl(prov?.base_url ?? '')
-      setPath(prov?.path ?? '')
-      setEndpoints(
-        Object.entries(prov?.endpoints ?? {}).map(([name, info]) => ({
-          name,
-          model: info?.model ?? '',
-        }))
-      )
+      if (prov) {
+        setApiKey(prov.api_key ?? '')
+        setBaseUrl(prov.base_url ?? '')
+        setPath(prov.path ?? '')
+        setEndpoints(
+          Object.entries(prov.endpoints ?? {}).map(([name, info]) => ({
+            name,
+            model: info?.model ?? '',
+          }))
+        )
+        return
+      }
+      // Not in the active config yet — prefill built-in defaults so the user
+      // only needs to enter the api_key (火山引擎/openai).
+      const d = IMAGE_PROVIDER_DEFAULTS[providerName]
+      setApiKey('')
+      setBaseUrl(d?.baseUrl ?? '')
+      setPath(d?.path ?? '')
+      setEndpoints(d ? d.endpoints.map((e) => ({ ...e })) : [])
     },
     [providerName]
   )
@@ -7588,14 +7640,22 @@ function VideoModelSection({ providerName }: { providerName: string }) {
       >
     }) => {
       const prov = listing.providers?.[providerName]
-      setApiKey(prov?.api_key ?? '')
-      setBaseUrl(prov?.base_url ?? '')
-      setEndpoints(
-        Object.entries(prov?.endpoints ?? {}).map(([name, info]) => ({
-          name,
-          model: info?.model ?? '',
-        }))
-      )
+      if (prov) {
+        setApiKey(prov.api_key ?? '')
+        setBaseUrl(prov.base_url ?? '')
+        setEndpoints(
+          Object.entries(prov.endpoints ?? {}).map(([name, info]) => ({
+            name,
+            model: info?.model ?? '',
+          }))
+        )
+        return
+      }
+      // Not in the active config yet — prefill built-in defaults (火山引擎).
+      const d = VIDEO_PROVIDER_DEFAULTS[providerName]
+      setApiKey('')
+      setBaseUrl(d?.baseUrl ?? '')
+      setEndpoints(d ? d.endpoints.map((e) => ({ ...e })) : [])
     },
     [providerName]
   )
