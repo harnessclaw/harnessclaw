@@ -805,15 +805,26 @@ export function Sidebar() {
             </button>
           </div>
         ) : (
-          <button
-            onClick={() => navigate('/settings')}
-            title={t('sidebar.settings')}
-            aria-label={t('sidebar.settings')}
-            aria-current={isActive('/settings') ? 'page' : undefined}
-            className={itemCls(isActive('/settings'))}
-          >
-            <img src={iconSettings} alt="" className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />
-          </button>
+          <div className="flex w-full flex-col items-center gap-1.5">
+            {/* Collapse/expand toggle sits directly above 设置, 6px gap. */}
+            <button
+              onClick={toggleExpanded}
+              title={t('sidebar.expandAria')}
+              aria-label={t('sidebar.expandAria')}
+              className={itemCls(false)}
+            >
+              <img src={iconSidebarOpen} alt="" className="h-[18px] w-[18px]" aria-hidden="true" />
+            </button>
+            <button
+              onClick={() => navigate('/settings')}
+              title={t('sidebar.settings')}
+              aria-label={t('sidebar.settings')}
+              aria-current={isActive('/settings') ? 'page' : undefined}
+              className={itemCls(isActive('/settings'))}
+            >
+              <img src={iconSettings} alt="" className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />
+            </button>
+          </div>
         )}
 
         {expanded && (
@@ -834,18 +845,6 @@ export function Sidebar() {
           />
         )}
       </nav>
-
-      {/* 收起状态下的展开按钮 - 固定在侧边栏外面，设置按钮右边 */}
-      {!expanded && (
-        <button
-          onClick={toggleExpanded}
-          title={t('sidebar.expandAria')}
-          aria-label={t('sidebar.expandAria')}
-          className="fixed bottom-3 left-[78px] z-50 flex h-11 w-11 items-center justify-center rounded-xl transition-colors hover:bg-accent"
-        >
-          <img src={iconSidebarOpen} alt="" className="h-[18px] w-[18px]" aria-hidden="true" />
-        </button>
-      )}
 
       {menuState && activeMenuItem && createPortal(
         <div
