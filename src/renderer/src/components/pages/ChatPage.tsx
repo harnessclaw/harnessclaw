@@ -817,6 +817,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onRespondStepDecision: RespondStepDecisionHandler
   onRespondPlan: (planId: string, approved: boolean, options?: { steps?: PlanDraftStep[]; reason?: string }) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div
       ref={messagesViewportRef}
@@ -835,7 +836,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
             <MessageBubble
               message={message}
               syncAgents={collaboration.syncAgents}
-              hasPendingPlanDraft={!!planDraft && !planDraft.confirmed}
               onOpenFilePreview={onOpenFilePreview}
               onPreviewUserImage={onPreviewUserImage}
               onOpenArtifact={onOpenArtifact}
@@ -891,9 +891,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
         {/* Emma intent 鎏光：作为"呼应节点"渲染在列表底部，跟着 messagesEndRef
             一起永远靠近视口底部。优先级低于 ThinkingIndicator（thinking-mode
-            reasoning 内容更重要），但优先于通用 Thinking… 兜底。 */}
+            reasoning 内容更重要），但优先于通用 Thinking… 兜底。
+            呼吸闪烁小点和鎏金字体放在同一行。 */}
         {isProcessing && !isPaused && !isStopping && !currentThinking && currentIntent?.text && (
-          <div className="-my-[17px] flex justify-start pl-[2.625rem]">
+          <div className="-my-[17px] flex items-center gap-2 justify-start pl-[2.625rem]">
+            <span className="streaming-breathing-dot shrink-0" aria-label={t('chat.status.serviceContinuing')} />
             <span
               className="chat-thinking-shimmer min-w-0 truncate"
               aria-live="polite"
@@ -905,7 +907,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
         )}
 
         {isProcessing && !isPaused && !isStopping && !currentThinking && !currentIntent?.text && !pendingAssistantMessage?.content && !(pendingAssistantMessage?.tools && pendingAssistantMessage.tools.length > 0) && (
-          <div className="-my-[17px] flex justify-start pl-[2.625rem]">
+          <div className="-my-[17px] flex items-center gap-2 justify-start pl-[2.625rem]">
+            <span className="streaming-breathing-dot shrink-0" aria-label={t('chat.status.serviceContinuing')} />
             <span className="chat-thinking-shimmer" aria-live="polite">Thinking…</span>
           </div>
         )}
@@ -7668,7 +7671,6 @@ function UserMessageText({ text }: { text: string }) {
 function MessageBubble({
   message,
   syncAgents,
-  hasPendingPlanDraft,
   onOpenFilePreview,
   onPreviewUserImage,
   onOpenArtifact,
@@ -7680,10 +7682,6 @@ function MessageBubble({
   /** v1.12: per-agent state used to render the sub-agent task expander and
    * intent shimmer inside the agent-team segment header. */
   syncAgents?: Record<string, SyncAgentState>
-  /** True while a `plan.proposed` PlanDraftCard is awaiting the user. The
-   * engine's turn is parked, so we suppress the breathing-dot indicator on
-   * the streaming assistant message during that window. */
-  hasPendingPlanDraft?: boolean
   onOpenFilePreview: (preview: FilePreviewData) => void
   /** v1.x: 用户消息中的图片点击改走居中 FilePreviewModal（与首页一致）。
    * 非图片附件仍走 onOpenFilePreview / openFilePathPreview。 */
@@ -7699,7 +7697,6 @@ function MessageBubble({
   const [rating, setRating] = useState<'up' | 'down' | null>(null)
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
-  const now = useSharedNowTicker(!isUser && !isSystem && !!message.isStreaming, 250)
   const openFilePathPreview = useCallback(async (path: string) => {
     try {
       const result = await window.files.read(path)
@@ -7917,22 +7914,8 @@ function MessageBubble({
   const userImageAttachments = isUser ? attachments.filter((a) => a.kind === 'image') : []
   const userNonImageAttachments = isUser ? attachments.filter((a) => a.kind !== 'image') : []
   const trailingAttachments = isUser ? userNonImageAttachments : attachments
-  const lastVisibleActivityTs = segments.reduce((latest, seg) => Math.max(latest, seg.ts), message.timestamp)
-  // While a `prompt.user` (AskUserQuestion / permission / plan_review) is
-  // awaiting the user's reply, the engine's turn is parked — nothing is
-  // actually running. Suppress the breathing dot in that case so the UI
-  // doesn't suggest "服务仍在继续" while we are really waiting on the user.
-  const hasUnresolvedPromptUser = segments.some(
-    (seg) =>
-      (seg.kind === 'question' || seg.kind === 'permission' || seg.kind === 'step_decision') && !seg.result,
-  )
-  const shouldShowBreathingDot = !isUser
-    && !isSystem
-    && !!message.isStreaming
-    && segments.length > 0
-    && !hasUnresolvedPromptUser
-    && !hasPendingPlanDraft
-    && now - lastVisibleActivityTs > 1000
+  // 呼吸闪烁小点已上移到 ConversationTimeline 尾部，与"鎏金"shimmer 文案
+  // 同行渲染（受 isProcessing 控制），所以这里不再做 per-message 计算。
   const shouldShowTimestamp = !message.isStreaming
   const hasRenderableAssistantBody = displaySegments.length > 0 || attachments.length > 0 || !!errorNotice
 
@@ -8418,11 +8401,8 @@ function MessageBubble({
           </div>
         )}
 
-        {shouldShowBreathingDot && (
-          <div className="mb-1.5 flex justify-end pr-1">
-            <span className="streaming-breathing-dot" aria-label={t('chat.status.serviceContinuing')} />
-          </div>
-        )}
+        {/* 呼吸闪烁小点已移至会话尾部，与"鎏金"shimmer 文案同行渲染
+            (ConversationTimeline 中的 streaming-breathing-dot + chat-thinking-shimmer)。 */}
 
         {/* 点赞点踩 — AI 回复正文下方常显按钮(流式结束后才出现) */}
         {!isUser && !isSystem && !message.isStreaming && hasRenderableAssistantBody && (
