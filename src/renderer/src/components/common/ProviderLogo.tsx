@@ -11,7 +11,7 @@ const MANAGED_BRAND_ICONS: Record<string, string> = {
   minimax: new URL('../../assets/providers/minimax.svg', import.meta.url).href,
   glm: new URL('../../assets/providers/glm.svg', import.meta.url).href,
   kimi: new URL('../../assets/providers/kimi.svg', import.meta.url).href,
-  deepseek: new URL('../../assets/providers/deepseek.png', import.meta.url).href,
+  deepseek: new URL('../../assets/providers/deepseek.svg', import.meta.url).href,
 }
 
 const PROVIDER_TO_BRAND: Record<ManagedProviderKey, string> = {
