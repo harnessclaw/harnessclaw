@@ -4486,9 +4486,11 @@ function ModelSection({
                   isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
                 )}
               >
-                <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <MediaProviderIcon providerKey={key} fallback={<Image size={16} />} />
-                </span>
+                <MediaProviderIcon
+                  providerKey={key}
+                  size={28}
+                  fallback={<Image size={28} className="text-muted-foreground" />}
+                />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
               </button>
             )
@@ -4515,9 +4517,11 @@ function ModelSection({
                   isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
                 )}
               >
-                <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <MediaProviderIcon providerKey={key} fallback={<Film size={16} />} />
-                </span>
+                <MediaProviderIcon
+                  providerKey={key}
+                  size={28}
+                  fallback={<Film size={28} className="text-muted-foreground" />}
+                />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
               </button>
             )
