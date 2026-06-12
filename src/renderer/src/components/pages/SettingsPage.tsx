@@ -13,8 +13,6 @@ import {
   ChevronDown, ChevronRight, ExternalLink,
   SlidersHorizontal, RefreshCw, Settings2,
   Globe, Image, Sun, GripVertical, Plus,
-  // Video = sidebar icon for the 视频生成模型 settings section.
-  Video,
   // Keyboard = typing hint icon shown inside the hotkey-capture input
   // while we're waiting for the user to press a combination.
   Keyboard,
@@ -158,6 +156,18 @@ function SectionHeader({
         <span className="text-xs text-muted-foreground">{subtitle}</span>
       </div>
       <div className="h-px bg-border" />
+    </div>
+  )
+}
+
+// Centered divider heading used to visually separate the three model
+// sub-sections (文本/图片/视频) inside the unified 模型 page.
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 my-6">
+      <div className="h-px flex-1 bg-border" />
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+      <div className="h-px flex-1 bg-border" />
     </div>
   )
 }
@@ -4530,6 +4540,8 @@ function ModelSection({
             </div>
           )}
 
+          <SectionDivider label="文本模型" />
+
           <div className="rounded-2xl border border-border bg-card shadow-sm">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-border">
@@ -4948,6 +4960,12 @@ function ModelSection({
               </div>
             </div>
           </div>
+
+          <SectionDivider label="图片生成模型" />
+          <ImageGenerationSection />
+
+          <SectionDivider label="视频生成模型" />
+          <VideoModelSection />
 
           {selectedProviderEnabled && onNavigateToAgents && (
             <div className="sticky bottom-0 left-0 right-0 z-20 mt-6 -mx-8 px-8 pb-6 pt-3 bg-gradient-to-t from-background via-background/95 to-background/0 pointer-events-none">
@@ -7343,6 +7361,113 @@ interface VideoEndpointRow {
 // 视频生成模型配置。GET /api/v1/videogen → 渲染 doubao provider 卡片;
 // 编辑后通过 PATCH /api/v1/videogen 持久化。结构刻意对齐 ModelSection:
 // loading spinner + NoticeToast 反馈 + 密码框 show/hide。
+// Self-contained image-generation endpoint selector. Mirrors the
+// image_generation logic from ProviderStrategyRow but reads its option
+// list straight off the live provider listing (each endpoint already
+// carries `model_type`), so it needs no prop wiring and can render
+// inline inside ModelSection. Backend is unchanged: image generation
+// still reuses chat endpoints tagged with the image_generation
+// capability; this just patches agent.image_generation.
+function ImageGenerationSection() {
+  const { t } = useTranslation()
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [imageGeneration, setImageGeneration] = useState('')
+  // Endpoint refs (`provider:endpoint`) that advertise the
+  // image_generation capability and live under a routable provider.
+  const [imageEndpoints, setImageEndpoints] = useState<string[]>([])
+
+  const loadAll = useCallback(async () => {
+    setLoading(true)
+    const [pRes, aRes] = await Promise.all([
+      window.agentApi.listProviders(),
+      window.agentApi.getAgentConfig(),
+    ])
+    if (pRes.ok) {
+      const refs: string[] = []
+      // `pRes.data.providers` matches the ambient ProviderInfo shape; the
+      // renderer tsconfig can't see that name (same reason the rest of
+      // this file references it structurally), so destructure inline.
+      const providers = Array.isArray(pRes.data?.providers) ? pRes.data.providers : []
+      for (const p of providers) {
+        if (p?.disabled === true) continue
+        for (const e of p?.endpoints ?? []) {
+          if (e?.disabled === true) continue
+          const modelType = toStringList(e?.model_type)
+          if (modelType.includes('image_generation')) {
+            refs.push(`${p.name}:${e.name}`)
+          }
+        }
+      }
+      setImageEndpoints(refs)
+    }
+    if (aRes.ok) {
+      setImageGeneration(
+        typeof aRes.data?.image_generation === 'string' ? aRes.data.image_generation : '',
+      )
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void loadAll()
+  }, [loadAll])
+
+  const options = useMemo<{ label: string; value: string }[]>(() => {
+    const opts: { label: string; value: string }[] = [{ label: t('models.select'), value: '' }]
+    for (const ref of imageEndpoints) {
+      opts.push({ label: ref, value: ref })
+    }
+    // Keep the saved value visible even if it isn't in the current list
+    // (e.g. its endpoint was just disabled), so the user can see state.
+    if (imageGeneration && !imageEndpoints.includes(imageGeneration)) {
+      opts.push({ label: t('models.unrecognized', { name: imageGeneration }), value: imageGeneration })
+    }
+    return opts
+  }, [imageEndpoints, imageGeneration, t])
+
+  const handleChange = async (newRef: string) => {
+    if (newRef === imageGeneration) return
+    setBusy(true)
+    const prev = imageGeneration
+    setImageGeneration(newRef)
+    const res = await window.agentApi.patchAgentConfig({ image_generation: newRef })
+    if (!res.ok) {
+      setImageGeneration(prev)
+      setBusy(false)
+      return
+    }
+    setImageGeneration(
+      typeof res.data?.image_generation === 'string' ? res.data.image_generation : '',
+    )
+    setBusy(false)
+  }
+
+  return (
+    <div>
+      <GroupCard title="图片生成模型">
+        <SettingRow
+          label="图片生成模型"
+          description="从带图片生成能力的对话模型中选择;图片生成工具会用它,不参与主回答模型和 fallback_chain。"
+        >
+          <div className="flex items-center gap-2">
+            {(loading || busy) && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
+            <SelectInput
+              value={imageGeneration}
+              onChange={handleChange}
+              options={options}
+              className="min-w-[16rem]"
+            />
+          </div>
+        </SettingRow>
+      </GroupCard>
+      <p className="px-1 -mt-2 mb-1 text-xs text-muted-foreground">
+        图片生成复用对话模型——在「文本模型」里给某个 endpoint 勾选图片生成能力后,这里即可选择。
+      </p>
+    </div>
+  )
+}
+
 function VideoModelSection() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -7452,8 +7577,6 @@ function VideoModelSection() {
 
   return (
     <div>
-      <SectionHeader icon={Video} title="视频生成模型" subtitle="配置视频生成服务商的密钥与模型绑定" />
-
       <GroupCard title="doubao 豆包视频">
         {/* API 密钥 */}
         <div className="py-3.5 border-b border-border">
@@ -7559,7 +7682,7 @@ function VideoModelSection() {
 
 // ─── Nav ───────────────────────────────────────────────────────────────────
 
-type SectionKey = 'connection' | 'auth' | 'models' | 'videoModels' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher'
+type SectionKey = 'connection' | 'auth' | 'models' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher'
 
 const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'search', 'logs'])
 
@@ -7581,7 +7704,6 @@ export function SettingsPage() {
       items: [
         { key: 'connection', icon: Wifi, label: t('settings.nav.connection') },
         { key: 'models', icon: Cpu, label: t('settings.nav.models') },
-        { key: 'videoModels', icon: Video, label: '视频生成模型' },
         { key: 'agents', icon: Bot, label: t('settings.nav.agents') },
         { key: 'search', icon: Search, label: t('settings.nav.search') },
         { key: 'tools', icon: Wrench, label: t('settings.nav.tools') },
@@ -7661,7 +7783,6 @@ export function SettingsPage() {
                 blinkPrimarySignal={agentBlinkSignal}
               />
             )}
-            {active === 'videoModels' && <VideoModelSection />}
             {active === 'tools' && <ToolsSection />}
             {active === 'updates' && <UpdateSection />}
             {active === 'software' && <SoftwareSection />}
