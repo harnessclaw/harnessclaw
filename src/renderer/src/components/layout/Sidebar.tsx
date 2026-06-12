@@ -762,8 +762,9 @@ export function Sidebar() {
                                   })
                             }}
                             className={cn(
-                              'inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground',
-                              menuState?.sessionId === item.id && 'bg-background/80 text-foreground'
+                              // Hidden by default; revealed on row hover / keyboard focus, or while its menu is open.
+                              'inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-background/80 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100',
+                              menuState?.sessionId === item.id && 'bg-background/80 text-foreground opacity-100'
                             )}
                             aria-label={t('sidebar.more')}
                           >
