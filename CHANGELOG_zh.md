@@ -24,6 +24,7 @@
 ### 修复
 
 - 未完成的导航项（Scheduler / Projects / Team / x-Lab）从侧边栏暂时隐藏，避免误入尚未接通的页面。
+- Browser Agent 解析浏览器会话时会拒绝 HarnessClaw 主界面的 CDP target，避免浏览器命令误绑定到 Electron 外壳窗口。
 
 ## [0.0.21-beta.3] - 2026-06-10
 

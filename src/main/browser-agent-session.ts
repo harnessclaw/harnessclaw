@@ -833,6 +833,7 @@ function findMatchingTargetEndpoint(targets: unknown, markerURL: string, targetI
   if (!Array.isArray(targets)) {
     return ''
   }
+  let targetIDEndpoint = ''
   for (const target of targets) {
     if (!target || typeof target !== 'object') {
       continue
@@ -841,14 +842,43 @@ function findMatchingTargetEndpoint(targets: unknown, markerURL: string, targetI
     const id = typeof entry.id === 'string' ? entry.id : ''
     const targetURL = typeof entry.url === 'string' ? entry.url : ''
     const endpoint = typeof entry.webSocketDebuggerUrl === 'string' ? entry.webSocketDebuggerUrl : ''
-    if (targetID && endpoint && (id === targetID || endpoint.endsWith(`/devtools/page/${targetID}`))) {
+    if (!endpoint || isHarnessClawAppTargetURL(targetURL)) {
+      continue
+    }
+    if (targetURL === markerURL) {
       return endpoint
     }
-    if (endpoint && targetURL === markerURL) {
-      return endpoint
+    if (
+      !targetIDEndpoint &&
+      targetID &&
+      isTargetIDFallbackTargetURL(targetURL) &&
+      (id === targetID || endpoint.endsWith(`/devtools/page/${targetID}`))
+    ) {
+      targetIDEndpoint = endpoint
     }
   }
-  return ''
+  return targetIDEndpoint
+}
+
+function isHarnessClawAppTargetURL(raw: string): boolean {
+  if (!raw) {
+    return false
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'file:') {
+    return false
+  }
+  const path = decodeURIComponent(parsed.pathname)
+  return path.includes('/app.asar/out/renderer/index.html')
+}
+
+function isTargetIDFallbackTargetURL(raw: string): boolean {
+  return raw === '' || raw === 'about:blank'
 }
 
 async function defaultFetch(url: string): Promise<FetchResponseLike> {

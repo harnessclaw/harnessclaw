@@ -620,3 +620,46 @@ test('remote debugging resolver selects BrowserWindow target by webContents targ
   assert.deepEqual(attachCalls, ['1.3'])
   assert.equal(detachCalls.length, 1)
 })
+
+test('remote debugging resolver does not bind to the HarnessClaw app renderer target', async () => {
+  const markerURL = 'about:blank#harnessclaw-browser-session=sess_renderer_guard'
+  const window = {
+    webContents: {
+      debugger: {
+        isAttached() {
+          return false
+        },
+        attach() {},
+        async sendCommand(command) {
+          assert.equal(command, 'Target.getTargetInfo')
+          return { targetInfo: { targetId: 'harnessclaw-app-renderer' } }
+        },
+        detach() {},
+      },
+    },
+  }
+  const resolver = createRemoteDebuggingTargetResolver(9555, async (url) => {
+    assert.equal(url, 'http://127.0.0.1:9555/json/list')
+    return {
+      ok: true,
+      async json() {
+        return [
+          {
+            id: 'harnessclaw-app-renderer',
+            url: 'file:///Applications/HarnessClaw.app/Contents/Resources/app.asar/out/renderer/index.html#/chat',
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9555/devtools/page/harnessclaw-app-renderer',
+          },
+          {
+            id: 'browser-agent-target',
+            url: markerURL,
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9555/devtools/page/browser-agent-target',
+          },
+        ]
+      },
+    }
+  }, { retries: 1, delayMs: 1 })
+
+  const endpoint = await resolver(markerURL, window)
+
+  assert.equal(endpoint, 'ws://127.0.0.1:9555/devtools/page/browser-agent-target')
+})
