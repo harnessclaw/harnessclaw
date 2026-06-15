@@ -16,4 +16,3 @@
 ### Fixed
 
 - Unfinished navigation items (Scheduler / Projects / Team / x-Lab) are hidden from the sidebar until they ship, so users can no longer wander into pages that are not yet wired up.
-- Browser Agent now rejects HarnessClaw app renderer CDP targets when resolving a browser session, preventing browser commands from binding to the Electron shell window.

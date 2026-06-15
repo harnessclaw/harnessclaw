@@ -169,11 +169,6 @@ interface ResolverOptions {
   delayMs?: number
 }
 
-interface BrowserAgentWindowTargetInfo {
-  id: string
-  url: string
-}
-
 export class BrowserAgentSessionError extends Error {
   readonly code: string
 
@@ -665,15 +660,18 @@ export function createRemoteDebuggingTargetResolver(
   const delayMs = options.delayMs ?? 100
   return async (markerURL: string, window?: BrowserAgentWindowLike): Promise<string> => {
     let lastError: unknown
+    let targetID = ''
     for (let attempt = 0; attempt < retries; attempt += 1) {
       try {
-        const windowTarget = await resolveWindowTargetInfo(window)
+        if (!targetID) {
+          targetID = await resolveWindowTargetID(window)
+        }
         const res = await fetchImpl(`http://127.0.0.1:${port}/json/list`)
         if (!res.ok) {
           throw new BrowserAgentSessionError('cdp_list_failed', `CDP target list failed with HTTP ${res.status || 0}`)
         }
         const targets = await res.json()
-        const endpoint = findMatchingTargetEndpoint(targets, markerURL, windowTarget)
+        const endpoint = findMatchingTargetEndpoint(targets, markerURL, targetID)
         if (endpoint) {
           return endpoint
         }
@@ -785,25 +783,25 @@ function titleFromURL(raw: string): string {
   }
 }
 
-async function resolveWindowTargetInfo(window?: BrowserAgentWindowLike): Promise<BrowserAgentWindowTargetInfo> {
+async function resolveWindowTargetID(window?: BrowserAgentWindowLike): Promise<string> {
   const dbg = window?.webContents?.debugger
   if (!dbg || typeof dbg.sendCommand !== 'function') {
-    return emptyWindowTargetInfo()
+    return ''
   }
   let attachedHere = false
   try {
     const isAttached = typeof dbg.isAttached === 'function' ? dbg.isAttached() : false
     if (!isAttached) {
       if (typeof dbg.attach !== 'function') {
-        return emptyWindowTargetInfo()
+        return ''
       }
       dbg.attach('1.3')
       attachedHere = true
     }
     const info = await dbg.sendCommand('Target.getTargetInfo')
-    return extractWindowTargetInfo(info)
+    return extractTargetID(info)
   } catch {
-    return emptyWindowTargetInfo()
+    return ''
   } finally {
     if (attachedHere && typeof dbg.detach === 'function') {
       try {
@@ -815,39 +813,26 @@ async function resolveWindowTargetInfo(window?: BrowserAgentWindowLike): Promise
   }
 }
 
-function emptyWindowTargetInfo(): BrowserAgentWindowTargetInfo {
-  return { id: '', url: '' }
-}
-
-function extractWindowTargetInfo(info: unknown): BrowserAgentWindowTargetInfo {
+function extractTargetID(info: unknown): string {
   if (!info || typeof info !== 'object') {
-    return emptyWindowTargetInfo()
+    return ''
   }
-  const directID = (info as Record<string, unknown>).targetId
-  const directURL = (info as Record<string, unknown>).url
+  const direct = (info as Record<string, unknown>).targetId
+  if (typeof direct === 'string') {
+    return direct
+  }
   const targetInfo = (info as Record<string, unknown>).targetInfo
-  if (targetInfo && typeof targetInfo === 'object') {
-    const nested = targetInfo as Record<string, unknown>
-    return {
-      id: typeof nested.targetId === 'string' ? nested.targetId : '',
-      url: typeof nested.url === 'string' ? nested.url : '',
-    }
+  if (!targetInfo || typeof targetInfo !== 'object') {
+    return ''
   }
-  return {
-    id: typeof directID === 'string' ? directID : '',
-    url: typeof directURL === 'string' ? directURL : '',
-  }
+  const nested = (targetInfo as Record<string, unknown>).targetId
+  return typeof nested === 'string' ? nested : ''
 }
 
-function findMatchingTargetEndpoint(
-  targets: unknown,
-  markerURL: string,
-  windowTarget: BrowserAgentWindowTargetInfo = emptyWindowTargetInfo(),
-): string {
+function findMatchingTargetEndpoint(targets: unknown, markerURL: string, targetID = ''): string {
   if (!Array.isArray(targets)) {
     return ''
   }
-  let targetIDEndpoint = ''
   for (const target of targets) {
     if (!target || typeof target !== 'object') {
       continue
@@ -856,81 +841,14 @@ function findMatchingTargetEndpoint(
     const id = typeof entry.id === 'string' ? entry.id : ''
     const targetURL = typeof entry.url === 'string' ? entry.url : ''
     const endpoint = typeof entry.webSocketDebuggerUrl === 'string' ? entry.webSocketDebuggerUrl : ''
-    if (!endpoint || isHarnessClawAppTargetURL(targetURL)) {
-      continue
+    if (targetID && endpoint && (id === targetID || endpoint.endsWith(`/devtools/page/${targetID}`))) {
+      return endpoint
     }
-    const matchesWindowTarget = isMatchingWindowTarget(endpoint, id, windowTarget.id)
-    if (targetURL === markerURL) {
-      if (!windowTarget.id || matchesWindowTarget) {
-        return endpoint
-      }
-      continue
-    }
-    if (
-      !targetIDEndpoint &&
-      isOwnedWindowTargetFallback(markerURL, windowTarget) &&
-      isTargetIDFallbackTargetURL(targetURL) &&
-      matchesWindowTarget
-    ) {
-      targetIDEndpoint = endpoint
+    if (endpoint && targetURL === markerURL) {
+      return endpoint
     }
   }
-  return targetIDEndpoint
-}
-
-function isMatchingWindowTarget(endpoint: string, targetID: string, windowTargetID: string): boolean {
-  if (!windowTargetID) {
-    return false
-  }
-  return targetID === windowTargetID || endpoint.endsWith(`/devtools/page/${windowTargetID}`)
-}
-
-function isOwnedWindowTargetFallback(markerURL: string, windowTarget: BrowserAgentWindowTargetInfo): boolean {
-  if (!windowTarget.id || !windowTarget.url) {
-    return false
-  }
-  if (isHarnessClawAppTargetURL(windowTarget.url)) {
-    return false
-  }
-  return windowTarget.url === markerURL
-}
-
-function isHarnessClawAppTargetURL(raw: string): boolean {
-  if (!raw) {
-    return false
-  }
-  let parsed: URL
-  try {
-    parsed = new URL(raw)
-  } catch {
-    return false
-  }
-  if (isConfiguredRendererURL(parsed)) {
-    return true
-  }
-  if (parsed.protocol === 'file:') {
-    const path = decodeURIComponent(parsed.pathname)
-    return path.includes('/app.asar/out/renderer/index.html') || path.endsWith('/out/renderer/index.html')
-  }
-  return false
-}
-
-function isConfiguredRendererURL(parsed: URL): boolean {
-  const configured = optionalString(process.env.ELECTRON_RENDERER_URL)
-  if (!configured) {
-    return false
-  }
-  let rendererURL: URL
-  try {
-    rendererURL = new URL(configured)
-  } catch {
-    return false
-  }
-  return parsed.protocol === rendererURL.protocol && parsed.host === rendererURL.host && parsed.pathname === rendererURL.pathname
-}
-
-function isTargetIDFallbackTargetURL(raw: string): boolean {
-  return raw === '' || raw === 'about:blank'
+  return ''
 }
 
 async function defaultFetch(url: string): Promise<FetchResponseLike> {
