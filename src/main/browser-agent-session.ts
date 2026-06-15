@@ -859,19 +859,30 @@ function findMatchingTargetEndpoint(
     if (!endpoint || isHarnessClawAppTargetURL(targetURL)) {
       continue
     }
+    const matchesWindowTarget = isMatchingWindowTarget(endpoint, id, windowTarget.id)
     if (targetURL === markerURL) {
-      return endpoint
+      if (!windowTarget.id || matchesWindowTarget) {
+        return endpoint
+      }
+      continue
     }
     if (
       !targetIDEndpoint &&
       isOwnedWindowTargetFallback(markerURL, windowTarget) &&
       isTargetIDFallbackTargetURL(targetURL) &&
-      (id === windowTarget.id || endpoint.endsWith(`/devtools/page/${windowTarget.id}`))
+      matchesWindowTarget
     ) {
       targetIDEndpoint = endpoint
     }
   }
   return targetIDEndpoint
+}
+
+function isMatchingWindowTarget(endpoint: string, targetID: string, windowTargetID: string): boolean {
+  if (!windowTargetID) {
+    return false
+  }
+  return targetID === windowTargetID || endpoint.endsWith(`/devtools/page/${windowTargetID}`)
 }
 
 function isOwnedWindowTargetFallback(markerURL: string, windowTarget: BrowserAgentWindowTargetInfo): boolean {

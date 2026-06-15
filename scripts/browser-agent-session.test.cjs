@@ -626,6 +626,54 @@ test('remote debugging resolver selects BrowserWindow target by webContents targ
   assert.equal(detachCalls.length, 1)
 })
 
+test('remote debugging resolver only accepts marker URL matches owned by the BrowserWindow target', async () => {
+  const markerURL = 'about:blank#harnessclaw-browser-session=sess_owned_marker'
+  const window = {
+    webContents: {
+      debugger: {
+        isAttached() {
+          return false
+        },
+        attach() {},
+        async sendCommand(command) {
+          assert.equal(command, 'Target.getTargetInfo')
+          return {
+            targetInfo: {
+              targetId: 'browser-agent-target',
+              url: markerURL,
+            },
+          }
+        },
+        detach() {},
+      },
+    },
+  }
+  const resolver = createRemoteDebuggingTargetResolver(9544, async (url) => {
+    assert.equal(url, 'http://127.0.0.1:9544/json/list')
+    return {
+      ok: true,
+      async json() {
+        return [
+          {
+            id: 'harnessclaw-app-renderer',
+            url: markerURL,
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9544/devtools/page/harnessclaw-app-renderer',
+          },
+          {
+            id: 'browser-agent-target',
+            url: markerURL,
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9544/devtools/page/browser-agent-target',
+          },
+        ]
+      },
+    }
+  }, { retries: 1, delayMs: 1 })
+
+  const endpoint = await resolver(markerURL, window)
+
+  assert.equal(endpoint, 'ws://127.0.0.1:9544/devtools/page/browser-agent-target')
+})
+
 test('remote debugging resolver rejects target-id fallback when the window target URL does not match the marker', async () => {
   const markerURL = 'about:blank#harnessclaw-browser-session=sess_wrong_target'
   const window = {
@@ -681,7 +729,12 @@ test('remote debugging resolver does not bind to the HarnessClaw app renderer ta
         attach() {},
         async sendCommand(command) {
           assert.equal(command, 'Target.getTargetInfo')
-          return { targetInfo: { targetId: 'harnessclaw-app-renderer' } }
+          return {
+            targetInfo: {
+              targetId: 'browser-agent-target',
+              url: markerURL,
+            },
+          }
         },
         detach() {},
       },
