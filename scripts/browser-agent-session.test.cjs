@@ -590,7 +590,12 @@ test('remote debugging resolver selects BrowserWindow target by webContents targ
         },
         async sendCommand(command) {
           assert.equal(command, 'Target.getTargetInfo')
-          return { targetInfo: { targetId: 'target-from-webcontents' } }
+          return {
+            targetInfo: {
+              targetId: 'target-from-webcontents',
+              url: 'about:blank#harnessclaw-browser-session=sess_target_id',
+            },
+          }
         },
         detach() {
           detachCalls.push(true)
@@ -619,6 +624,50 @@ test('remote debugging resolver selects BrowserWindow target by webContents targ
   assert.equal(endpoint, 'ws://127.0.0.1:9444/devtools/page/target-from-webcontents')
   assert.deepEqual(attachCalls, ['1.3'])
   assert.equal(detachCalls.length, 1)
+})
+
+test('remote debugging resolver rejects target-id fallback when the window target URL does not match the marker', async () => {
+  const markerURL = 'about:blank#harnessclaw-browser-session=sess_wrong_target'
+  const window = {
+    webContents: {
+      debugger: {
+        isAttached() {
+          return false
+        },
+        attach() {},
+        async sendCommand(command) {
+          assert.equal(command, 'Target.getTargetInfo')
+          return {
+            targetInfo: {
+              targetId: 'harnessclaw-app-renderer',
+              url: 'http://localhost:5173/#/chat',
+            },
+          }
+        },
+        detach() {},
+      },
+    },
+  }
+  const resolver = createRemoteDebuggingTargetResolver(9550, async (url) => {
+    assert.equal(url, 'http://127.0.0.1:9550/json/list')
+    return {
+      ok: true,
+      async json() {
+        return [
+          {
+            id: 'harnessclaw-app-renderer',
+            url: 'about:blank',
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9550/devtools/page/harnessclaw-app-renderer',
+          },
+        ]
+      },
+    }
+  }, { retries: 1, delayMs: 1 })
+
+  await assert.rejects(
+    () => resolver(markerURL, window),
+    (err) => err && err.code === 'cdp_target_not_found',
+  )
 })
 
 test('remote debugging resolver does not bind to the HarnessClaw app renderer target', async () => {
