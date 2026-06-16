@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, with versions tracked in the repository and published to GitHub Releases.
 
+## [0.0.23] - 2026-06-16
+
+### Fixed
+
+- Browser Agent sessions now run in a dedicated helper process with isolated CDP targets, preventing commands from taking over the main HarnessClaw window or another browser session.
+
 ## [0.0.22] - 2026-06-12
 
 ### Added

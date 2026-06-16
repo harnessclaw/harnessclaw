@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, screen, globalShortcut, protocol, net, type BrowserWindowConstructorOptions } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, screen, globalShortcut, protocol, net } from 'electron'
 import { basename, dirname, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync } from 'fs'
@@ -6,11 +6,9 @@ import { spawn, execFileSync, ChildProcess } from 'child_process'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
-import {
-  BrowserAgentSessionManager,
-  DEFAULT_BROWSER_AGENT_CDP_PORT,
-  createRemoteDebuggingTargetResolver,
-} from './browser-agent-session'
+import type { BrowserAgentSessionManagerLike } from './browser-agent-session'
+import { BrowserAgentHelperClient } from './browser-agent-helper-client'
+import { runBrowserAgentHelper } from './browser-agent-helper'
 import { manuallyCheckForUpdates, setupAutoUpdater, downloadUpdate, quitAndInstall } from './updater'
 import {
   HARNESSCLAW_DIR,
@@ -147,6 +145,16 @@ type WindowState = {
   width: number
   height: number
   isMaximized?: boolean
+}
+
+const isBrowserAgentHelperProcess =
+  process.env.HARNESSCLAW_BROWSER_AGENT_HELPER === '1' || process.argv.includes('--browser-agent-helper')
+
+if (isBrowserAgentHelperProcess) {
+  void runBrowserAgentHelper().catch((error) => {
+    process.stderr.write(`Browser Agent helper failed: ${error instanceof Error ? error.stack || error.message : String(error)}\n`)
+    app.exit(1)
+  })
 }
 
 function stripProjectContextBlock(content: string): string {
@@ -1240,7 +1248,7 @@ function createWindow(): BrowserWindow {
 
 let launcherWindow: BrowserWindow | null = null
 let mainWindowRef: BrowserWindow | null = null
-let browserAgentSessions: BrowserAgentSessionManager | null = null
+let browserAgentSessions: BrowserAgentSessionManagerLike | null = null
 
 function extractBrowserAgentSessionIDsFromMessages(messages: ReturnType<typeof getMessages>): string[] {
   const seen = new Set<string>()
@@ -1308,22 +1316,6 @@ const LAUNCHER_HEIGHT = 90
 // The user pins this at 140px so the bar feels anchored just below
 // the top of the screen — a familiar Spotlight-ish anchor point.
 const LAUNCHER_TOP_OFFSET = 140
-
-function resolveBrowserAgentCDPPort(): number {
-  const raw = process.env.HARNESSCLAW_BROWSER_CDP_PORT
-  if (!raw) {
-    return DEFAULT_BROWSER_AGENT_CDP_PORT
-  }
-  const parsed = Number(raw)
-  if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) {
-    return parsed
-  }
-  return DEFAULT_BROWSER_AGENT_CDP_PORT
-}
-
-const browserAgentCDPPort = resolveBrowserAgentCDPPort()
-app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
-app.commandLine.appendSwitch('remote-debugging-port', String(browserAgentCDPPort))
 
 function createLauncherWindow(): BrowserWindow {
   // Anchor the launcher to whichever display currently has the cursor
@@ -1507,6 +1499,7 @@ function applyLauncherConfig(): void {
   }
 }
 
+if (!isBrowserAgentHelperProcess) {
 // 注册自定义协议 `local-file://`，用于在渲染端安全加载磁盘上的图片 /
 // 音视频等本地资源。直接 <img src="file:///..."> 在 Electron 默认安全
 // 配置（webSecurity=true, contextIsolation=true）下会被跨源策略拦截，
@@ -1589,23 +1582,19 @@ app.whenReady().then(() => {
     },
   })
 
-  browserAgentSessions = new BrowserAgentSessionManager({
-    createWindow: (options) => new BrowserWindow(options as BrowserWindowConstructorOptions),
-    resolveCDPEndpoint: createRemoteDebuggingTargetResolver(browserAgentCDPPort),
+  browserAgentSessions = new BrowserAgentHelperClient({
     onSessionChanged: (session) => broadcastBrowserAgentSessionChanged(session as unknown as Record<string, unknown>),
   })
   harnessclawClient.setBrowserAgentSessionManager(browserAgentSessions)
-  writeAppLog('info', 'browser-agent.session', 'Browser Agent client session manager ready', {
-    cdp_port: browserAgentCDPPort,
-  })
+  writeAppLog('info', 'browser-agent.session', 'Browser Agent helper client ready')
 
-  ipcMain.handle('browser-agent:listSessions', () => {
-    return { ok: true, sessions: browserAgentSessions?.listSessions() || [] }
+  ipcMain.handle('browser-agent:listSessions', async () => {
+    return { ok: true, sessions: await browserAgentSessions?.listSessions() || [] }
   })
-  ipcMain.handle('browser-agent:setVisibility', (_, input: Record<string, unknown>) => {
+  ipcMain.handle('browser-agent:setVisibility', async (_, input: Record<string, unknown>) => {
     if (!browserAgentSessions) return { ok: false, error: 'Browser Agent session manager is not available' }
     try {
-      return { ok: true, session: browserAgentSessions.setVisibility(input || {}) }
+      return { ok: true, session: await browserAgentSessions.setVisibility(input || {}) }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -1619,10 +1608,10 @@ app.whenReady().then(() => {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
-  ipcMain.handle('browser-agent:closeSessions', (_, input: Record<string, unknown>) => {
+  ipcMain.handle('browser-agent:closeSessions', async (_, input: Record<string, unknown>) => {
     if (!browserAgentSessions) return { ok: false, error: 'Browser Agent session manager is not available' }
     try {
-      return { ok: true, result: browserAgentSessions.closeSessions(input || {}) }
+      return { ok: true, result: await browserAgentSessions.closeSessions(input || {}) }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -3552,3 +3541,4 @@ app.on('will-quit', () => {
   stopHarnessclawEngine()
   closeDb()
 })
+}

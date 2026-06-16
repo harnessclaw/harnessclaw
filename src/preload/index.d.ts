@@ -149,15 +149,12 @@ interface BrowserAgentTabInfo {
   tab_id: string
   title: string
   url: string
-  cdp_endpoint: string
   active: boolean
 }
 
 interface BrowserAgentSessionInfo {
   session_id: string
   window_id: string
-  cdp_endpoint: string
-  partition: string
   visible: boolean
   last_used_turn_id?: string
   active_tab?: BrowserAgentTabInfo

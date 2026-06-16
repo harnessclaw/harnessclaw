@@ -1,10 +1,18 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
 
 const {
   BrowserAgentSessionManager,
-  createRemoteDebuggingTargetResolver,
+  createWebContentsTargetEndpointResolver,
 } = require('../out/main/browser-agent-session.js')
+
+test('main app entry does not expose an app-wide remote debugging port', () => {
+  const source = readFileSync(join(__dirname, '../src/main/index.ts'), 'utf8')
+  assert.doesNotMatch(source, /remote-debugging-port/)
+  assert.doesNotMatch(source, /remote-debugging-address/)
+})
 
 class FakeWindow {
   constructor(id, options) {
@@ -183,10 +191,17 @@ test('creates global persistent browser session in the BrowserWindow without loa
 
   assert.equal(result.session_id, 'sess_test_1')
   assert.equal(result.window_id, '41')
-  assert.equal(result.cdp_endpoint, 'ws://127.0.0.1:9222/devtools/page/page-41')
+  assert.equal(Object.hasOwn(result, 'cdp_endpoint'), false)
+  assert.equal(Object.hasOwn(result, 'partition'), false)
+  assert.equal(Object.hasOwn(result.active_tab, 'cdp_endpoint'), false)
   assert.equal(result.active_tab.url, 'https://example.com')
   assert.equal(result.tabs.length, 1)
-  assert.equal(result.partition, 'persist:browser-agent-default')
+  assert.deepEqual(manager.getSessionPrivateMetadata('sess_test_1'), {
+    session_id: 'sess_test_1',
+    active_tab_id: 'tab_sess_test_1',
+    agent_browser_session_name: 'harnessclaw-browser-sess_test_1',
+    cdp_endpoint: 'ws://127.0.0.1:9222/devtools/page/page-41',
+  })
   assert.equal(windows[0].options.webPreferences.sandbox, true)
   assert.equal(windows[0].options.webPreferences.contextIsolation, true)
   assert.equal(windows[0].options.webPreferences.nodeIntegration, false)
@@ -421,8 +436,9 @@ test('tracks popup windows as active tabs with their own CDP endpoints', async (
   const state = manager.getSessionState({ session_id: created.session_id })
   assert.equal(state.tabs.length, 2)
   assert.equal(state.active_tab.url, 'https://popup.example/detail')
+  assert.equal(Object.hasOwn(state.active_tab, 'cdp_endpoint'), false)
   assert.equal(
-    state.active_tab.cdp_endpoint,
+    manager.getSessionPrivateMetadata(created.session_id).cdp_endpoint,
     'ws://127.0.0.1:9222/devtools/page/window-81-https%3A%2F%2Fpopup.example%2Fdetail',
   )
 })
@@ -546,7 +562,8 @@ test('ignores the old shell web view path and exposes a single active CDP tab', 
   assert.equal(createWebViewCalled, false)
   assert.equal(created.tabs.length, 1)
   assert.equal(created.active_tab.tab_id, created.tabs[0].tab_id)
-  assert.equal(created.active_tab.cdp_endpoint, created.cdp_endpoint)
+  assert.equal(Object.hasOwn(created, 'cdp_endpoint'), false)
+  assert.equal(Object.hasOwn(created.active_tab, 'cdp_endpoint'), false)
   assert.equal(created.active_tab.url, 'https://example.com')
   assert.equal(created.active_tab.title, 'example.com')
 
@@ -555,28 +572,7 @@ test('ignores the old shell web view path and exposes a single active CDP tab', 
   assert.equal(navigated.active_tab.url, 'https://openai.com')
 })
 
-test('remote debugging resolver selects target by marker URL', async () => {
-  const resolver = createRemoteDebuggingTargetResolver(9333, async (url) => {
-    assert.equal(url, 'http://127.0.0.1:9333/json/list')
-    return {
-      ok: true,
-      async json() {
-        return [
-          { url: 'https://example.com', webSocketDebuggerUrl: 'ws://wrong' },
-          {
-            url: 'about:blank#harnessclaw-browser-session=sess_target',
-            webSocketDebuggerUrl: 'ws://127.0.0.1:9333/devtools/page/target',
-          },
-        ]
-      },
-    }
-  }, { retries: 1, delayMs: 1 })
-
-  const endpoint = await resolver('about:blank#harnessclaw-browser-session=sess_target')
-  assert.equal(endpoint, 'ws://127.0.0.1:9333/devtools/page/target')
-})
-
-test('remote debugging resolver selects BrowserWindow target by webContents target id before URL is ready', async () => {
+test('target endpoint resolver constructs endpoint from BrowserWindow target id instead of choosing from /json/list', async () => {
   const attachCalls = []
   const detachCalls = []
   const window = {
@@ -598,16 +594,21 @@ test('remote debugging resolver selects BrowserWindow target by webContents targ
       },
     },
   }
-  const resolver = createRemoteDebuggingTargetResolver(9444, async (url) => {
+  const resolver = createWebContentsTargetEndpointResolver(9444, async (url) => {
     assert.equal(url, 'http://127.0.0.1:9444/json/list')
     return {
       ok: true,
       async json() {
         return [
           {
+            id: 'electron-main-window',
+            url: 'app://main',
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9444/devtools/page/electron-main-window',
+          },
+          {
             id: 'target-from-webcontents',
             url: 'about:blank',
-            webSocketDebuggerUrl: 'ws://127.0.0.1:9444/devtools/page/target-from-webcontents',
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9444/devtools/page/different-from-target-id',
           },
         ]
       },

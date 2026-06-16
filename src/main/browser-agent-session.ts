@@ -64,15 +64,12 @@ export interface BrowserAgentTabInfo {
   tab_id: string
   title: string
   url: string
-  cdp_endpoint: string
   active: boolean
 }
 
 export interface BrowserAgentSessionInfo {
   session_id: string
   window_id: string
-  cdp_endpoint: string
-  partition: string
   visible: boolean
   last_used_turn_id?: string
   active_tab: BrowserAgentTabInfo
@@ -82,6 +79,13 @@ export interface BrowserAgentSessionInfo {
     request_id: string
     message: string
   }
+}
+
+export interface BrowserAgentSessionPrivateMetadata {
+  session_id: string
+  active_tab_id: string
+  agent_browser_session_name: string
+  cdp_endpoint: string
 }
 
 export interface BrowserAgentCloseResult {
@@ -105,16 +109,17 @@ export interface BrowserAgentAskHumanResult {
 
 export interface BrowserAgentSessionManagerLike {
   createSession(input: Record<string, unknown>): Promise<BrowserAgentSessionInfo>
-  closeSession(input: Record<string, unknown>): BrowserAgentCloseResult
-  askHuman(input: Record<string, unknown>): BrowserAgentAskHumanResult
-  getSessionState(input: Record<string, unknown>): BrowserAgentSessionInfo
-  listSessions(): BrowserAgentSessionInfo[]
-  setVisibility(input: Record<string, unknown>): BrowserAgentSessionInfo
-  hideSession(input: Record<string, unknown>): BrowserAgentSessionInfo
-  hideSessionsForTurn(turnID: string): void
-  closeSessions(input: Record<string, unknown>): BrowserAgentCloseSessionsResult
-  finishHumanTakeover(requestID: string, status: 'success' | 'cancelled'): void
-  closeAll(): void
+  closeSession(input: Record<string, unknown>): MaybePromise<BrowserAgentCloseResult>
+  askHuman(input: Record<string, unknown>): MaybePromise<BrowserAgentAskHumanResult>
+  getSessionState(input: Record<string, unknown>): MaybePromise<BrowserAgentSessionInfo>
+  listSessions(): MaybePromise<BrowserAgentSessionInfo[]>
+  setVisibility(input: Record<string, unknown>): MaybePromise<BrowserAgentSessionInfo>
+  hideSession(input: Record<string, unknown>): MaybePromise<BrowserAgentSessionInfo>
+  hideSessionsForTurn(turnID: string): MaybePromise<void>
+  closeSessions(input: Record<string, unknown>): MaybePromise<BrowserAgentCloseSessionsResult>
+  finishHumanTakeover(requestID: string, status: 'success' | 'cancelled'): MaybePromise<void>
+  getSessionPrivateMetadata(sessionID: string): BrowserAgentSessionPrivateMetadata | undefined
+  closeAll(): MaybePromise<void>
 }
 
 export type BrowserAgentWindowFactory = (options: BrowserAgentWindowOptions) => BrowserAgentWindowLike
@@ -137,6 +142,7 @@ interface BrowserAgentSessionRecord {
   session_id: string
   window_id: string
   partition: string
+  agent_browser_session_name: string
   visible: boolean
   last_used_turn_id?: string
   window: BrowserAgentWindowLike
@@ -225,6 +231,7 @@ export class BrowserAgentSessionManager implements BrowserAgentSessionManagerLik
       session_id: sessionID,
       window_id: String(win.id),
       partition,
+      agent_browser_session_name: agentBrowserSessionName(sessionID),
       visible: visibility === 'visible',
       last_used_turn_id: lastUsedTurnID || undefined,
       window: win,
@@ -307,6 +314,11 @@ export class BrowserAgentSessionManager implements BrowserAgentSessionManagerLik
   getSession(sessionID: string): BrowserAgentSessionInfo | undefined {
     const record = this.sessionsByID.get(sessionID)
     return record ? publicSessionInfo(record) : undefined
+  }
+
+  getSessionPrivateMetadata(sessionID: string): BrowserAgentSessionPrivateMetadata | undefined {
+    const record = this.sessionsByID.get(sessionID)
+    return record ? privateSessionMetadata(record) : undefined
   }
 
   setVisibility(input: Record<string, unknown>): BrowserAgentSessionInfo {
@@ -651,14 +663,14 @@ export class BrowserAgentSessionManager implements BrowserAgentSessionManagerLik
   }
 }
 
-export function createRemoteDebuggingTargetResolver(
+export function createWebContentsTargetEndpointResolver(
   port = DEFAULT_BROWSER_AGENT_CDP_PORT,
   fetchImpl: FetchLike = defaultFetch,
   options: ResolverOptions = {},
 ): BrowserAgentCDPEndpointResolver {
   const retries = options.retries ?? 20
   const delayMs = options.delayMs ?? 100
-  return async (markerURL: string, window?: BrowserAgentWindowLike): Promise<string> => {
+  return async (_markerURL: string, window?: BrowserAgentWindowLike): Promise<string> => {
     let lastError: unknown
     let targetID = ''
     for (let attempt = 0; attempt < retries; attempt += 1) {
@@ -666,14 +678,16 @@ export function createRemoteDebuggingTargetResolver(
         if (!targetID) {
           targetID = await resolveWindowTargetID(window)
         }
+        if (!targetID) {
+          throw new BrowserAgentSessionError('cdp_target_not_found', 'Browser webContents target id is not ready yet')
+        }
         const res = await fetchImpl(`http://127.0.0.1:${port}/json/list`)
         if (!res.ok) {
           throw new BrowserAgentSessionError('cdp_list_failed', `CDP target list failed with HTTP ${res.status || 0}`)
         }
         const targets = await res.json()
-        const endpoint = findMatchingTargetEndpoint(targets, markerURL, targetID)
-        if (endpoint) {
-          return endpoint
+        if (targetListContainsID(targets, targetID)) {
+          return `ws://127.0.0.1:${port}/devtools/page/${targetID}`
         }
         lastError = new BrowserAgentSessionError('cdp_target_not_found', 'Browser CDP target is not ready yet')
       } catch (err) {
@@ -690,7 +704,8 @@ export function createRemoteDebuggingTargetResolver(
   }
 }
 
-export const createRemoteDebuggingEndpointResolver = createRemoteDebuggingTargetResolver
+export const createRemoteDebuggingTargetResolver = createWebContentsTargetEndpointResolver
+export const createRemoteDebuggingEndpointResolver = createWebContentsTargetEndpointResolver
 
 function defaultSessionID(): string {
   return `browser_${randomUUID().slice(0, 8)}`
@@ -706,8 +721,6 @@ function publicSessionInfo(record: BrowserAgentSessionRecord): BrowserAgentSessi
   return {
     session_id: record.session_id,
     window_id: record.window_id,
-    cdp_endpoint: activeInfo.cdp_endpoint,
-    partition: record.partition,
     visible: record.visible,
     last_used_turn_id: record.last_used_turn_id,
     active_tab: activeInfo,
@@ -721,9 +734,27 @@ function publicTabInfo(record: BrowserAgentSessionRecord, tab: BrowserAgentTabRe
     tab_id: tab.tab_id,
     title: tab.title || titleFromURL(tab.url),
     url: tab.url,
-    cdp_endpoint: tab.cdp_endpoint,
     active: tab.tab_id === record.active_tab_id,
   }
+}
+
+function privateSessionMetadata(record: BrowserAgentSessionRecord): BrowserAgentSessionPrivateMetadata {
+  const active = record.tabs.find((tab) => tab.tab_id === record.active_tab_id) || record.tabs[0]
+  return {
+    session_id: record.session_id,
+    active_tab_id: active?.tab_id || '',
+    agent_browser_session_name: record.agent_browser_session_name,
+    cdp_endpoint: active?.cdp_endpoint || '',
+  }
+}
+
+function agentBrowserSessionName(sessionID: string): string {
+  return `harnessclaw-browser-${sanitizeSessionName(sessionID)}`
+}
+
+function sanitizeSessionName(value: string): string {
+  const sanitized = value.replace(/[^A-Za-z0-9_-]/g, '')
+  return sanitized || 'session'
 }
 
 function asBrowserAgentWindow(value: unknown): BrowserAgentWindowLike | undefined {
@@ -829,9 +860,9 @@ function extractTargetID(info: unknown): string {
   return typeof nested === 'string' ? nested : ''
 }
 
-function findMatchingTargetEndpoint(targets: unknown, markerURL: string, targetID = ''): string {
+function targetListContainsID(targets: unknown, targetID: string): boolean {
   if (!Array.isArray(targets)) {
-    return ''
+    return false
   }
   for (const target of targets) {
     if (!target || typeof target !== 'object') {
@@ -839,16 +870,12 @@ function findMatchingTargetEndpoint(targets: unknown, markerURL: string, targetI
     }
     const entry = target as Record<string, unknown>
     const id = typeof entry.id === 'string' ? entry.id : ''
-    const targetURL = typeof entry.url === 'string' ? entry.url : ''
     const endpoint = typeof entry.webSocketDebuggerUrl === 'string' ? entry.webSocketDebuggerUrl : ''
-    if (targetID && endpoint && (id === targetID || endpoint.endsWith(`/devtools/page/${targetID}`))) {
-      return endpoint
-    }
-    if (endpoint && targetURL === markerURL) {
-      return endpoint
+    if (id === targetID || endpoint.endsWith(`/devtools/page/${targetID}`)) {
+      return true
     }
   }
-  return ''
+  return false
 }
 
 async function defaultFetch(url: string): Promise<FetchResponseLike> {

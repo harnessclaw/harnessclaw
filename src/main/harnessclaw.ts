@@ -32,6 +32,7 @@ interface ToolResultPayload {
     message: string
   }
   metadata?: Record<string, unknown>
+  privateMetadata?: Record<string, unknown>
 }
 
 interface PendingPermissionRequest {
@@ -2816,8 +2817,9 @@ export class HarnessclawClient extends EventEmitter {
     } else {
       message.error = payload.error
     }
-    if (payload.metadata) {
-      message.metadata = payload.metadata
+    const wireMetadata = payload.privateMetadata || payload.metadata
+    if (wireMetadata) {
+      message.metadata = wireMetadata
     }
 
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -2935,10 +2937,12 @@ export class HarnessclawClient extends EventEmitter {
     }
     try {
       const session = await this.browserAgentSessions.createSession(withBrowserTurnID(input, turnId))
+      const privateMetadata = this.browserAgentSessions.getSessionPrivateMetadata(session.session_id)
       return {
         status: 'success',
         output: JSON.stringify(session),
         metadata: { ...session },
+        privateMetadata,
       }
     } catch (err) {
       return this.browserAgentFailure(err)
@@ -2950,11 +2954,13 @@ export class HarnessclawClient extends EventEmitter {
       return this.browserAgentUnavailable()
     }
     try {
-      const session = this.browserAgentSessions.getSessionState(withBrowserTurnID(input, turnId))
+      const session = await this.browserAgentSessions.getSessionState(withBrowserTurnID(input, turnId))
+      const privateMetadata = this.browserAgentSessions.getSessionPrivateMetadata(session.session_id)
       return {
         status: 'success',
         output: JSON.stringify(session),
         metadata: { ...session },
+        privateMetadata,
       }
     } catch (err) {
       return this.browserAgentFailure(err)
@@ -2966,11 +2972,12 @@ export class HarnessclawClient extends EventEmitter {
       return this.browserAgentUnavailable()
     }
     try {
-      const result = this.browserAgentSessions.closeSession(input)
+      const result = await this.browserAgentSessions.closeSession(input)
       return {
         status: 'success',
         output: JSON.stringify(result),
         metadata: { ...result },
+        privateMetadata: { session_id: result.session_id, closed: true },
       }
     } catch (err) {
       return this.browserAgentFailure(err)
@@ -2987,7 +2994,7 @@ export class HarnessclawClient extends EventEmitter {
       return this.browserAgentUnavailable()
     }
     try {
-      const takeover = this.browserAgentSessions.askHuman({
+      const takeover = await this.browserAgentSessions.askHuman({
         ...withBrowserTurnID(input, turnId),
         request_id: toolUseId,
       })

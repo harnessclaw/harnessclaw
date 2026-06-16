@@ -4,6 +4,12 @@
 
 格式参考 Keep a Changelog。英文原始版本请见 `CHANGELOG.md`。
 
+## [0.0.23] - 2026-06-16
+
+### 修复
+
+- Browser Agent 会话现在运行在独立 helper 进程中并隔离 CDP target，避免命令误接管 HarnessClaw 主窗口或其他浏览器会话。
+
 ## [0.0.22] - 2026-06-12
 
 ### 新增
