@@ -1,4 +1,4 @@
-# 本地代码执行器（Python / Node）设计方案
+<h1 align="center">本地代码执行器（Python / Node）设计方案</h1>
 
 > 视角：让 HarnessClaw 的 Agent 在对话中能执行 Python / Node 代码，且**用户无需自行安装任何运行时环境**——装上 HarnessClaw 即可用；缺少第三方库时支持**受控的 pip 自动安装**。
 >

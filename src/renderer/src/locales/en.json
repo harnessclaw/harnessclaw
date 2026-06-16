@@ -909,6 +909,20 @@
       "detailsLabel": "Task",
       "viewDetails": "View task details",
       "hideDetails": "Hide task details"
+    },
+    "sidePanel": {
+      "label": "Conversation side panel",
+      "expandAria": "Expand side panel",
+      "collapseAria": "Collapse side panel",
+      "tabsAria": "Side panel tabs",
+      "tabLogs": "Logs",
+      "tabArtifacts": "Artifacts",
+      "completedPrefix": "Completed: ",
+      "unnamedStep": "Unnamed step",
+      "noLogs": "No run logs yet",
+      "noLogsDesc": "Run progress will appear here",
+      "noArtifacts": "No artifacts yet",
+      "noArtifactsDesc": "Files produced during the run will appear here"
     }
   },
   "settings": {

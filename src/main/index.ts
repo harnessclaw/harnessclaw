@@ -91,6 +91,10 @@ import {
   updateFallbackChain,
   getAgentConfig,
   patchAgentConfig,
+  listVideoProviders,
+  patchVideoConfig,
+  listImageProviders,
+  patchImageConfig,
   patchProvider,
   listEndpoints,
   createEndpoint,
@@ -105,6 +109,8 @@ import {
   type EndpointCreatePayload,
   type EndpointPatch,
   type AgentPatch,
+  type VideoGenPatch,
+  type ImageGenPatch,
   type ToolPatchPayload,
 } from './console-api'
 
@@ -1108,7 +1114,9 @@ function createWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    trafficLightPosition: { x: 16, y: 16 },
+    // Center the macOS traffic lights within the 78px collapsed sidebar rail
+    // so the left/right gaps match ((78 - ~52px cluster) / 2 ≈ 13).
+    trafficLightPosition: { x: 13, y: 16 },
     backgroundColor: '#F5F5F7',
     ...(process.platform === 'darwin'
       ? {}
@@ -2259,6 +2267,7 @@ app.whenReady().then(() => {
         'primary' in patch ||
         'fallback_chain' in patch ||
         'image_generation' in patch ||
+        'video_generation' in patch ||
         'max_tokens' in patch ||
         'temperature' in patch ||
         'context_window' in patch
@@ -2266,6 +2275,52 @@ app.whenReady().then(() => {
         return { ok: false, status: 400, error: 'bad_request', message: 'patch must include at least one field' }
       }
       return await patchAgentConfig(patch)
+    } catch (error) {
+      return { ok: false, status: 0, error: 'network_error', message: String(error) }
+    }
+  })
+
+  // Video Generation Management API — GET|PATCH /api/v1/videogen. Mirrors
+  // the providers handlers: hot-edit the videogen provider credentials +
+  // per-endpoint model bindings at runtime. See the engine's
+  // videogen-management contract.
+  ipcMain.handle('console:listVideoProviders', async () => {
+    try {
+      return await listVideoProviders()
+    } catch (error) {
+      return { ok: false, status: 0, error: 'network_error', message: String(error) }
+    }
+  })
+
+  ipcMain.handle('console:patchVideoConfig', async (_, patch: VideoGenPatch) => {
+    try {
+      if (!patch || typeof patch !== 'object' || !patch.providers || typeof patch.providers !== 'object') {
+        return { ok: false, status: 400, error: 'bad_request', message: 'patch.providers required' }
+      }
+      return await patchVideoConfig(patch)
+    } catch (error) {
+      return { ok: false, status: 0, error: 'network_error', message: String(error) }
+    }
+  })
+
+  // Image Generation Management API — GET|PATCH /api/v1/imagegen. Mirrors
+  // the videogen handlers: hot-edit the imagegen provider credentials + path
+  // + per-endpoint model bindings at runtime. See the engine's
+  // imagegen-management contract.
+  ipcMain.handle('console:listImageProviders', async () => {
+    try {
+      return await listImageProviders()
+    } catch (error) {
+      return { ok: false, status: 0, error: 'network_error', message: String(error) }
+    }
+  })
+
+  ipcMain.handle('console:patchImageConfig', async (_, patch: ImageGenPatch) => {
+    try {
+      if (!patch || typeof patch !== 'object' || !patch.providers || typeof patch.providers !== 'object') {
+        return { ok: false, status: 400, error: 'bad_request', message: 'patch.providers required' }
+      }
+      return await patchImageConfig(patch)
     } catch (error) {
       return { ok: false, status: 0, error: 'network_error', message: String(error) }
     }

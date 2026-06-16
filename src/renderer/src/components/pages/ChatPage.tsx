@@ -26,13 +26,13 @@ import {
 } from '../common/SkillComposerInput'
 import { useAppConfig } from '@/hooks/useEngineConfig'
 import { getProjectDisplayDescription, getProjectDisplayName } from '@/lib/projectDisplay'
-import { useActiveModelCapabilities } from '@/hooks/useActiveModelCapabilities'
 import { PastedBlocksBar, usePastedBlocks } from '../common/PastedBlocksBar'
 import { PlanDraftCard, type PlanDraftStep } from '../common/PlanDraftCard'
 import { PlanStatusButton } from '../common/PlanStatusButton'
 import { SessionStatsButton } from '../common/SessionStatsButton'
 import { AvatarLightbox } from '../common/AvatarLightbox'
 import { ConfirmDeleteSessionDialog } from '../common/ConfirmDeleteSessionDialog'
+import { ConversationSidePanel } from '../common/ConversationSidePanel'
 import { SystemNoticeModal, type SystemNotice } from '../common/SystemNoticeModal'
 import emmaAvatar from '../../assets/emma-avatar.svg'
 import emmaText from '../../assets/emma-text.svg'
@@ -157,7 +157,7 @@ interface ContentSegment {
  * Stored inside `ToolActivity.metadata.artifacts` so it round-trips through the
  * existing metadata_json DB column without a schema change.
  */
-interface ArtifactRef {
+export interface ArtifactRef {
   artifact_id: string
   name?: string
   type?: string
@@ -817,6 +817,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onRespondStepDecision: RespondStepDecisionHandler
   onRespondPlan: (planId: string, approved: boolean, options?: { steps?: PlanDraftStep[]; reason?: string }) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div
       ref={messagesViewportRef}
@@ -835,7 +836,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
             <MessageBubble
               message={message}
               syncAgents={collaboration.syncAgents}
-              hasPendingPlanDraft={!!planDraft && !planDraft.confirmed}
               onOpenFilePreview={onOpenFilePreview}
               onPreviewUserImage={onPreviewUserImage}
               onOpenArtifact={onOpenArtifact}
@@ -891,9 +891,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
         {/* Emma intent 鎏光：作为"呼应节点"渲染在列表底部，跟着 messagesEndRef
             一起永远靠近视口底部。优先级低于 ThinkingIndicator（thinking-mode
-            reasoning 内容更重要），但优先于通用 Thinking… 兜底。 */}
+            reasoning 内容更重要），但优先于通用 Thinking… 兜底。
+            呼吸闪烁小点和鎏金字体放在同一行。 */}
         {isProcessing && !isPaused && !isStopping && !currentThinking && currentIntent?.text && (
-          <div className="-my-[17px] flex justify-start pl-[2.625rem]">
+          <div className="-my-[17px] flex items-center gap-2 justify-start pl-[2.625rem]">
+            <span className="streaming-breathing-dot shrink-0" aria-label={t('chat.status.serviceContinuing')} />
             <span
               className="chat-thinking-shimmer min-w-0 truncate"
               aria-live="polite"
@@ -905,7 +907,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
         )}
 
         {isProcessing && !isPaused && !isStopping && !currentThinking && !currentIntent?.text && !pendingAssistantMessage?.content && !(pendingAssistantMessage?.tools && pendingAssistantMessage.tools.length > 0) && (
-          <div className="-my-[17px] flex justify-start pl-[2.625rem]">
+          <div className="-my-[17px] flex items-center gap-2 justify-start pl-[2.625rem]">
+            <span className="streaming-breathing-dot shrink-0" aria-label={t('chat.status.serviceContinuing')} />
             <span className="chat-thinking-shimmer" aria-live="polite">Thinking…</span>
           </div>
         )}
@@ -4061,11 +4064,6 @@ export function ChatPage() {
   const [sendBurstActive, setSendBurstActive] = useState(false)
   const [dropBurstActive, setDropBurstActive] = useState(false)
   const pasted = usePastedBlocks()
-  // Active model's resolved supports — used to gate image attachments
-  // before sending. Loads asynchronously on mount; until then we treat
-  // the model as vision-less to err on the side of caution (the gate
-  // never fails closed for text-only sends).
-  const modelCaps = useActiveModelCapabilities()
   const messagesViewportRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -4149,35 +4147,10 @@ export function ChatPage() {
     const imageFiles = initialFiles.filter((a) => a.kind === 'image')
     const otherFiles = initialFiles.filter((a) => a.kind !== 'image')
 
-    // Vision gate. modelCaps may still be loading on a fast first send;
-    // when it is, we err on the side of letting the message through and
-    // rely on the server-side multimodal.Gate (which always runs) to
-    // catch incompatible model + image combinations.
-    if (imageFiles.length > 0 && !modelCaps.loading && !modelCaps.supports.vision) {
-      const noticeAt = Date.now()
-      ensureLocalSession(sid)
-      updateSession(sid, (prev) => ({
-        ...prev,
-        messages: [
-          ...prev.messages,
-          {
-            id: `cap-${noticeAt}`,
-            role: 'assistant',
-            content: '',
-            timestamp: noticeAt,
-            systemNotice: {
-              kind: 'error',
-              title: '当前模型不支持图片输入',
-              message: `模型 ${modelCaps.modelKey || '(未配置)'} 没有 vision 能力，无法识别附带的图片。`,
-              hint: '请在右上角切换到具备多模态能力的模型（如 Claude Opus 4.7 或 GPT-5.5）后重试。',
-            },
-          },
-        ],
-      }))
-      setInput('')
-      setAttachments([])
-      return
-    }
+    // No vision pre-gate: images always pass through. The server no
+    // longer rejects image input for non-vision models either — many
+    // tools consume images (image_generate, video_create i2v, browser
+    // agent), so the downstream model/provider decides what to do.
 
     // Read each image to base64 + sniffed MIME. Limit (10MB) and MIME
     // whitelist enforced in main.
@@ -4250,7 +4223,7 @@ export function ChatPage() {
       has_attachments: initialFiles.length > 0,
       coordinator_mode: coordinatorMode,
     })
-  }, [ensureLocalSession, updateSession, modelCaps])
+  }, [ensureLocalSession, updateSession])
 
   const respondPermission = useCallback(async (requestId: string, approved: boolean, scope: 'once' | 'session') => {
     if (!requestId) return
@@ -6616,34 +6589,10 @@ export function ChatPage() {
     // option to window.harnessclaw.send.
     const imageAttachments = attachments.filter((a) => a.kind === 'image')
 
-    // Pre-send capability gate. The server runs the same check
-    // (multimodal.Gate in the router) and will reject with an
-    // unsupported_modality error frame, but checking client-side
-    // gives instant UX and prevents a pointless WebSocket round-trip.
-    // We skip the gate while caps are still loading (modelCaps.loading)
-    // so a fast user doesn't see false positives on app start.
-    if (imageAttachments.length > 0 && !modelCaps.loading && !modelCaps.supports.vision) {
-      const noticeAt = Date.now()
-      updateSession(sid, (prev) => ({
-        ...prev,
-        messages: [
-          ...prev.messages,
-          {
-            id: `cap-${noticeAt}`,
-            role: 'assistant',
-            content: '',
-            timestamp: noticeAt,
-            systemNotice: {
-              kind: 'error',
-              title: '当前模型不支持图片输入',
-              message: `模型 ${modelCaps.modelKey || '(未配置)'} 没有 vision 能力，无法识别附带的图片。`,
-              hint: '请在右上角切换到具备多模态能力的模型（如 Claude Opus 4.7 或 GPT-5.5）后重试。',
-            },
-          },
-        ],
-      }))
-      return
-    }
+    // No vision pre-gate: images always pass through. The server no
+    // longer rejects image input for non-vision models either — many
+    // tools consume images (image_generate, video_create i2v, browser
+    // agent), so the downstream model/provider decides what to do.
 
     // Read each image to base64 + sniffed MIME via the main-process
     // IPC. Hard limit (10 MB / file) and MIME whitelist are enforced
@@ -7300,7 +7249,7 @@ export function ChatPage() {
                           : t('chat.composer.placeholderDisconnected')
                       }
                       maxLength={maxLength}
-                      className="min-h-[26px] max-h-[120px] leading-6"
+                      className=""
                       rows={1}
                     />
                     <AttachmentPreviewPanel
@@ -7387,6 +7336,15 @@ export function ChatPage() {
           </>
         )}
       </div>
+
+      {/* Right-side panel: logs (plan steps) + artifacts. Default collapsed. */}
+      <ConversationSidePanel
+        steps={activeSession.planDraft?.steps || []}
+        artifacts={sessionArtifacts}
+        onSelectArtifact={(artifact) => {
+          void openArtifactPreview(artifact, activeSessionId)
+        }}
+      />
 
       <FilePreviewDrawer
         preview={filePreview}
@@ -7713,7 +7671,6 @@ function UserMessageText({ text }: { text: string }) {
 function MessageBubble({
   message,
   syncAgents,
-  hasPendingPlanDraft,
   onOpenFilePreview,
   onPreviewUserImage,
   onOpenArtifact,
@@ -7725,10 +7682,6 @@ function MessageBubble({
   /** v1.12: per-agent state used to render the sub-agent task expander and
    * intent shimmer inside the agent-team segment header. */
   syncAgents?: Record<string, SyncAgentState>
-  /** True while a `plan.proposed` PlanDraftCard is awaiting the user. The
-   * engine's turn is parked, so we suppress the breathing-dot indicator on
-   * the streaming assistant message during that window. */
-  hasPendingPlanDraft?: boolean
   onOpenFilePreview: (preview: FilePreviewData) => void
   /** v1.x: 用户消息中的图片点击改走居中 FilePreviewModal（与首页一致）。
    * 非图片附件仍走 onOpenFilePreview / openFilePathPreview。 */
@@ -7744,7 +7697,6 @@ function MessageBubble({
   const [rating, setRating] = useState<'up' | 'down' | null>(null)
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
-  const now = useSharedNowTicker(!isUser && !isSystem && !!message.isStreaming, 250)
   const openFilePathPreview = useCallback(async (path: string) => {
     try {
       const result = await window.files.read(path)
@@ -7962,22 +7914,8 @@ function MessageBubble({
   const userImageAttachments = isUser ? attachments.filter((a) => a.kind === 'image') : []
   const userNonImageAttachments = isUser ? attachments.filter((a) => a.kind !== 'image') : []
   const trailingAttachments = isUser ? userNonImageAttachments : attachments
-  const lastVisibleActivityTs = segments.reduce((latest, seg) => Math.max(latest, seg.ts), message.timestamp)
-  // While a `prompt.user` (AskUserQuestion / permission / plan_review) is
-  // awaiting the user's reply, the engine's turn is parked — nothing is
-  // actually running. Suppress the breathing dot in that case so the UI
-  // doesn't suggest "服务仍在继续" while we are really waiting on the user.
-  const hasUnresolvedPromptUser = segments.some(
-    (seg) =>
-      (seg.kind === 'question' || seg.kind === 'permission' || seg.kind === 'step_decision') && !seg.result,
-  )
-  const shouldShowBreathingDot = !isUser
-    && !isSystem
-    && !!message.isStreaming
-    && segments.length > 0
-    && !hasUnresolvedPromptUser
-    && !hasPendingPlanDraft
-    && now - lastVisibleActivityTs > 1000
+  // 呼吸闪烁小点已上移到 ConversationTimeline 尾部，与"鎏金"shimmer 文案
+  // 同行渲染（受 isProcessing 控制），所以这里不再做 per-message 计算。
   const shouldShowTimestamp = !message.isStreaming
   const hasRenderableAssistantBody = displaySegments.length > 0 || attachments.length > 0 || !!errorNotice
 
@@ -8466,11 +8404,8 @@ function MessageBubble({
           </div>
         )}
 
-        {shouldShowBreathingDot && (
-          <div className="mb-1.5 flex justify-end pr-1">
-            <span className="streaming-breathing-dot" aria-label={t('chat.status.serviceContinuing')} />
-          </div>
-        )}
+        {/* 呼吸闪烁小点已移至会话尾部，与"鎏金"shimmer 文案同行渲染
+            (ConversationTimeline 中的 streaming-breathing-dot + chat-thinking-shimmer)。 */}
 
         {/* 点赞点踩 — AI 回复正文下方常显按钮(流式结束后才出现) */}
         {!isUser && !isSystem && !message.isStreaming && hasRenderableAssistantBody && (

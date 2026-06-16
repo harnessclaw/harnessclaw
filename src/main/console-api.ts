@@ -337,6 +337,10 @@ export interface AgentPatch {
   primary?: string
   fallback_chain?: string[]
   image_generation?: string
+  // Engine 2026-06+: canonical `provider:endpoint` ref for the video
+  // generation tool target (e.g. `doubao:seedance-lite-i2v`). Same
+  // omit-means-unchanged semantics as the other fields.
+  video_generation?: string
   max_tokens?: number
   temperature?: number
   context_window?: number
@@ -605,6 +609,96 @@ export function getAgentConfig(): Promise<ProvidersResult<AgentConfig>> {
 
 export function patchAgentConfig(patch: AgentPatch): Promise<ProvidersResult<AgentConfig>> {
   return providersRequest<AgentConfig>('PATCH', '/agent', patch)
+}
+
+// ─── Video Generation Management API ────────────────────────────────────
+//
+// GET|PATCH /api/v1/videogen — hot-edit the video generation providers
+// block (credentials + per-endpoint model bindings), mirroring the
+// providers management API but scoped to the `videogen` config tree.
+// Responses wrap data as `{ code, data }` so they go through the same
+// `providersRequest` helper.
+
+export interface VideoEndpointInfo {
+  model: string
+}
+
+export interface VideoProviderInfo {
+  api_key: string
+  base_url: string
+  endpoints: Record<string, VideoEndpointInfo>
+}
+
+export interface VideoGenInfo {
+  config_source: string
+  providers: Record<string, VideoProviderInfo>
+}
+
+// PATCH body. Any subset; omitted = unchanged. Mirrors the engine's
+// videogen management contract.
+export interface VideoGenPatch {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
+}
+
+export function listVideoProviders(): Promise<ProvidersResult<VideoGenInfo>> {
+  return providersRequest<VideoGenInfo>('GET', '/videogen')
+}
+
+export function patchVideoConfig(patch: VideoGenPatch): Promise<ProvidersResult<VideoGenInfo>> {
+  return providersRequest<VideoGenInfo>('PATCH', '/videogen', patch)
+}
+
+// ─── Image Generation Management API ────────────────────────────────────
+//
+// GET|PATCH /api/v1/imagegen — hot-edit the image generation providers
+// block (credentials + path + per-endpoint model bindings), mirroring the
+// videogen management API but scoped to the `imagegen` config tree.
+// Responses wrap data as `{ code, data }` so they go through the same
+// `providersRequest` helper.
+
+export interface ImageEndpointInfo {
+  model: string
+}
+
+export interface ImageProviderInfo {
+  api_key: string
+  base_url: string
+  path: string
+  endpoints: Record<string, ImageEndpointInfo>
+}
+
+export interface ImageGenInfo {
+  config_source: string
+  providers: Record<string, ImageProviderInfo>
+}
+
+// PATCH body. Any subset; omitted = unchanged. Mirrors the engine's
+// imagegen management contract.
+export interface ImageGenPatch {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      path?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
+}
+
+export function listImageProviders(): Promise<ProvidersResult<ImageGenInfo>> {
+  return providersRequest<ImageGenInfo>('GET', '/imagegen')
+}
+
+export function patchImageConfig(patch: ImageGenPatch): Promise<ProvidersResult<ImageGenInfo>> {
+  return providersRequest<ImageGenInfo>('PATCH', '/imagegen', patch)
 }
 
 // Flatten the agent payload into the legacy `{chain, entries}` shape

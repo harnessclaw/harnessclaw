@@ -646,9 +646,67 @@ interface AgentPatchPayload {
   primary?: string
   fallback_chain?: string[]
   image_generation?: string
+  // Engine 2026-06+: canonical `provider:endpoint` ref for the video
+  // generation tool target (e.g. `doubao:seedance-lite-i2v`). Omitted =
+  // unchanged.
+  video_generation?: string
   max_tokens?: number
   temperature?: number
   context_window?: number
+}
+
+// Video Generation Management API — GET|PATCH /api/v1/videogen. Mirrors
+// the providers management types but scoped to the `videogen` config
+// tree (credentials + per-endpoint model bindings).
+interface VideoEndpointInfo {
+  model: string
+}
+interface VideoProviderListing {
+  api_key: string
+  base_url: string
+  endpoints: Record<string, VideoEndpointInfo>
+}
+interface VideoGenListing {
+  config_source: string
+  providers: Record<string, VideoProviderListing>
+}
+interface VideoGenPatchPayload {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
+}
+
+// Image Generation Management API — GET|PATCH /api/v1/imagegen. Mirrors
+// the videogen management types but scoped to the `imagegen` config tree
+// (credentials + path + per-endpoint model bindings).
+interface ImageEndpoint {
+  model: string
+}
+interface ImageProviderListing {
+  api_key: string
+  base_url: string
+  path: string
+  endpoints: Record<string, ImageEndpoint>
+}
+interface ImageGenListing {
+  config_source: string
+  providers: Record<string, ImageProviderListing>
+}
+interface ImageGenPatch {
+  providers: Record<
+    string,
+    {
+      api_key?: string
+      base_url?: string
+      path?: string
+      endpoints?: Record<string, { model: string }>
+    }
+  >
 }
 
 type ProvidersResult<T> =
@@ -723,6 +781,18 @@ interface AgentApiInterface {
   patchAgentConfig: (
     patch: AgentPatchPayload,
   ) => Promise<ProvidersResult<AgentConfigInfo>>
+  /** GET /api/v1/videogen — videogen providers + per-endpoint model bindings. */
+  listVideoProviders: () => Promise<ProvidersResult<VideoGenListing>>
+  /** PATCH /api/v1/videogen — partial update; omitted fields unchanged. */
+  patchVideoConfig: (
+    patch: VideoGenPatchPayload,
+  ) => Promise<ProvidersResult<VideoGenListing>>
+  /** GET /api/v1/imagegen — imagegen providers + per-endpoint model bindings. */
+  listImageProviders: () => Promise<ProvidersResult<ImageGenListing>>
+  /** PATCH /api/v1/imagegen — partial update; omitted fields unchanged. */
+  patchImageConfig: (
+    patch: ImageGenPatch,
+  ) => Promise<ProvidersResult<ImageGenListing>>
   patchProvider: (
     name: string,
     patch: ProviderPatchPayload,

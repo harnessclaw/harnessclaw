@@ -16,57 +16,18 @@ import {
 import { PastedBlocksBar, usePastedBlocks } from '../common/PastedBlocksBar'
 import { FilePreviewModal } from '../attachments/FilePreviewModal'
 import type { FilePreviewData } from './ChatPage'
+import { HOME_CASES, HOME_CATEGORIES } from '../../data/homeCases'
 
 type AttachmentItem = LocalAttachmentItem
 
 // 推荐分类
 const categories = [
   { id: 'recommend', label: '推荐' },
-  { id: 'office', label: '办公提效' },
-  { id: 'computer', label: '电脑设置' },
-  { id: 'study', label: '学习助手' },
-  { id: 'daily', label: '日常生活' },
-  { id: 'entertainment', label: '休息娱乐' },
-]
-
-// 示例案例数据
-const exampleCases = [
-  {
-    id: '1',
-    category: 'office',
-    title: 'Image转PPT',
-    description: '我需要做一个宣传ppt，参考内容在这张图上，帮我整理成结构',
-  },
-  {
-    id: '2',
-    category: 'office',
-    title: 'Image转PPT',
-    description: '我需要做一个宣传ppt，参考内容在这张图上，帮我整理成结构',
-  },
-  {
-    id: '3',
-    category: 'office',
-    title: 'Image转PPT',
-    description: '我需要做一个宣传ppt，参考内容在这张图上，帮我整理成结构',
-  },
-  {
-    id: '4',
-    category: 'study',
-    title: 'Image转PPT',
-    description: '我需要做一个宣传ppt，参考内容在这张图上，帮我整理成结构',
-  },
-  {
-    id: '5',
-    category: 'study',
-    title: 'Image转PPT',
-    description: '我需要做一个宣传ppt，参考内容在这张图上，帮我整理成结构',
-  },
-  {
-    id: '6',
-    category: 'daily',
-    title: 'Image转PPT',
-    description: '我需要做一个宣传ppt，参考内容在这张图上，帮我整理成结构',
-  },
+  { id: '办公提效', label: '办公提效' },
+  { id: '电脑设置', label: '电脑设置' },
+  { id: '学习助手', label: '学习助手' },
+  { id: '日常生活', label: '日常生活' },
+  { id: '休息娱乐', label: '休息娱乐' },
 ]
 
 export function HomePage() {
@@ -219,10 +180,23 @@ export function HomePage() {
     setAttachments((prev) => prev.filter((item) => item.id !== id))
   }
 
-  const handleCaseClick = (caseItem: typeof exampleCases[0]) => {
-    setInput(caseItem.description)
+  const handleCaseClick = (caseItem: { title: string; content: string; prompt: string }) => {
+    setInput(caseItem.prompt)
     inputRef.current?.focus()
   }
+
+  // 获取当前分类的案例
+  const displayedCases = useMemo(() => {
+    if (selectedCategory === 'recommend') {
+      // 推荐：取所有 featured=true 的案例
+      return HOME_CATEGORIES.flatMap((categoryKey) =>
+        HOME_CASES[categoryKey].filter((c) => c.featured)
+      )
+    } else {
+      // 具体分类：取对应分类下的所有案例
+      return HOME_CASES[selectedCategory] || []
+    }
+  }, [selectedCategory])
 
   // Paste hand-off: clipboard images go to the attachments pipeline
   // (same shape as drag/drop), everything else falls through to the
@@ -270,23 +244,26 @@ export function HomePage() {
   return (
     <div className="flex min-h-full justify-center px-6 pb-6 pt-12">
       <div className="w-full max-w-[860px] relative">
+        {/* 橙色背景 - 从秘书原位置斜着延伸到窗口右上角 */}
+        <div className="absolute right-16 top-0 w-[224px] h-[260px] pointer-events-none z-0">
+          <img
+            src={new URL('../../assets/secretary-bg.png', import.meta.url).href}
+            alt=""
+            className="w-full h-full object-cover scale-[2]"
+            style={{ objectPosition: 'left center' }}
+          />
+        </div>
+
         {/* 秘书图像 - 右上角，保持原始形状 */}
         <div className="absolute right-16 top-0 w-[160px] h-[260px] pointer-events-none z-0">
-          {/* 秘书背景图 - 填满整个区域，放大铺满右上角 */}
-          <div className="absolute inset-0">
+          {/* 秘书人物 - 单独裁切 */}
+          <div className="absolute inset-0 overflow-hidden">
             <img
-              src={new URL('../../assets/secretary-bg.png', import.meta.url).href}
-              alt=""
-              className="w-full h-full object-cover scale-[2]"
-              style={{ objectPosition: 'center' }}
+              src={new URL('../../assets/secretary-corner.svg', import.meta.url).href}
+              alt="Emma Assistant"
+              className="relative w-full h-full object-contain object-top z-10 scale-[1.8] translate-y-20"
             />
           </div>
-          {/* 秘书人物 */}
-          <img
-            src={new URL('../../assets/secretary-corner.png', import.meta.url).href}
-            alt="Emma Assistant"
-            className="relative w-full h-full object-contain object-top z-10"
-          />
           {/* hi Emma~ 图片 - 耳朵右边 */}
           <img
             src={new URL('../../assets/hi-emma.png', import.meta.url).href}
@@ -301,8 +278,8 @@ export function HomePage() {
           <div className="relative z-10 max-w-[500px]">
             <div className="flex items-center gap-6 mb-2">
               <h1 className="text-2xl font-bold text-foreground">Emma 超好用</h1>
-              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                <span className="h-2 w-2 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+              <span className="inline-flex items-center gap-1.5 text-sm font-normal leading-5 text-[#02B578]">
+                <span className="h-2 w-2 rounded-full bg-[#02B578]" />
                 24h Online
               </span>
             </div>
@@ -315,7 +292,7 @@ export function HomePage() {
         {/* 输入框区域 */}
         <div
           className={cn(
-            'relative overflow-hidden rounded-[28px] border bg-card transition-[border-color,box-shadow,transform] duration-200',
+            'relative overflow-hidden rounded-[28px] border bg-card transition-[border-color,box-shadow,transform] duration-200 mt-12',
             'focus-within:border-primary focus-within:shadow-[0_18px_54px_rgba(15,23,42,0.08)]',
             isDragOver
               ? 'border-primary shadow-[0_20px_60px_rgba(37,99,235,0.12)]'
@@ -352,7 +329,7 @@ export function HomePage() {
                   onPaste={handleComposerPaste}
                   placeholder={t('home.inputPlaceholder')}
                   maxLength={maxLength}
-                  className="min-h-[40px] max-h-[80px] text-sm"
+                  className="text-sm"
                   rows={1}
                 />
 
@@ -439,17 +416,18 @@ export function HomePage() {
         {/* 推荐区域 */}
         <div className="mt-12">
           {/* 分类标签 */}
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
             {categories.map((category) => (
               <button
                 key={category.id}
                 onClick={() => setSelectedCategory(category.id)}
                 className={cn(
-                  'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                  'rounded-full px-1.5 py-1 text-xs leading-5 transition-colors',
                   selectedCategory === category.id
-                    ? 'bg-foreground text-background'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                    ? 'font-semibold'
+                    : 'font-medium text-muted-foreground hover:text-foreground'
                 )}
+                style={selectedCategory === category.id ? { color: '#222529' } : undefined}
               >
                 {category.label}
               </button>
@@ -458,25 +436,23 @@ export function HomePage() {
 
           {/* 案例卡片网格 - 纯文本格式 */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {exampleCases
-              .filter((caseItem) => selectedCategory === 'recommend' || caseItem.category === selectedCategory)
-              .map((caseItem) => (
-                <button
-                  key={caseItem.id}
-                  onClick={() => handleCaseClick(caseItem)}
-                  className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-md min-h-[120px]"
-                >
-                  {/* 标题 */}
-                  <h3 className="text-base font-medium text-foreground group-hover:text-primary transition-colors">
-                    {caseItem.title}
-                  </h3>
+            {displayedCases.map((caseItem, index) => (
+              <button
+                key={`${selectedCategory}-${index}`}
+                onClick={() => handleCaseClick(caseItem)}
+                className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-md min-h-[120px]"
+              >
+                {/* 标题 */}
+                <h3 className="text-base font-medium text-foreground group-hover:text-primary transition-colors">
+                  {caseItem.title}
+                </h3>
 
-                  {/* 描述 */}
-                  <p className="text-sm text-muted-foreground line-clamp-4">
-                    {caseItem.description}
-                  </p>
-                </button>
-              ))}
+                {/* 描述 */}
+                <p className="text-sm text-muted-foreground line-clamp-4">
+                  {caseItem.content}
+                </p>
+              </button>
+            ))}
           </div>
         </div>
       </div>

@@ -12,7 +12,7 @@ import {
   Pause, Play, RotateCcw, AlertTriangle,
   ChevronDown, ChevronRight, ExternalLink,
   SlidersHorizontal, RefreshCw, Settings2,
-  Globe, Image, Sun, GripVertical, Plus,
+  Globe, Image, Film, Sun, GripVertical, Plus,
   // Keyboard = typing hint icon shown inside the hotkey-capture input
   // while we're waiting for the user to press a combination.
   Keyboard,
@@ -156,6 +156,18 @@ function SectionHeader({
         <span className="text-xs text-muted-foreground">{subtitle}</span>
       </div>
       <div className="h-px bg-border" />
+    </div>
+  )
+}
+
+// Centered divider heading used to visually separate the three model
+// sub-sections (文本/图片/视频) inside the unified 模型 page.
+function SectionDivider({ label, className }: { label: string; className?: string }) {
+  return (
+    <div className={cn('flex items-center gap-3 mt-1 mb-3', className)}>
+      <div className="h-px flex-1 bg-border" />
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+      <div className="h-px flex-1 bg-border" />
     </div>
   )
 }
@@ -682,6 +694,20 @@ function ProviderStrategyRow({
   const [chain, setChain] = useState<string[]>([])
   const [chainEntries, setChainEntries] = useState<ProviderChainEntry[]>([])
   const [imageGeneration, setImageGeneration] = useState('')
+  // Video generation tool target ref (`provider:endpoint`). Sourced from
+  // the videogen config tree (listVideoProviders) for the options and
+  // from agent.video_generation for the current value — independent of
+  // the model-provider chain that drives image_generation.
+  const [videoGeneration, setVideoGeneration] = useState('')
+  const [videoProviders, setVideoProviders] = useState<
+    Record<string, { endpoints?: Record<string, { model?: string }> }>
+  >({})
+  // Image endpoints come from the independent imagegen config tree
+  // (cfg.ImageGen via listImageProviders), parallel to videoProviders —
+  // no longer derived from the model-provider chain.
+  const [imageProviders, setImageProviders] = useState<
+    Record<string, { endpoints?: Record<string, { model?: string }> }>
+  >({})
   const [loading, setLoading] = useState(true)
   const [unavailable, setUnavailable] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -690,7 +716,6 @@ function ProviderStrategyRow({
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
   const addMenuRef = useRef<HTMLDivElement | null>(null)
-  const repairingImageEndpointRef = useRef<string | null>(null)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -723,10 +748,16 @@ function ProviderStrategyRow({
       setImageGeneration(
         typeof aRes.data?.image_generation === 'string' ? aRes.data.image_generation : '',
       )
+      // `video_generation` rides on the same GET /agent payload but the
+      // ambient AgentConfigInfo type predates the field, so read it via a
+      // narrow cast rather than widening the shared type.
+      const videoRef = (aRes.data as { video_generation?: string } | undefined)?.video_generation
+      setVideoGeneration(typeof videoRef === 'string' ? videoRef : '')
     } else {
       setChain([])
       setChainEntries([])
       setImageGeneration('')
+      setVideoGeneration('')
     }
     setLoading(false)
   }, [t])
@@ -734,6 +765,30 @@ function ProviderStrategyRow({
   useEffect(() => {
     void loadAll()
   }, [loadAll])
+
+  // Video endpoints come from the separate videogen config tree, not the
+  // model-provider chain. Load once; failures leave the dropdown with just
+  // the "(none)" option (and any unrecognized saved value).
+  useEffect(() => {
+    void (async () => {
+      const res = await window.agentApi.listVideoProviders()
+      if (res.ok) {
+        setVideoProviders(res.data?.providers ?? {})
+      }
+    })()
+  }, [])
+
+  // Image endpoints come from the separate imagegen config tree, not the
+  // model-provider chain. Load once; failures leave the dropdown with just
+  // the "(none)" option (and any unrecognized saved value).
+  useEffect(() => {
+    void (async () => {
+      const res = await window.agentApi.listImageProviders()
+      if (res.ok) {
+        setImageProviders(res.data?.providers ?? {})
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     if (!addOpen) return
@@ -893,18 +948,33 @@ function ProviderStrategyRow({
 
   const imageGenerationOptions = useMemo<{ label: string; value: string }[]>(() => {
     const opts: { label: string; value: string }[] = [{ label: t('models.select'), value: '' }]
-    for (const e of allEndpoints) {
-      if (!e.providerEnabled) continue
-      if (e.providerDisabled) continue
-      if (e.endpointDisabled) continue
-      if (!isImageGenerationEndpointRef(e)) continue
-      opts.push({ label: e.ref, value: e.ref })
+    for (const [provider, listing] of Object.entries(imageProviders)) {
+      for (const [endpoint, info] of Object.entries(listing?.endpoints ?? {})) {
+        const ref = `${provider}:${endpoint}`
+        const model = (info as { model?: string })?.model?.trim()
+        opts.push({ label: model ? `${ref}（${model}）` : ref, value: ref })
+      }
     }
-    if (imageGeneration && !allEndpoints.some((e) => e.ref === imageGeneration)) {
+    if (imageGeneration && !opts.some((o) => o.value === imageGeneration)) {
       opts.push({ label: t('models.unrecognized', { name: imageGeneration }), value: imageGeneration })
     }
     return opts
-  }, [allEndpoints, imageGeneration, t])
+  }, [imageProviders, imageGeneration, t])
+
+  const videoGenerationOptions = useMemo<{ label: string; value: string }[]>(() => {
+    const opts: { label: string; value: string }[] = [{ label: t('models.select'), value: '' }]
+    for (const [provider, listing] of Object.entries(videoProviders)) {
+      for (const [endpoint, info] of Object.entries(listing?.endpoints ?? {})) {
+        const ref = `${provider}:${endpoint}`
+        const model = info?.model?.trim()
+        opts.push({ label: model ? `${ref}（${model}）` : ref, value: ref })
+      }
+    }
+    if (videoGeneration && !opts.some((o) => o.value === videoGeneration)) {
+      opts.push({ label: t('models.unrecognized', { name: videoGeneration }), value: videoGeneration })
+    }
+    return opts
+  }, [videoProviders, videoGeneration, t])
 
   // persistChain takes the full flat chain; the main-process adapter
   // splits it back into `{primary, fallback_chain}` for PATCH /agent.
@@ -925,139 +995,14 @@ function ProviderStrategyRow({
     setBusy(false)
   }
 
-  const ensureImageGenerationEndpointReady = useCallback(async (endpoint: ProviderEndpointRef) => {
-    if (!isImageGenerationEndpointRef(endpoint)) return false
-
-    if (endpoint.providerMissing) {
-      const createProviderPayload: {
-        name: string
-        type: ProviderType
-        base_url?: string
-        api_key?: string
-        disabled?: boolean
-      } = {
-        name: endpoint.provider,
-        type: endpoint.providerEngineType ?? endpoint.type,
-        disabled: false,
-      }
-      const baseUrl = endpoint.providerApiBase?.trim() || ''
-      const apiKey = endpoint.providerApiKey?.trim() || ''
-      if (baseUrl) createProviderPayload.base_url = baseUrl
-      if (apiKey) createProviderPayload.api_key = apiKey
-      const providerRes = await window.agentApi.createProvider(createProviderPayload)
-      if (!providerRes.ok && !(providerRes.status === 400 && /exist/i.test(providerRes.message || ''))) {
-        return false
-      }
-    } else if (endpoint.engineProviderDisabled) {
-      const providerRes = await window.agentApi.patchProvider(endpoint.provider, { disabled: false })
-      if (!providerRes.ok) return false
-    }
-
-    if (endpoint.endpointMissing) {
-      const createEndpointPayload: {
-        name: string
-        model: string
-        disabled?: boolean
-        group?: string
-      } = {
-        name: endpoint.endpoint,
-        model: endpoint.model || endpoint.endpoint,
-        disabled: false,
-      }
-      if (endpoint.endpointGroup) createEndpointPayload.group = endpoint.endpointGroup
-      const createRes = await window.agentApi.createEndpoint(endpoint.provider, createEndpointPayload)
-      if (!createRes.ok && !(createRes.status === 400 && /exist/i.test(createRes.message || ''))) {
-        return false
-      }
-    }
-
-    const endpointPatch: { disabled?: boolean; model_type?: string[] } = {}
-    if (endpoint.engineEndpointDisabled) endpointPatch.disabled = false
-    if (endpoint.modelType && endpoint.modelType.length > 0) endpointPatch.model_type = endpoint.modelType
-
-    if (Object.keys(endpointPatch).length > 0) {
-      const endpointRes = await window.agentApi.patchEndpoint(
-        endpoint.provider,
-        endpoint.endpoint,
-        endpointPatch,
-      )
-      if (!endpointRes.ok) return false
-    }
-
-    setProviders((prev) => {
-      let providerFound = false
-      const next = prev.map((provider) => {
-        if (provider.name !== endpoint.provider) return provider
-        providerFound = true
-        let endpointFound = false
-        const endpoints = provider.endpoints.map((item) => {
-          if (item.name !== endpoint.endpoint) return item
-          endpointFound = true
-          return {
-            ...item,
-            disabled: false,
-            model_type: endpoint.modelType,
-          }
-        })
-        if (!endpointFound) {
-          endpoints.push({
-            name: endpoint.endpoint,
-            model: endpoint.model || endpoint.endpoint,
-            disabled: false,
-            in_chain: false,
-            model_type: endpoint.modelType,
-            ...(endpoint.endpointGroup ? { group: endpoint.endpointGroup } : {}),
-          })
-        }
-        return {
-          ...provider,
-          disabled: false,
-          endpoints,
-        }
-      })
-      if (!providerFound) {
-        next.push({
-          name: endpoint.provider,
-          type: endpoint.providerEngineType ?? endpoint.type,
-          base_url: endpoint.providerApiBase ?? '',
-          api_key: endpoint.providerApiKey ?? '',
-          disabled: false,
-          endpoints: [
-            {
-              name: endpoint.endpoint,
-              model: endpoint.model || endpoint.endpoint,
-              disabled: false,
-              in_chain: false,
-              model_type: endpoint.modelType,
-              ...(endpoint.endpointGroup ? { group: endpoint.endpointGroup } : {}),
-            },
-          ],
-        })
-      }
-      return next
-    })
-    return true
-  }, [])
-
+  // Mirrors handleVideoGenerationChange's optimistic-then-confirm flow.
+  // No endpoint-readiness step: image targets live in the imagegen config
+  // tree (cfg.ImageGen), which isn't subject to the model-chain repair logic.
   const handleImageGenerationChange = async (newRef: string) => {
     if (newRef === imageGeneration) return
     setBusy(true)
     const prev = imageGeneration
     setImageGeneration(newRef)
-    if (newRef) {
-      const selected = allEndpoints.find((endpoint) => endpoint.ref === newRef)
-      if (!selected || !isImageGenerationEndpointRef(selected)) {
-        setImageGeneration(prev)
-        setBusy(false)
-        return
-      }
-      const ready = await ensureImageGenerationEndpointReady(selected)
-      if (!ready) {
-        setImageGeneration(prev)
-        setBusy(false)
-        return
-      }
-    }
     const res = await window.agentApi.patchAgentConfig({ image_generation: newRef })
     if (!res.ok) {
       setImageGeneration(prev)
@@ -1070,33 +1015,24 @@ function ProviderStrategyRow({
     setBusy(false)
   }
 
-  useEffect(() => {
-    if (loading || !imageGeneration) return
-    const selected = allEndpoints.find((endpoint) => endpoint.ref === imageGeneration)
-    const selectable = Boolean(
-      selected
-      && selected.providerEnabled
-      && !selected.providerDisabled
-      && !selected.endpointDisabled
-      && isImageGenerationEndpointRef(selected),
-    )
-    if (selectable) {
-      if (
-        selected
-        && (selected.engineProviderDisabled || selected.engineEndpointDisabled)
-        && repairingImageEndpointRef.current !== selected.ref
-      ) {
-        repairingImageEndpointRef.current = selected.ref
-        void ensureImageGenerationEndpointReady(selected).finally(() => {
-          repairingImageEndpointRef.current = null
-        })
-      }
+  // Mirrors handleImageGenerationChange's optimistic-then-confirm flow.
+  // No endpoint-readiness step: video targets live in the videogen config
+  // tree, which isn't subject to the model-chain repair logic.
+  const handleVideoGenerationChange = async (newRef: string) => {
+    if (newRef === videoGeneration) return
+    setBusy(true)
+    const prev = videoGeneration
+    setVideoGeneration(newRef)
+    const res = await window.agentApi.patchAgentConfig({ video_generation: newRef })
+    if (!res.ok) {
+      setVideoGeneration(prev)
+      setBusy(false)
       return
     }
-
-    setImageGeneration('')
-    void window.agentApi.patchAgentConfig({ image_generation: '' })
-  }, [allEndpoints, ensureImageGenerationEndpointReady, imageGeneration, loading])
+    const confirmed = (res.data as { video_generation?: string } | undefined)?.video_generation
+    setVideoGeneration(typeof confirmed === 'string' ? confirmed : '')
+    setBusy(false)
+  }
 
   // Picking a new primary: if it currently lives in fallback we strip
   // it (engine constraint: fallback_chain items must differ from
@@ -1229,6 +1165,24 @@ function ProviderStrategyRow({
             value={imageGeneration}
             onChange={handleImageGenerationChange}
             options={imageGenerationOptions}
+          />
+          {busy && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
+        </div>
+      </SettingRow>
+
+      {/* Label/description use inline literals rather than i18n keys: the
+          videoGenerationProvider locale entries don't exist yet, and this
+          task is scoped to SettingsPage.tsx only. Mirror the image row's
+          structure otherwise. */}
+      <SettingRow
+        label="视频生成模型"
+        description="供视频生成工具使用，不参与主回答模型和 fallback_chain"
+      >
+        <div className="flex items-center gap-2">
+          <SelectInput
+            value={videoGeneration}
+            onChange={handleVideoGenerationChange}
+            options={videoGenerationOptions}
           />
           {busy && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
         </div>
@@ -1977,6 +1931,40 @@ function BrandMark({ brand, size, color }: { brand: BrandKey; size: number; colo
 
 function getDisplayName(key: ManagedProviderKey): string {
   return PROVIDER_DISPLAY_NAMES[key]
+}
+
+// Friendly labels for image/video provider keys (cfg.ImageGen / cfg.VideoGen).
+// Unknown keys fall back to the raw key so user-added providers still render.
+const MEDIA_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  openai: 'OpenAI',
+  jimeng: '即梦',
+  doubao: '豆包',
+  volcengine: '火山引擎',
+}
+function mediaProviderDisplayName(key: string): string {
+  return MEDIA_PROVIDER_DISPLAY_NAMES[key] ?? key
+}
+
+// Brand icons for image/video provider keys. Falls back to a generic lucide
+// icon (passed by the caller) for keys without a brand asset.
+const MEDIA_PROVIDER_ICONS: Record<string, string> = {
+  openai: new URL('../../assets/providers/openai.svg', import.meta.url).href,
+  volcengine: new URL('../../assets/providers/volcengine.svg', import.meta.url).href,
+}
+function MediaProviderIcon({
+  providerKey,
+  size = 16,
+  fallback,
+}: {
+  providerKey: string
+  size?: number
+  fallback: React.ReactNode
+}): React.ReactElement {
+  const url = MEDIA_PROVIDER_ICONS[providerKey]
+  if (url) {
+    return <img src={url} alt={providerKey} width={size} height={size} style={{ display: 'block' }} />
+  }
+  return <>{fallback}</>
 }
 
 const PROVIDER_APIKEY_PAGES: Record<ManagedProviderKey, string> = {
@@ -2874,6 +2862,19 @@ function ModelSection({
   )
   const [defaultProvider, setDefaultProvider] = useState<ManagedProviderKey>('anthropic')
   const [selectedProvider, setSelectedProvider] = useState<ManagedProviderKey>('anthropic')
+  // Minimal-risk polymorphic selection: the existing text-provider logic
+  // keeps using the string `selectedProvider` untouched. A separate
+  // `selectedKind` + `selectedExtraKey` overlays the image/video segments:
+  // when kind !== 'text', the right pane renders the corresponding
+  // per-provider section instead of the text-provider card. Clicking any
+  // text provider resets kind back to 'text'.
+  const [selectedKind, setSelectedKind] = useState<'text' | 'image' | 'video'>('text')
+  const [selectedExtraKey, setSelectedExtraKey] = useState<string>('')
+  // Provider keys for the image/video config trees, hydrated on mount from
+  // the imagegen/videogen management listings (default config ships
+  // `openai` image + `doubao` video, so these are normally non-empty).
+  const [imageProviderKeys, setImageProviderKeys] = useState<string[]>([])
+  const [videoProviderKeys, setVideoProviderKeys] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -3042,6 +3043,34 @@ function ModelSection({
         setPersistMessage(t('models.persist.readFailed'))
       } finally {
         setLoading(false)
+      }
+    })()
+  }, [])
+
+  // Load the image/video provider key lists for the left-rail segments.
+  // Independent of the text-provider load above — failures just leave the
+  // segment empty (a muted hint is shown). The default config ships an
+  // `openai` image provider + a `doubao` video provider, so these are
+  // normally populated.
+  useEffect(() => {
+    void (async () => {
+      const [imgRes, vidRes] = await Promise.all([
+        window.agentApi.listImageProviders(),
+        window.agentApi.listVideoProviders(),
+      ])
+      if (imgRes.ok) {
+        setImageProviderKeys(
+          Array.from(new Set([...IMAGE_BUILTIN_PROVIDERS, ...Object.keys(imgRes.data?.providers ?? {})])),
+        )
+      } else {
+        setImageProviderKeys([...IMAGE_BUILTIN_PROVIDERS])
+      }
+      if (vidRes.ok) {
+        setVideoProviderKeys(
+          Array.from(new Set([...VIDEO_BUILTIN_PROVIDERS, ...Object.keys(vidRes.data?.providers ?? {})])),
+        )
+      } else {
+        setVideoProviderKeys([...VIDEO_BUILTIN_PROVIDERS])
       }
     })()
   }, [])
@@ -4357,6 +4386,9 @@ function ModelSection({
       || providers.custom.models.length > 0
     )
   const providerKeys = MANAGED_PROVIDER_KEYS.filter((key) => {
+    // Image-generation providers (doubao/Doubao Seedream, gpt-image) are not
+    // chat models — they belong to the 图片生成 segment, not 对话模型.
+    if (!isAgentProviderKey(key)) return false
     if (key === selectedProvider) return true
     if (key === 'custom' && !showCustomProvider) return false
     if (!searchQuery) return true
@@ -4392,14 +4424,17 @@ function ModelSection({
         </div>
 
         <div className="flex-1 overflow-y-auto px-1.5 pb-2">
+          {/* ── 对话模型 (text / LLM providers) ── */}
+          <SectionDivider label="对话模型" />
           {providerKeys.map((key) => {
-            const isActive = key === selectedProvider
+            const isActive = selectedKind === 'text' && key === selectedProvider
             const isEnabled = Boolean(providers[key]?.enabled)
 
             return (
               <button
                 key={key}
                 onClick={() => {
+                  setSelectedKind('text')
                   setSelectedProvider(key)
                   setShowApiKey(false)
                   setTestState('idle')
@@ -4434,6 +4469,68 @@ function ModelSection({
               </div>
             </div>
           )}
+
+          {/* ── 图片生成 (image providers) ── */}
+          <SectionDivider label="图片生成" />
+          {imageProviderKeys.map((key) => {
+            const isActive = selectedKind === 'image' && key === selectedExtraKey
+            return (
+              <button
+                key={`image:${key}`}
+                onClick={() => {
+                  setSelectedKind('image')
+                  setSelectedExtraKey(key)
+                }}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
+                  isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
+                )}
+              >
+                <MediaProviderIcon
+                  providerKey={key}
+                  size={28}
+                  fallback={<Image size={28} className="text-muted-foreground" />}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
+              </button>
+            )
+          })}
+          {imageProviderKeys.length === 0 && (
+            <p className="px-2.5 py-2 text-xs text-muted-foreground">
+              在 config 里添加 imagegen provider 后显示
+            </p>
+          )}
+
+          {/* ── 视频生成 (video providers) ── */}
+          <SectionDivider label="视频生成" />
+          {videoProviderKeys.map((key) => {
+            const isActive = selectedKind === 'video' && key === selectedExtraKey
+            return (
+              <button
+                key={`video:${key}`}
+                onClick={() => {
+                  setSelectedKind('video')
+                  setSelectedExtraKey(key)
+                }}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
+                  isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
+                )}
+              >
+                <MediaProviderIcon
+                  providerKey={key}
+                  size={28}
+                  fallback={<Film size={28} className="text-muted-foreground" />}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
+              </button>
+            )
+          })}
+          {videoProviderKeys.length === 0 && (
+            <p className="px-2.5 py-2 text-xs text-muted-foreground">
+              在 config 里添加 videogen provider 后显示
+            </p>
+          )}
         </div>
       </div>
 
@@ -4450,6 +4547,15 @@ function ModelSection({
             </div>
           )}
 
+          {selectedKind === 'image' && (
+            <ImageModelSection providerName={selectedExtraKey} />
+          )}
+
+          {selectedKind === 'video' && (
+            <VideoModelSection providerName={selectedExtraKey} />
+          )}
+
+          {selectedKind === 'text' && (
           <div className="rounded-2xl border border-border bg-card shadow-sm">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-border">
@@ -4868,8 +4974,9 @@ function ModelSection({
               </div>
             </div>
           </div>
+          )}
 
-          {selectedProviderEnabled && onNavigateToAgents && (
+          {selectedKind === 'text' && selectedProviderEnabled && onNavigateToAgents && (
             <div className="sticky bottom-0 left-0 right-0 z-20 mt-6 -mx-8 px-8 pb-6 pt-3 bg-gradient-to-t from-background via-background/95 to-background/0 pointer-events-none">
               <div className="flex justify-center pointer-events-auto">
                 <button
@@ -7244,6 +7351,504 @@ function SoftwareSection() {
           <Toggle checked={telemetryEnabled && telemetryLoaded} onChange={handleTelemetryToggle} />
         </SettingRow>
       </GroupCard>
+    </div>
+  )
+}
+
+// ─── Video generation models ────────────────────────────────────────────────
+
+const DOUBAO_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+
+// Built-in image/video provider keys always offered in the model page, even
+// when the active config hasn't declared them yet (OpenAI + 火山引擎/Ark). The
+// backend registers these names too, so a freshly-filled-in provider works
+// immediately after saving.
+const IMAGE_BUILTIN_PROVIDERS = ['openai', 'volcengine']
+const VIDEO_BUILTIN_PROVIDERS = ['volcengine']
+
+// Sensible prefills used when a built-in provider isn't in the active config
+// yet — so the user only has to enter the api_key.
+const IMAGE_PROVIDER_DEFAULTS: Record<
+  string,
+  { baseUrl: string; path: string; endpoints: { name: string; model: string }[] }
+> = {
+  openai: {
+    baseUrl: 'https://api.openai.com',
+    path: '/v1/images/generations',
+    endpoints: [{ name: 'gpt-image', model: 'gpt-image-1' }],
+  },
+  volcengine: {
+    baseUrl: DOUBAO_DEFAULT_BASE_URL,
+    path: '/images/generations',
+    endpoints: [{ name: 'seedream', model: 'doubao-seedream-3-0-t2i-250415' }],
+  },
+}
+const VIDEO_PROVIDER_DEFAULTS: Record<
+  string,
+  { baseUrl: string; endpoints: { name: string; model: string }[] }
+> = {
+  volcengine: {
+    baseUrl: DOUBAO_DEFAULT_BASE_URL,
+    endpoints: [{ name: 'seedance', model: 'doubao-seedance-1-0-lite-i2v-250428' }],
+  },
+}
+
+// Local editable shape for one endpoint row. We keep `name` in the row
+// (rather than as the map key) so the user can rename an endpoint freely
+// without React losing the row's input focus on every keystroke.
+interface VideoEndpointRow {
+  name: string
+  model: string
+}
+
+const IMAGE_DEFAULT_PATH = '/v1/images/generations'
+
+// 图片生成 provider 配置。GET /api/v1/imagegen → 渲染指定 provider 的
+// 凭证 + path + 每个 endpoint 的 model 绑定;编辑后 PATCH /api/v1/imagegen
+// 持久化。结构对齐 VideoModelSection,额外多一个「API 地址 path」字段
+// (videogen 没有 path,imagegen 有)。每个 provider 一个卡片,由
+// ModelSection 左栏选中的 providerName 决定渲染哪一个。
+function ImageModelSection({ providerName }: { providerName: string }) {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [toastNotice, setToastNotice] = useState<{ tone: 'error' | 'success'; message: string } | null>(null)
+
+  const [apiKey, setApiKey] = useState('')
+  // Unified「API 地址」= the full endpoint URL (base_url + path joined). The
+  // backend stores it as base_url with an empty path, so split-form configs
+  // (base_url + path) are joined here on load and flattened on save.
+  const [apiUrl, setApiUrl] = useState('')
+  const [endpoints, setEndpoints] = useState<VideoEndpointRow[]>([])
+
+  // Hydrate form state from a GET/PATCH response, scoped to providerName.
+  // Typed structurally rather than via the ambient `ImageGenListing` name
+  // (preload's interfaces aren't visible to the renderer tsconfig — same
+  // reason `ProviderInfo` is referenced structurally throughout this file).
+  const hydrate = useCallback(
+    (listing: {
+      providers?: Record<
+        string,
+        { api_key?: string; base_url?: string; path?: string; endpoints?: Record<string, { model?: string }> }
+      >
+    }) => {
+      const prov = listing.providers?.[providerName]
+      if (prov) {
+        setApiKey(prov.api_key ?? '')
+        setApiUrl((prov.base_url ?? '') + (prov.path ?? ''))
+        setEndpoints(
+          Object.entries(prov.endpoints ?? {}).map(([name, info]) => ({
+            name,
+            model: info?.model ?? '',
+          }))
+        )
+        return
+      }
+      // Not in the active config yet — prefill built-in defaults so the user
+      // only needs to enter the api_key (火山引擎/openai).
+      const d = IMAGE_PROVIDER_DEFAULTS[providerName]
+      setApiKey('')
+      setApiUrl(d ? d.baseUrl + d.path : '')
+      setEndpoints(d ? d.endpoints.map((e) => ({ ...e })) : [])
+    },
+    [providerName]
+  )
+
+  useEffect(() => {
+    setLoading(true)
+    void (async () => {
+      try {
+        const res = await window.agentApi.listImageProviders()
+        if (res.ok) {
+          hydrate(res.data)
+        } else {
+          setToastNotice({ tone: 'error', message: res.message || res.error })
+        }
+      } catch {
+        setToastNotice({ tone: 'error', message: '加载失败' })
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [hydrate])
+
+  // Auto-dismiss toast — mirrors ModelSection's 2.6s budget.
+  useEffect(() => {
+    if (!toastNotice) return
+    const timer = window.setTimeout(() => setToastNotice(null), 2600)
+    return () => window.clearTimeout(timer)
+  }, [toastNotice])
+
+  const updateEndpoint = (index: number, patch: Partial<VideoEndpointRow>) => {
+    setEndpoints((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+  const addEndpoint = () => setEndpoints((rows) => [...rows, { name: '', model: '' }])
+  const removeEndpoint = (index: number) =>
+    setEndpoints((rows) => rows.filter((_, i) => i !== index))
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      // Skip rows with a blank name; trim everything so stray whitespace
+      // doesn't leak into the yaml. Later duplicate names win (map insert).
+      const endpointsMap: Record<string, { model: string }> = {}
+      for (const row of endpoints) {
+        const name = row.name.trim()
+        if (!name) continue
+        endpointsMap[name] = { model: row.model.trim() }
+      }
+      const res = await window.agentApi.patchImageConfig({
+        providers: {
+          [providerName]: {
+            api_key: apiKey.trim(),
+            base_url: apiUrl.trim(), // full endpoint URL; path flattened in
+            path: '',
+            endpoints: endpointsMap,
+          },
+        },
+      })
+      if (res.ok) {
+        hydrate(res.data)
+        setToastNotice({ tone: 'success', message: '已保存' })
+      } else {
+        setToastNotice({ tone: 'error', message: res.message || res.error })
+      }
+    } catch {
+      setToastNotice({ tone: 'error', message: '保存失败' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+  }
+
+  return (
+    <div>
+      <GroupCard title={`${mediaProviderDisplayName(providerName)} 图片生成`}>
+        {/* API 密钥 */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 密钥</p>
+          <div className="relative">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={`输入 ${providerName} API Key`}
+              className="h-10 w-full rounded-md border border-border bg-background pl-3 pr-10 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+            />
+            <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* API 地址（完整接口 URL） */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 地址</p>
+          <input
+            type="text"
+            value={apiUrl}
+            onChange={(e) => setApiUrl(e.target.value)}
+            placeholder={`https://api.openai.com${IMAGE_DEFAULT_PATH}`}
+            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">完整的图片生成接口地址，例如 {`https://api.openai.com${IMAGE_DEFAULT_PATH}`}</p>
+        </div>
+
+        {/* Endpoints */}
+        <div className="py-3.5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-foreground">Endpoints</p>
+            <button
+              onClick={addEndpoint}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Plus size={13} /> 添加 endpoint
+            </button>
+          </div>
+          {endpoints.length === 0 ? (
+            <p className="py-2 text-xs text-muted-foreground">暂无 endpoint,点击“添加 endpoint”新增一行。</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {endpoints.map((row, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) => updateEndpoint(index, { name: e.target.value })}
+                    placeholder="endpoint 名称"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <input
+                    type="text"
+                    value={row.model}
+                    onChange={(e) => updateEndpoint(index, { model: e.target.value })}
+                    placeholder="模型 ID"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <button
+                    onClick={() => removeEndpoint(index)}
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-status-disconnected"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </GroupCard>
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          {saving && <Loader2 size={14} className="animate-spin" />}
+          {saving ? '保存中…' : '保存'}
+        </button>
+      </div>
+
+      {toastNotice && (
+        <NoticeToast
+          tone={toastNotice.tone}
+          message={toastNotice.message}
+          position="top"
+          anchor="viewport"
+        />
+      )}
+    </div>
+  )
+}
+
+// 视频生成 provider 配置。GET /api/v1/videogen → 渲染指定 provider 卡片;
+// 编辑后通过 PATCH /api/v1/videogen 持久化。结构刻意对齐 ModelSection:
+// loading spinner + NoticeToast 反馈 + 密码框 show/hide。providerName 由
+// ModelSection 左栏选中的视频 provider 决定。
+
+function VideoModelSection({ providerName }: { providerName: string }) {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [toastNotice, setToastNotice] = useState<{ tone: 'error' | 'success'; message: string } | null>(null)
+
+  const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [endpoints, setEndpoints] = useState<VideoEndpointRow[]>([])
+
+  // Hydrate form state from a GET/PATCH response, scoped to providerName.
+  // Typed structurally rather than via the ambient `VideoGenListing` name
+  // (preload's interfaces aren't visible to the renderer tsconfig — same
+  // reason `ProviderInfo` is referenced structurally throughout this file).
+  const hydrate = useCallback(
+    (listing: {
+      providers?: Record<
+        string,
+        { api_key?: string; base_url?: string; endpoints?: Record<string, { model?: string }> }
+      >
+    }) => {
+      const prov = listing.providers?.[providerName]
+      if (prov) {
+        setApiKey(prov.api_key ?? '')
+        setBaseUrl(prov.base_url ?? '')
+        setEndpoints(
+          Object.entries(prov.endpoints ?? {}).map(([name, info]) => ({
+            name,
+            model: info?.model ?? '',
+          }))
+        )
+        return
+      }
+      // Not in the active config yet — prefill built-in defaults (火山引擎).
+      const d = VIDEO_PROVIDER_DEFAULTS[providerName]
+      setApiKey('')
+      setBaseUrl(d?.baseUrl ?? '')
+      setEndpoints(d ? d.endpoints.map((e) => ({ ...e })) : [])
+    },
+    [providerName]
+  )
+
+  useEffect(() => {
+    setLoading(true)
+    void (async () => {
+      try {
+        const res = await window.agentApi.listVideoProviders()
+        if (res.ok) {
+          hydrate(res.data)
+        } else {
+          setToastNotice({ tone: 'error', message: res.message || res.error })
+        }
+      } catch {
+        setToastNotice({ tone: 'error', message: '加载失败' })
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [hydrate])
+
+  // Auto-dismiss toast — mirrors ModelSection's 2.6s budget.
+  useEffect(() => {
+    if (!toastNotice) return
+    const timer = window.setTimeout(() => setToastNotice(null), 2600)
+    return () => window.clearTimeout(timer)
+  }, [toastNotice])
+
+  const updateEndpoint = (index: number, patch: Partial<VideoEndpointRow>) => {
+    setEndpoints((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+  const addEndpoint = () => setEndpoints((rows) => [...rows, { name: '', model: '' }])
+  const removeEndpoint = (index: number) =>
+    setEndpoints((rows) => rows.filter((_, i) => i !== index))
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      // Skip rows with a blank name; trim everything so stray whitespace
+      // doesn't leak into the yaml. Later duplicate names win (map insert).
+      const endpointsMap: Record<string, { model: string }> = {}
+      for (const row of endpoints) {
+        const name = row.name.trim()
+        if (!name) continue
+        endpointsMap[name] = { model: row.model.trim() }
+      }
+      // Patch shape matches the ambient `VideoGenPatchPayload`; passed
+      // inline so it's structurally checked at the call site without
+      // naming the (renderer-invisible) type.
+      const res = await window.agentApi.patchVideoConfig({
+        providers: {
+          [providerName]: {
+            api_key: apiKey.trim(),
+            base_url: baseUrl.trim(),
+            endpoints: endpointsMap,
+          },
+        },
+      })
+      if (res.ok) {
+        hydrate(res.data)
+        setToastNotice({ tone: 'success', message: '已保存' })
+      } else {
+        setToastNotice({ tone: 'error', message: res.message || res.error })
+      }
+    } catch {
+      setToastNotice({ tone: 'error', message: '保存失败' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+  }
+
+  return (
+    <div>
+      <GroupCard title={`${mediaProviderDisplayName(providerName)} 视频生成`}>
+        {/* API 密钥 */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 密钥</p>
+          <div className="relative">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={`输入 ${providerName} API Key`}
+              className="h-10 w-full rounded-md border border-border bg-background pl-3 pr-10 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+            />
+            <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* API 地址 */}
+        <div className="py-3.5 border-b border-border">
+          <p className="text-sm font-semibold text-foreground mb-2">API 地址</p>
+          <input
+            type="text"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={DOUBAO_DEFAULT_BASE_URL}
+            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">留空则使用默认地址 {DOUBAO_DEFAULT_BASE_URL}</p>
+        </div>
+
+        {/* Endpoints */}
+        <div className="py-3.5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-foreground">Endpoints</p>
+            <button
+              onClick={addEndpoint}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Plus size={13} /> 添加 endpoint
+            </button>
+          </div>
+          {endpoints.length === 0 ? (
+            <p className="py-2 text-xs text-muted-foreground">暂无 endpoint,点击“添加 endpoint”新增一行。</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {endpoints.map((row, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) => updateEndpoint(index, { name: e.target.value })}
+                    placeholder="endpoint 名称"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <input
+                    type="text"
+                    value={row.model}
+                    onChange={(e) => updateEndpoint(index, { model: e.target.value })}
+                    placeholder="模型 ID"
+                    className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  />
+                  <button
+                    onClick={() => removeEndpoint(index)}
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-status-disconnected"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </GroupCard>
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          {saving && <Loader2 size={14} className="animate-spin" />}
+          {saving ? '保存中…' : '保存'}
+        </button>
+      </div>
+
+      {toastNotice && (
+        <NoticeToast
+          tone={toastNotice.tone}
+          message={toastNotice.message}
+          position="top"
+          anchor="viewport"
+        />
+      )}
     </div>
   )
 }

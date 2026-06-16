@@ -44,6 +44,14 @@ const DESCRIPTION_PLACEHOLDERS = new Set(['', '|', '>'])
 const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
 const TOOLTIP_DELAY_MS = 250
 
+// 输入框高度规则（全局统一）：3 行起步，内容增多时逐行撑开，
+// 最多撑到 5 行，超过 5 行高度封顶并出现滚动条。
+const COMPOSER_LINE_HEIGHT = 25
+const COMPOSER_MIN_ROWS = 2
+const COMPOSER_MAX_ROWS = 5
+const COMPOSER_MIN_HEIGHT = COMPOSER_LINE_HEIGHT * COMPOSER_MIN_ROWS
+const COMPOSER_MAX_HEIGHT = COMPOSER_LINE_HEIGHT * COMPOSER_MAX_ROWS
+
 function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
 }
@@ -193,6 +201,20 @@ export function SkillComposerInput({
   const [delayedMenuTooltipIndex, setDelayedMenuTooltipIndex] = useState<number | null>(null)
   const [delayedChipTooltipIndex, setDelayedChipTooltipIndex] = useState<number | null>(null)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const innerTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // 高度自适应：内容变化时重算高度。先归零再按 scrollHeight 撑开，
+  // 夹在 3 行～5 行之间；超过 5 行由 max-height + overflow 出滚动条。
+  useEffect(() => {
+    const textarea = innerTextareaRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    const next = Math.min(
+      Math.max(textarea.scrollHeight, COMPOSER_MIN_HEIGHT),
+      COMPOSER_MAX_HEIGHT,
+    )
+    textarea.style.height = `${next}px`
+  }, [value, selectedSkills.length])
 
   useEffect(() => {
     let cancelled = false
@@ -485,12 +507,19 @@ export function SkillComposerInput({
         {/* SVG placeholder - 只在没有内容时显示 */}
         {value.trim() === '' && (
           <div className="pointer-events-none absolute left-0 top-0 flex h-full items-start">
-            <img src={placeholderSvg} alt="" className="h-[22px] w-auto" />
+            <img src={placeholderSvg} alt="" className="h-[26px] w-auto" />
           </div>
         )}
 
         <textarea
-          ref={textareaRef}
+          ref={(node) => {
+            innerTextareaRef.current = node
+            if (typeof textareaRef === 'function') {
+              ;(textareaRef as (instance: HTMLTextAreaElement | null) => void)(node)
+            } else if (textareaRef) {
+              textareaRef.current = node
+            }
+          }}
           value={value}
           onChange={(event) => {
             const nextValue = event.target.value.slice(0, maxLength)
@@ -621,9 +650,14 @@ export function SkillComposerInput({
           disabled={disabled}
           placeholder=""
           className={cn(
-            'w-full resize-none bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50',
+            'w-full resize-none overflow-y-auto bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50',
             className,
           )}
+          style={{
+            lineHeight: `${COMPOSER_LINE_HEIGHT}px`,
+            minHeight: `${COMPOSER_MIN_HEIGHT}px`,
+            maxHeight: `${COMPOSER_MAX_HEIGHT}px`,
+          }}
           rows={rows}
         />
       </div>

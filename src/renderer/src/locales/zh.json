@@ -919,6 +919,20 @@
       "detailsLabel": "任务",
       "viewDetails": "查看任务详情",
       "hideDetails": "收起任务详情"
+    },
+    "sidePanel": {
+      "label": "对话辅助面板",
+      "expandAria": "展开侧边面板",
+      "collapseAria": "收起侧边面板",
+      "tabsAria": "侧边面板标签",
+      "tabLogs": "日志",
+      "tabArtifacts": "产物",
+      "completedPrefix": "已完成",
+      "unnamedStep": "未命名步骤",
+      "noLogs": "暂无运行日志",
+      "noLogsDesc": "运行过程将在这里展示",
+      "noArtifacts": "暂无产物",
+      "noArtifactsDesc": "运行过程中产生的文件将在这里展示"
     }
   },
   "settings": {
