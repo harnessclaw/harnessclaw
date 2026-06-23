@@ -504,8 +504,12 @@ export function SkillComposerInput({
           </div>
         )}
 
-        {/* SVG placeholder - 只在没有内容时显示 */}
-        {value.trim() === '' && (
+        {/* SVG placeholder：仅当输入内容为空 **且** 没有已选中的 skill chip
+            时显示。chips 渲染在 wrapper 顶部（mb-2），而 placeholder 用
+            absolute top-0 也锚在 wrapper 顶部 —— 若不联合判断 chips 的存在，
+            选中 skill 后清空 slash 文本时，placeholder 会重新出现并盖在
+            chip 上形成重叠。 */}
+        {value.trim() === '' && selectedSkills.length === 0 && (
           <div className="pointer-events-none absolute left-0 top-0 flex h-full items-start">
             <img src={placeholderSvg} alt="" className="h-[26px] w-auto" />
           </div>
