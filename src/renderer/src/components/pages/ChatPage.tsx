@@ -208,43 +208,22 @@ function FilePathChip({ path, onOpen }: { path: string; onOpen: (path: string) =
 
   const fileName = path.split(/[\\/]/).pop() || path
 
-  // Path resolved to a real image → embed inline. Wrapped in a button so the
-  // user can still click through to the full preview drawer. `inline-block`
-  // + max-h keeps the image flowing inside its containing paragraph
-  // (instead of forcibly breaking the line) while staying readable.
-  if (stat.state === 'image') {
-    return (
-      <button
-        type="button"
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          onOpen(stat.abs)
-        }}
-        title={path}
-        className="not-prose mx-1 my-1 inline-block max-w-full overflow-hidden rounded-lg border border-border bg-card p-0 align-middle transition-colors hover:border-primary/60"
-      >
-        <img
-          src={localFileUrl(stat.abs)}
-          alt={fileName}
-          loading="lazy"
-          className="block max-h-56 max-w-full rounded-md object-contain"
-        />
-      </button>
-    )
-  }
-
   // Path probed and confirmed missing (or path-traversal rejection): fall
   // back to plain text so we don't show a dead chip the user can't open.
   if (stat.state === 'missing') {
     return <span className="not-prose font-mono text-[13px] text-foreground">{path}</span>
   }
 
-  // `pending` or `other`: render the existing clickable chip. On click,
-  // prefer the resolved absolute path (so a relative `deliverables/foo`
-  // still opens via window.files.read in the drawer), falling back to the
-  // raw matched text while the stat probe is in flight.
-  const openTarget = stat.state === 'other' ? stat.abs : path
+  // `pending` / `image` / `other`: render the unified file chip. We deliberately
+  // do NOT embed images inline anymore — agents reference output files (txt,
+  // pdf, png, ...) the same way conversationally ("放在 deliverables/foo.png")
+  // and the chat reads cleaner when every artifact reference renders as a
+  // single, predictable chip. Clicking opens the full file preview drawer,
+  // which already handles image rendering at the right size.
+  // On click, prefer the resolved absolute path (so a relative
+  // `deliverables/foo` still opens via window.files.read in the drawer),
+  // falling back to the raw matched text while the stat probe is in flight.
+  const openTarget = stat.state === 'image' || stat.state === 'other' ? stat.abs : path
   return (
     <button
       type="button"
