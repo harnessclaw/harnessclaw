@@ -706,6 +706,8 @@
       "serviceIssue": "Please check if the local service is running and connection settings are correct.",
       "requestFailed": "Request failed, please try again later.",
       "requestFailedTitle": "Request Failed",
+      "userCancelledTitle": "Cancelled",
+      "userCancelled": "Cancelled by you.",
       "serviceNotConnected": "Service not connected",
       "tryingToConnect": "Trying to connect to HarnessClaw, please try again later.",
       "cannotConnect": "Cannot connect to HarnessClaw, ensure local service is running.",

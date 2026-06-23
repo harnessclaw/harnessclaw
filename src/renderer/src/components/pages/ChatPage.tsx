@@ -2370,19 +2370,48 @@ function buildSystemErrorNotice(t: (key: string) => string, raw: unknown): Syste
   const payload = isRecord(root) && isRecord(root.payload) ? root.payload : root
   const record = isRecord(payload) ? payload : {}
   const fallbackContent = isRecord(root) && typeof root.content === 'string' ? root.content : ''
-  const message = typeof record.message === 'string'
-    ? record.message
-    : fallbackContent || (typeof root === 'string' ? root : t('chat.errors.requestFailed'))
+  // Prefer the engine-provided `user_message` over the raw `message` —
+  // upstream already localizes / softens the user-facing wording (e.g.
+  // engine emits `{type:"user_aborted", message:"Cancelled by user",
+  // user_message:"已取消"}` on user cancel). Falling back to `message`
+  // keeps older / non-localized errors working unchanged.
+  const userMessage = typeof record.user_message === 'string' ? record.user_message : ''
+  const rawMessage = typeof record.message === 'string' ? record.message : ''
+  const message = userMessage
+    || rawMessage
+    || fallbackContent
+    || (typeof root === 'string' ? root : t('chat.errors.requestFailed'))
+  // Engine v2 emits `error.type` (eg `user_aborted`); legacy frames use
+  // `reason`. Try both so the renderer can branch on either shape.
   const reason = typeof record.reason === 'string'
     ? record.reason
-    : isRecord(root) && typeof root.reason === 'string'
-      ? root.reason
-      : undefined
+    : typeof record.type === 'string'
+      ? record.type
+      : isRecord(root) && typeof root.reason === 'string'
+        ? root.reason
+        : undefined
   const sessionId = typeof record.session_id === 'string'
     ? record.session_id
     : isRecord(root) && typeof root.session_id === 'string'
       ? root.session_id
       : undefined
+
+  // User-initiated cancellations aren't really "request failed" — show a
+  // dedicated "用户取消 / Cancelled" title + localized body instead of the
+  // generic red "请求失败: Cancelled by user" treatment. Detection key is
+  // `user_aborted` (engine v2) plus a defensive substring match for older
+  // frames that only carry the English text.
+  const isUserCancelled = reason === 'user_aborted'
+    || /cancelled by user/i.test(rawMessage)
+  if (isUserCancelled) {
+    return {
+      kind: 'error',
+      title: t('chat.errors.userCancelledTitle'),
+      message: userMessage || t('chat.errors.userCancelled'),
+      reason,
+      sessionId,
+    }
+  }
 
   return {
     kind: 'error',

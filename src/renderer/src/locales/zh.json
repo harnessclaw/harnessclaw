@@ -716,6 +716,8 @@
       "serviceIssue": "请检查本地服务是否已启动，以及连接配置是否正确。",
       "requestFailed": "请求失败，请稍后重试。",
       "requestFailedTitle": "请求失败",
+      "userCancelledTitle": "用户取消",
+      "userCancelled": "已取消，对话已结束。",
       "serviceNotConnected": "后台服务未连接",
       "tryingToConnect": "正在尝试连接 HarnessClaw 服务，请稍后再试。",
       "cannotConnect": "无法连接 HarnessClaw 服务，请确认本地后台已启动后再试。",
