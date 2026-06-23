@@ -3512,7 +3512,10 @@ function SessionWorkspaceFilesButton({
                   title={t('chat.header.workspaceRefresh')}
                   className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
-                  <RefreshCw size={13} />
+                  {/* 刷新动作不再会清空整棵树（见上方注释），所以靠图标旋
+                      转给一个轻量的活动提示 —— 用户手动按 / 后台 3s 轮询
+                      都能看到反馈，但不会打断浏览状态。 */}
+                  <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
                 </button>
                 <button
                   type="button"
@@ -3547,11 +3550,17 @@ function SessionWorkspaceFilesButton({
             <div className="flex flex-1 overflow-hidden">
               <div className="flex w-72 shrink-0 flex-col border-r border-border">
                 <div className="flex-1 overflow-y-auto py-1">
-                  {loading ? (
+                  {/* "Loading…" 只在树还没数据的时候出现 —— 首次打开、
+                      切换 session 等。后续的 3s 轮询 / 手动刷新走静默替换：
+                      树保持可见，新数据到位后原地切换；同 path 的节点 key
+                      不变，React 复用 WorkspaceTreeNode 实例，选中高亮、
+                      目录展开态、滚动位置都不会被「冲掉」。这才是用户预
+                      期的"刷新"行为。 */}
+                  {loading && tree.length === 0 ? (
                     <div className="flex h-full items-center justify-center px-4 py-10 text-xs text-muted-foreground">
                       {t('chat.header.workspaceLoading')}
                     </div>
-                  ) : error ? (
+                  ) : error && tree.length === 0 ? (
                     <div className="flex h-full items-center justify-center px-4 py-10 text-xs text-destructive">
                       {error}
                     </div>
