@@ -2001,3 +2001,47 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* 删除确认弹窗顶部的流动暖色渐变：两层 radial 光斑用 transform 缓慢漂移，
+   叠加出有机流动感（GPU 合成，开销小）。 */
+@keyframes delete-glow-a {
+  0% {
+    transform: translate3d(-8%, -6%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(7%, 5%, 0) scale(1.26);
+  }
+}
+
+@keyframes delete-glow-b {
+  0% {
+    transform: translate3d(7%, 3%, 0) scale(1.2);
+  }
+  100% {
+    transform: translate3d(-7%, -5%, 0) scale(1);
+  }
+}
+
+.delete-glow {
+  position: absolute;
+  inset: -35%;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.delete-glow-a {
+  background: radial-gradient(46% 46% at 66% 18%, #ffb55f 0%, rgba(255, 181, 95, 0) 70%);
+  animation: delete-glow-a 8s ease-in-out infinite alternate;
+}
+
+.delete-glow-b {
+  background: radial-gradient(42% 42% at 34% 10%, #ffe0b0 0%, rgba(255, 224, 176, 0) 70%);
+  animation: delete-glow-b 11s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delete-glow-a,
+  .delete-glow-b {
+    animation: none;
+  }
+}

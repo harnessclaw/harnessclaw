@@ -456,8 +456,8 @@
       "delete": "Delete"
     },
     "delete": {
-      "title": "Confirm Delete Session?",
-      "desc": "All messages and history of \"{{title}}\" will be permanently deleted and cannot be recovered.",
+      "title": "Confirm Delete",
+      "desc": "You're deleting \"{{title}}\". This cannot be undone.",
       "cancel": "Cancel",
       "confirm": "Delete"
     },
@@ -2105,7 +2105,7 @@
     "latest": "Already up to date — {{version}}",
     "latestGeneric": "Already up to date.",
     "notAvailable": "No updates available",
-    "progress": "{{percent}}%",
+    "progress": "Progress",
     "status": "Update Status",
     "statusDesc": "Latest result from the update checker.",
     "subtitle": "Manage automatic updates and check for new releases.",

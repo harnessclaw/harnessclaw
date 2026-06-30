@@ -23,6 +23,7 @@ import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/p
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 import { trackSearchUsed } from '../../lib/telemetry'
 import emmaLogo from '../../assets/emma-logo.png'
+import sidebarAvatar from '../../assets/sidebar-avatar.svg'
 import betaBadge from '../../assets/beta-badge.svg'
 import iconNewTask from '../../assets/icon-new-task.svg'
 import iconScheduler from '../../assets/icon-scheduler.svg'
@@ -487,8 +488,8 @@ export function Sidebar() {
   }
 
   const itemCls = (active: boolean) => cn(
-    'flex items-center rounded-lg transition-colors flex-shrink-0',
-    expanded ? 'w-full gap-2.5 px-3 py-2.5' : 'w-11 h-11 justify-center',
+    'flex items-center transition-colors flex-shrink-0',
+    expanded ? 'w-full gap-2.5 px-3 py-2.5 rounded-lg' : 'h-10 w-8 justify-center rounded-[10px]',
     active
       ? 'bg-[rgba(226,226,226,0.46)] text-[#222529]'
       : 'text-[#222529]/78 hover:text-[#222529] hover:bg-[rgba(226,226,226,0.20)]'
@@ -635,8 +636,8 @@ export function Sidebar() {
                   <img src={emmaLogo} alt="Emma" className="h-6 object-contain" />
                 </div>
                 ) : (
-                  <div className="flex h-11 w-11 items-center justify-center py-1">
-                    <img src={emmaLogo} alt="Emma" className="h-5 object-contain" />
+                  <div className="flex h-12 w-12 items-center justify-center">
+                    <img src={sidebarAvatar} alt="Emma" className="h-12 w-12 object-contain" />
                   </div>
                 )}
             </div>

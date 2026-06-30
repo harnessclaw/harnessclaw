@@ -16,6 +16,7 @@ let checkInFlight = false
 let periodicCheckTimer: ReturnType<typeof setInterval> | null = null
 let promptInFlight = false
 let downloadedVersion = ''
+let availableVersion = ''
 const releaseNotesCache = new Map<string, string>()
 
 function sendUpdateEvent(window: BrowserWindow, type: string, payload: Record<string, unknown> = {}): void {
@@ -139,6 +140,7 @@ export function setupAutoUpdater(window: BrowserWindow): void {
 
   autoUpdater.on('update-available', async (info) => {
     downloadedVersion = ''
+    availableVersion = info.version || ''
     const releaseNotes = normalizeReleaseNotes(info.releaseNotes) || await fetchReleaseNotes(info.version)
     sendUpdateEvent(window, 'available', {
       version: info.version,
@@ -152,6 +154,7 @@ export function setupAutoUpdater(window: BrowserWindow): void {
 
   autoUpdater.on('download-progress', (progress) => {
     sendUpdateEvent(window, 'download-progress', {
+      version: availableVersion,
       percent: progress.percent,
       transferred: progress.transferred,
       total: progress.total,

@@ -1,17 +1,14 @@
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { Trash2 } from 'lucide-react'
 
 /**
  * Centered modal that asks the user to confirm deleting a session. Used by
  * both the chat title dropdown and the sidebar recent-conversation menu so
  * the destructive flow stays visually identical across surfaces.
  *
- * The backdrop combines a dark overlay with a frosted-blur layer (matching
- * the Skill repository window) to draw focus to the dialog. The button
- * convention follows `DangerConfirmMenu` / project deletion: the red
- * `bg-destructive` face sits on the cancel button so the safer action is
- * visually anchored, while confirm uses a neutral card style.
+ * 按设计稿重做:350×231 白卡(R22),上部 338×162(R16) 是一块暖色渐变
+ * (橙→桃→白,CSS radial-gradient),标题与描述居中浮在其上;底部两个等宽
+ * 胶囊按钮——取消(白底描边)、删除(红 #F53F3F)。
  */
 export function ConfirmDeleteSessionDialog({
   open,
@@ -25,7 +22,7 @@ export function ConfirmDeleteSessionDialog({
   title?: string
   /**
    * Explicit description text. When provided it overrides the auto-built
-   * "「{title}」的所有消息..." line — used by callers that need different
+   * "您正在删除「{title}」…" line — used by callers that need different
    * wording such as batch-delete ("所选的 N 条对话…").
    */
   description?: string
@@ -46,32 +43,55 @@ export function ConfirmDeleteSessionDialog({
       }}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-border/80 bg-card p-5 shadow-[0_24px_80px_rgba(15,23,42,0.28)]"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className="flex flex-col items-center"
+        style={{
+          width: 350,
+          height: 231,
+          borderRadius: 22,
+          padding: '6px 6px 12px',
+          gap: 12,
+          background: '#FFFFFF',
+          boxShadow: '0 24px 80px rgba(15,23,42,0.28)',
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
       >
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-500 dark:bg-red-950/40 dark:text-red-300">
-            <Trash2 size={18} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold text-foreground">{t('sessions.delete.title')}</h3>
-            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+        {/* 上部分:流动暖色渐变 + 标题/描述 */}
+        <div
+          className="relative w-full flex-1 self-stretch overflow-hidden"
+          style={{ borderRadius: 16, background: '#FFF8EF' }}
+        >
+          {/* 两层缓慢漂移的暖色光斑，叠加出流动感 */}
+          <div className="delete-glow delete-glow-a" aria-hidden="true" />
+          <div className="delete-glow delete-glow-b" aria-hidden="true" />
+          {/* 向下淡出到白，干净过渡到按钮区 */}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0) 28%, #FFFFFF 100%)' }}
+            aria-hidden="true"
+          />
+          <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
+            <h3 className="text-[17px] font-semibold text-[#1D2129]">{t('sessions.delete.title')}</h3>
+            <p className="mt-3 max-w-[280px] break-words text-sm leading-5 text-[#4E5969]">
               {descriptionText}
             </p>
           </div>
         </div>
-        <div className="mt-5 flex items-center justify-end gap-2">
+
+        {/* 底部:取消 / 删除 */}
+        <div className="flex w-full items-center" style={{ gap: 12 }}>
           <button
             type="button"
             onClick={onCancel}
-            className="inline-flex min-h-10 items-center justify-center rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground transition-opacity hover:opacity-90"
+            className="flex h-[39px] flex-1 items-center justify-center text-sm font-medium text-[#1D2129] transition-colors hover:bg-[#F7F8FA]"
+            style={{ borderRadius: 20, border: '1px solid #DADEE4', background: '#FFFFFF' }}
           >
             {t('sessions.delete.cancel')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="inline-flex min-h-10 items-center justify-center rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            className="flex h-[39px] flex-1 items-center justify-center text-sm font-medium text-white transition-opacity hover:opacity-90"
+            style={{ borderRadius: 20, background: '#F53F3F' }}
           >
             {t('sessions.delete.confirm')}
           </button>
