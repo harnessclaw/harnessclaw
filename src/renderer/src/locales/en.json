@@ -1630,9 +1630,6 @@
       "editLater": "These map to workspace / Max Tool Iterations / Reasoning Effort under Settings → Agents, editable any time."
     },
     "modelIdHint": "Use a model ID supported by your provider, e.g. gpt-4o-mini or claude-sonnet-4.",
-    "modelGroupLabel": "Group name (optional)",
-    "modelGroupHint": "Optional display group; only affects how the client lists models. The engine ignores it. Leave blank to auto-infer by series.",
-    "modelGroupPlaceholder": "e.g. GPT-5",
     "intro": {
       "heading": "Hi, I'm Emma, your personal secretary. I can help you",
       "categories": {

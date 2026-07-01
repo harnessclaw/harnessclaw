@@ -1636,9 +1636,6 @@
       "editLater": "对应 Settings → Agents 里的 workspace / Max Tool Iterations / Reasoning Effort，随时可改。"
     },
     "modelIdHint": "请填写所选服务商支持的模型 ID，例如 gpt-4o-mini 或 claude-sonnet-4。",
-    "modelGroupLabel": "分组名（可选）",
-    "modelGroupHint": "可选展示分组，仅影响客户端模型列表上的分组渲染；引擎不感知。留空则按系列自动推断。",
-    "modelGroupPlaceholder": "例如 GPT-5",
     "intro": {
       "heading": "你好，我是 Emma，你的私人秘书，我可以帮你",
       "categories": {
@@ -1646,10 +1643,10 @@
           "label": "日常办公",
           "cards": [
             {
-              "title": "帮我给这篇博客起一个引人入胜的标题",
+              "title": "根据我的本地文档，帮我生成评审文档",
               "description": [
-                "好的老板，任务已经收到，我先来看看这个博客内容",
-                "哇~这篇博客写的真精彩，特别是对于超级团队协作的方式我觉得十分有道理，那我建议这个标题就叫《超级团队养成计划》怎么样~"
+                "好的老板，我先来读一下本地文档",
+                "老板我已经读完啦，文档生成完发给你~"
               ]
             }
           ]
@@ -1682,7 +1679,7 @@
           ]
         },
         "4": {
-          "label": "电脑控制",
+          "label": "浏览器控制",
           "cards": [
             {
               "title": "帮我打开VS Code",

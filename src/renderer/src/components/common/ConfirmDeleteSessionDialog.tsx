@@ -1,14 +1,15 @@
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { WelcomeShaderBackground } from '../WelcomeShaderBackground'
 
 /**
  * Centered modal that asks the user to confirm deleting a session. Used by
  * both the chat title dropdown and the sidebar recent-conversation menu so
  * the destructive flow stays visually identical across surfaces.
  *
- * 按设计稿重做:350×231 白卡(R22),上部 338×162(R16) 是一块暖色渐变
- * (橙→桃→白,CSS radial-gradient),标题与描述居中浮在其上;底部两个等宽
- * 胶囊按钮——取消(白底描边)、删除(红 #F53F3F)。
+ * 按设计稿重做:350×231 白卡(R22),上部是一块内嵌圆角(R16)的动态橙色 shader
+ * 背景(与引导页/更新弹窗同款,底部渐隐到白),标题与描述居中浮在其上;shader
+ * 背景底部距卡片底 42px;底部两个等宽胶囊按钮——取消(白底描边)、删除(红 #F53F3F)。
  */
 export function ConfirmDeleteSessionDialog({
   open,
@@ -60,9 +61,8 @@ export function ConfirmDeleteSessionDialog({
           className="relative w-full flex-1 self-stretch overflow-hidden"
           style={{ borderRadius: 16, background: '#FFF8EF' }}
         >
-          {/* 两层缓慢漂移的暖色光斑，叠加出流动感 */}
-          <div className="delete-glow delete-glow-a" aria-hidden="true" />
-          <div className="delete-glow delete-glow-b" aria-hidden="true" />
+          {/* 动态橙色 shader 背景（与引导页/更新弹窗同款） */}
+          <WelcomeShaderBackground className="pointer-events-none absolute inset-0 h-full w-full" />
           {/* 向下淡出到白，干净过渡到按钮区 */}
           <div
             className="pointer-events-none absolute inset-0"
@@ -70,7 +70,12 @@ export function ConfirmDeleteSessionDialog({
             aria-hidden="true"
           />
           <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
-            <h3 className="text-[17px] font-semibold text-[#1D2129]">{t('sessions.delete.title')}</h3>
+            <h3
+              className="text-[20px] font-medium text-[#4E5969]"
+              style={{ fontFamily: 'Source Han Sans CN', fontVariationSettings: '"opsz" auto' }}
+            >
+              {t('sessions.delete.title')}
+            </h3>
             <p className="mt-3 max-w-[280px] break-words text-sm leading-5 text-[#4E5969]">
               {descriptionText}
             </p>
@@ -78,20 +83,20 @@ export function ConfirmDeleteSessionDialog({
         </div>
 
         {/* 底部:取消 / 删除 */}
-        <div className="flex w-full items-center" style={{ gap: 12 }}>
+        <div className="flex w-full items-center" style={{ gap: 24 }}>
           <button
             type="button"
             onClick={onCancel}
-            className="flex h-[39px] flex-1 items-center justify-center text-sm font-medium text-[#1D2129] transition-colors hover:bg-[#F7F8FA]"
-            style={{ borderRadius: 20, border: '1px solid #DADEE4', background: '#FFFFFF' }}
+            className="flex h-[39px] flex-1 items-center justify-center text-[16px] font-medium text-[#4E5969] transition-colors hover:bg-[#F7F8FA]"
+            style={{ borderRadius: 20, padding: '8px 32px', border: '1px solid #DADEE4', background: '#FFFFFF', fontFamily: 'Source Han Sans CN', fontVariationSettings: '"opsz" auto' }}
           >
             {t('sessions.delete.cancel')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="flex h-[39px] flex-1 items-center justify-center text-sm font-medium text-white transition-opacity hover:opacity-90"
-            style={{ borderRadius: 20, background: '#F53F3F' }}
+            className="flex h-[39px] flex-1 items-center justify-center text-[16px] font-medium text-white transition-opacity hover:opacity-90"
+            style={{ borderRadius: 20, padding: '8px 32px', background: '#F53F3F', fontFamily: 'Source Han Sans CN', fontVariationSettings: '"opsz" auto' }}
           >
             {t('sessions.delete.confirm')}
           </button>
