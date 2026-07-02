@@ -26,6 +26,11 @@ import fileAgentLogo from '../../assets/agent-logos/File Agent.svg'
 import appAgentLogo from '../../assets/agent-logos/App Agent.svg'
 import codingAgentLogo from '../../assets/agent-logos/Coding Agent.svg'
 
+// 空状态插画（计划 / 日志 / 产物 三个 tab 无内容时展示）
+import emptyPlanIcon from '../../assets/empty-plan.svg'
+import emptyLogsIcon from '../../assets/empty-logs.svg'
+import emptyFilesIcon from '../../assets/empty-files.svg'
+
 const PANEL_WIDTH_EXPANDED = 280
 const PANEL_WIDTH_COLLAPSED = 44
 
@@ -951,8 +956,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
             // Plan tab：显示 plan steps 列表
             planData.steps.length === 0 ? (
               <EmptyState
+                icon={emptyPlanIcon}
                 title={t('chat.sidePanel.noPlan')}
-                desc={t('chat.sidePanel.noPlanDesc')}
               />
             ) : (
               <div className="space-y-2">
@@ -982,8 +987,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
             useAgentTree ? (
               effectiveAgentTreeLogs.length === 0 ? (
                 <EmptyState
+                  icon={emptyLogsIcon}
                   title={t('chat.sidePanel.noLogs')}
-                  desc={t('chat.sidePanel.noLogsDesc')}
                 />
               ) : (
                 <div>
@@ -1012,8 +1017,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
             ) : useGroupedLogs ? (
               effectiveGroupedLogs.length === 0 ? (
                 <EmptyState
+                  icon={emptyLogsIcon}
                   title={t('chat.sidePanel.noLogs')}
-                  desc={t('chat.sidePanel.noLogsDesc')}
                 />
               ) : (
                 <ul className="space-y-3">
@@ -1131,8 +1136,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
             ) : useLegacySteps ? (
               effectiveSteps.length === 0 ? (
                 <EmptyState
+                  icon={emptyLogsIcon}
                   title={t('chat.sidePanel.noLogs')}
-                  desc={t('chat.sidePanel.noLogsDesc')}
                 />
               ) : (
                 <ul className="space-y-3">
@@ -1147,8 +1152,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
             ) : (
             effectiveLogEntries.length === 0 ? (
               <EmptyState
+                icon={emptyLogsIcon}
                 title={t('chat.sidePanel.noLogs')}
-                desc={t('chat.sidePanel.noLogsDesc')}
               />
             ) : (
               <ul className="space-y-2">
@@ -1292,8 +1297,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
               {artifactMode === 'general' ? (
                 artifacts.length === 0 ? (
                   <EmptyState
+                    icon={emptyFilesIcon}
                     title={t('chat.sidePanel.noArtifacts')}
-                    desc={t('chat.sidePanel.noArtifactsDesc')}
                   />
                 ) : (
                   <ul className="space-y-2">
@@ -1357,11 +1362,16 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
   )
 }
 
-function EmptyState({ title, desc }: { title: string; desc: string }) {
+function EmptyState({ icon, title }: { icon: string; title: string }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-2 py-8 text-center">
-      <p className="text-xs font-medium text-foreground">{title}</p>
-      <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{desc}</p>
+    <div className="flex h-full flex-col items-center justify-center px-2 pt-40 pb-8 text-center">
+      <img src={icon} alt="" aria-hidden="true" className="h-32 w-32" />
+      <p
+        className="mt-3 text-[14px] font-medium"
+        style={{ fontFamily: 'Source Han Sans CN', color: '#DADEE4' }}
+      >
+        {title}
+      </p>
     </div>
   )
 }
@@ -1430,8 +1440,8 @@ function WorkspaceFileTreeView({
         </div>
       ) : !exists || tree.length === 0 ? (
         <EmptyState
+          icon={emptyFilesIcon}
           title={t('chat.header.workspaceEmpty')}
-          desc={t('chat.sidePanel.noArtifactsDesc')}
         />
       ) : (
         <ul>
