@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Full-screen quad in clip space.
 const VERTEX_SRC = `
@@ -177,11 +177,20 @@ function compileShader(gl: WebGLRenderingContext, type: number, src: string): We
 export function WelcomeShaderBackground({
   className,
   style,
+  fragmentSrc,
 }: {
   className?: string
   style?: React.CSSProperties
+  /** Override the built-in fragment shader (must be WebGL1/GLSL ES 1.0,
+   *  using `u_time` + `u_resolution` uniforms). Defaults to the flowing
+   *  cream/orange welcome shader. */
+  fragmentSrc?: string
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  // WebGL 上下文丢失恢复:频繁 resize / GPU 压力(Windows 常见)会丢失上下文,
+  // canvas 变白且不再渲染。丢失时 bump 这个 key,让 canvas 整体重挂,effect 重跑
+  // 拿到全新上下文,自动复活。
+  const [contextKey, setContextKey] = useState(0)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -198,7 +207,7 @@ export function WelcomeShaderBackground({
     }
 
     const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SRC)
-    const fs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SRC)
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSrc ?? FRAGMENT_SRC)
     if (!vs || !fs) return
 
     const program = gl.createProgram()
@@ -256,6 +265,16 @@ export function WelcomeShaderBackground({
     }
     document.addEventListener('visibilitychange', onVisibility)
 
+    // 上下文丢失(频繁 resize / GPU 压力)时,阻止默认放弃行为并 bump key 重挂
+    // canvas,useEffect 重跑拿到全新上下文,避免永久变白。
+    const onContextLost = (e: Event) => {
+      e.preventDefault()
+      running = false
+      cancelAnimationFrame(raf)
+      setContextKey((k) => k + 1)
+    }
+    canvas.addEventListener('webglcontextlost', onContextLost)
+
     const observer = new ResizeObserver(() => resize())
     observer.observe(canvas)
 
@@ -263,6 +282,7 @@ export function WelcomeShaderBackground({
       running = false
       cancelAnimationFrame(raf)
       document.removeEventListener('visibilitychange', onVisibility)
+      canvas.removeEventListener('webglcontextlost', onContextLost)
       observer.disconnect()
       gl.deleteBuffer(buffer)
       gl.deleteProgram(program)
@@ -274,7 +294,7 @@ export function WelcomeShaderBackground({
       // second mount silently gets a dead context and renders nothing (white).
       // The context is released when the canvas is GC'd on real unmount.
     }
-  }, [])
+  }, [fragmentSrc, contextKey])
 
-  return <canvas ref={canvasRef} className={className} style={style} aria-hidden="true" />
+  return <canvas key={contextKey} ref={canvasRef} className={className} style={style} aria-hidden="true" />
 }

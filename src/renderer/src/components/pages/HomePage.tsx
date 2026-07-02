@@ -14,12 +14,16 @@ import {
   type SelectedSkillChip,
 } from '../common/SkillComposerInput'
 import { PastedBlocksBar, usePastedBlocks } from '../common/PastedBlocksBar'
+import { WelcomeShaderBackground } from '../WelcomeShaderBackground'
+import { HOME_HERO_SHADER } from '../../lib/homeHeroShader'
 import { FilePreviewModal } from '../attachments/FilePreviewModal'
 import type { FilePreviewData } from './ChatPage'
 import { HOME_CASES, HOME_CATEGORIES } from '../../data/homeCases'
 import iconAttachFile from '../../assets/icon-attach-file.svg'
 import iconPlanMode from '../../assets/icon-plan-mode.svg'
 import iconStatusConnected from '../../assets/status-connected.svg'
+import iconStatusConnecting from '../../assets/status-connecting.svg'
+import iconStatusOffline from '../../assets/status-offline.svg'
 import sendIconActive from '../../assets/send-icon-active.svg'
 import sendIcon from '../../assets/send-icon.svg'
 
@@ -68,11 +72,51 @@ export function HomePage() {
   const [filePreview, setFilePreview] = useState<FilePreviewData | null>(null)
   const pasted = usePastedBlocks()
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  // 顶部动态背景铺到「推荐区顶部」:背景高 = 推荐顶到主内容顶的距离;
+  // 同时实测「输入框顶」的位置占比(heroFadePct),遮罩据此让上部保留橙色、
+  // 到输入框一带渐隐到很淡、直至推荐顶完全透明。随窗口/内容变化重测
+  // (内容 my-auto 垂直居中,位置会变,不能写死)。
+  const heroRootRef = useRef<HTMLDivElement | null>(null)
+  const composerBoxRef = useRef<HTMLDivElement | null>(null)
+  const recommendRef = useRef<HTMLDivElement | null>(null)
+  const [heroBgHeight, setHeroBgHeight] = useState(460)
+  const [heroFadePct, setHeroFadePct] = useState(60)
+  useEffect(() => {
+    const root = heroRootRef.current
+    const box = composerBoxRef.current
+    const rec = recommendRef.current
+    if (!root || !box || !rec) return
+    const measure = () => {
+      const rootTop = root.getBoundingClientRect().top
+      const inputTop = box.getBoundingClientRect().top - rootTop
+      const recTop = rec.getBoundingClientRect().top - rootTop
+      if (recTop > 0) {
+        setHeroBgHeight(Math.round(recTop))
+        setHeroFadePct(Math.max(10, Math.min(90, Math.round((inputTop / recTop) * 100))))
+      }
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(root)
+    ro.observe(box)
+    ro.observe(rec)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [])
   const navigate = useNavigate()
   const maxLength = 2000
   const harnessclawStatus = useHarnessclawStatus()
   const shortcutHint = t('home.shortcutHint')
   const currentStatus = statusMeta[harnessclawStatus]
+  // 标题右侧状态徽标:按客户端连接状态动态切换(已连接 / 连接中 / 离线)。
+  const statusIcon = {
+    connected: iconStatusConnected,
+    connecting: iconStatusConnecting,
+    disconnected: iconStatusOffline,
+  }[harnessclawStatus]
 
   useEffect(() => {
     const preventWindowDrop = (event: DragEvent) => {
@@ -266,24 +310,34 @@ export function HomePage() {
     if (saved.length) appendAttachments(saved)
   }
 
+  // 遮罩:顶部实橙 → 上半(输入框顶之上)保留橙 → 输入框顶一带降到很淡(0.14)
+  //  → 推荐顶完全透明。heroFadePct = 输入框顶在背景中的高度占比(实测)。
+  const heroMask = `linear-gradient(to bottom, #000 0%, #000 ${Math.round(heroFadePct * 0.5)}%, rgba(0,0,0,0.14) ${heroFadePct}%, transparent 100%)`
+
   return (
-    <div
-      className="flex flex-col min-h-full pt-[90px] pb-[68px]"
-      style={{ paddingLeft: '7%', paddingRight: '7%' }}
-    >
+    <div ref={heroRootRef} className="relative flex flex-col min-h-full overflow-hidden">
+      {/* 动态橙色 shader 背景:全宽通铺主内容区顶部,铺到「推荐区顶部」
+          (高度实测 heroBgHeight);输入框顶~推荐顶一段渐隐到很淡,秘书 / 文案 /
+          输入框都浮在其上(更高 z,输入框自带不透明卡片底,背景不会透进去)。 */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-0"
+        style={{
+          height: heroBgHeight,
+          maskImage: heroMask,
+          WebkitMaskImage: heroMask,
+        }}
+      >
+        <WelcomeShaderBackground
+          fragmentSrc={HOME_HERO_SHADER}
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        />
+      </div>
+
+      <div
+        className="relative z-10 flex flex-1 flex-col pt-[90px] pb-[68px]"
+        style={{ paddingLeft: '7%', paddingRight: '7%' }}
+      >
       <div className="w-full relative my-auto">
-        {/* 橙色背景 - 贴窗口右上角铺满，向左上扩大包住秘书头部，底部裁切对齐避免延伸到输入框 */}
-        <div className="absolute right-0 top-[-48px] w-[350px] h-[280px] pointer-events-none z-0">
-          {/* 底部裁切层：顶/左/右扩展容纳 scale-2 溢出，底部对齐 */}
-          <div className="absolute -top-[140px] -left-[175px] -right-[175px] bottom-0 overflow-hidden">
-            <img
-              src={new URL('../../assets/secretary-bg.png', import.meta.url).href}
-              alt=""
-              className="absolute right-[200px] top-[140px] w-[300px] h-[280px] object-cover scale-[2]"
-              style={{ objectPosition: 'right top' }}
-            />
-          </div>
-        </div>
 
         {/* 秘书图像 - 右上角，保持原始形状 */}
         <div className="absolute right-16 top-[-50px] w-[160px] h-[260px] pointer-events-none z-0">
@@ -309,7 +363,7 @@ export function HomePage() {
           <div className="relative z-10 max-w-[500px]">
             <div className="flex items-center gap-6 mb-[6px]">
               <h1 className="text-2xl font-bold text-[#222529]" style={{ fontFamily: 'Source Han Sans CN' }}>{t('home.title')}</h1>
-              <img src={iconStatusConnected} alt="24h Online" className="h-7" />
+              <img src={statusIcon} alt={currentStatus.label} className="h-7" />
             </div>
             <p className="text-sm text-muted-foreground">
               {t('home.welcomeHint')}
@@ -319,6 +373,7 @@ export function HomePage() {
 
         {/* 输入框区域 */}
         <div
+          ref={composerBoxRef}
           className={cn(
             'relative overflow-hidden rounded-[28px] border bg-card transition-[border-color,box-shadow,transform] duration-200 mt-[45px]',
             isDragOver
@@ -336,7 +391,7 @@ export function HomePage() {
                 </div>
               )}
 
-              <div className="p-4">
+              <div className="px-4 pt-3 pb-4">
                 {pasted.blocks.length > 0 && (
                   <div className="mb-2">
                     <PastedBlocksBar
@@ -392,7 +447,7 @@ export function HomePage() {
               }}
                 />
 
-                <div className="mt-[18px] flex flex-wrap items-center justify-between gap-2">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={handlePickFiles}
@@ -421,9 +476,6 @@ export function HomePage() {
                   </div>
 
                   <div className="flex items-center gap-2.5">
-                    {input.length > 0 && (
-                      <span className="text-xs text-muted-foreground">{input.length}/{maxLength}</span>
-                    )}
                     <button
                       onClick={handleSend}
                       disabled={!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0 && pasted.blocks.length === 0}
@@ -450,7 +502,7 @@ export function HomePage() {
             </div>
 
         {/* 推荐区域 */}
-        <div className="mt-[45px]">
+        <div ref={recommendRef} className="mt-[45px]">
           {/* 分类标签 */}
           <div className="mb-3 flex flex-wrap items-center gap-3">
             {categories.map((category) => (
@@ -471,7 +523,7 @@ export function HomePage() {
           </div>
 
           {/* 案例卡片网格 - 纯文本格式 */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-3 gap-3">
             {displayedCases.map((caseItem) => (
               <button
                 key={caseItem.id}
@@ -496,6 +548,7 @@ export function HomePage() {
             ))}
           </div>
         </div>
+      </div>
       </div>
 
       {/* 附件预览弹窗。首页是轻量入口，不再使用与对话页相同的右侧抽屉，
