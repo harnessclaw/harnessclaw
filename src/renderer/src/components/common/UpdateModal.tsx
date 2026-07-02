@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import updateSecretaryAvatar from '@renderer/assets/update-secretary-avatar.svg'
-import updateModalBg from '@renderer/assets/update-modal-bg.png'
+import { WelcomeShaderBackground } from '../WelcomeShaderBackground'
 import updateNowButton from '@renderer/assets/update-now-button.svg'
 import updateBackgroundButton from '@renderer/assets/update-background-button.svg'
 
@@ -94,13 +94,16 @@ export function UpdateModal() {
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="relative w-[350px] h-[440px] rounded-[22px] shadow-2xl overflow-hidden">
-        {/* Background image (full card) */}
-        <img
-          src={updateModalBg}
-          alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full select-none"
-        />
+      <div className="relative h-[440px] w-[350px] overflow-hidden rounded-[22px] bg-white shadow-2xl">
+        {/* Inset animated shader panel — orange gradient framed with ~4px white
+            edges (top/left/right); its bottom sits 134px above the card bottom,
+            leaving a white strip for the action button (per design). */}
+        <div
+          className="pointer-events-none absolute left-1 right-1 top-1 overflow-hidden rounded-2xl"
+          style={{ bottom: '134px' }}
+        >
+          <WelcomeShaderBackground className="absolute inset-0 h-full w-full" />
+        </div>
 
         {/* Close button */}
         <button

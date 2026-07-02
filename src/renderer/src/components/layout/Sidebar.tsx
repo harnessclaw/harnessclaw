@@ -23,6 +23,7 @@ import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/p
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 import { trackSearchUsed } from '../../lib/telemetry'
 import emmaLogo from '../../assets/emma-logo.png'
+import sidebarAvatar from '../../assets/sidebar-avatar.svg'
 import betaBadge from '../../assets/beta-badge.svg'
 import iconNewTask from '../../assets/icon-new-task.svg'
 import iconScheduler from '../../assets/icon-scheduler.svg'
@@ -487,8 +488,8 @@ export function Sidebar() {
   }
 
   const itemCls = (active: boolean) => cn(
-    'flex items-center rounded-lg transition-colors flex-shrink-0',
-    expanded ? 'w-full gap-2.5 px-3 py-2.5' : 'w-11 h-11 justify-center',
+    'flex items-center transition-colors flex-shrink-0',
+    expanded ? 'w-full gap-2.5 px-3 py-2.5 rounded-lg' : 'h-10 w-8 justify-center rounded-[10px]',
     active
       ? 'bg-[rgba(226,226,226,0.46)] text-[#222529]'
       : 'text-[#222529]/78 hover:text-[#222529] hover:bg-[rgba(226,226,226,0.20)]'
@@ -635,8 +636,8 @@ export function Sidebar() {
                   <img src={emmaLogo} alt="Emma" className="h-6 object-contain" />
                 </div>
                 ) : (
-                  <div className="flex h-11 w-11 items-center justify-center py-1">
-                    <img src={emmaLogo} alt="Emma" className="h-5 object-contain" />
+                  <div className="flex h-12 w-12 items-center justify-center">
+                    <img src={sidebarAvatar} alt="Emma" className="h-12 w-12 object-contain" />
                   </div>
                 )}
             </div>
@@ -674,6 +675,14 @@ export function Sidebar() {
                           return (
                             <span className="relative flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center" aria-hidden="true">
                               <img src={src} alt="" className="h-[42px] w-[42px] max-w-none" />
+                            </span>
+                          )
+                        }
+                        // X-LAB 图标原始尺寸为 13x15,用 18x18 容器居中,避免被拉伸放大
+                        if (item.path === '/x-lab') {
+                          return (
+                            <span className="relative flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center" aria-hidden="true">
+                              <img src={src} alt="" className="h-[15px] w-[13px] max-w-none" />
                             </span>
                           )
                         }
@@ -952,7 +961,7 @@ export function Sidebar() {
             className="absolute inset-0 bg-white/28 backdrop-blur-[10px] dark:bg-slate-950/24"
           />
 
-          <div className="pointer-events-none absolute inset-0 flex items-start justify-center px-5 pt-20">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-5">
             <div className="pointer-events-auto w-full max-w-[640px] overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.16)] dark:border-slate-800 dark:bg-slate-950">
               <div className="border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
                 <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/82 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">

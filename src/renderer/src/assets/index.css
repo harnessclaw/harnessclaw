@@ -151,6 +151,14 @@
   }
 }
 
+/* 主窗口用 frame:false + transparent 实现 R22 圆角外轮廓:html/body 透明,让
+   <AppLayout> 根 rounded-[22px] 外的四角露出桌面。快捷启动器(html.launcher-window)
+   是独立不透明窗口,保持原背景。 */
+html:not(.launcher-window),
+html:not(.launcher-window) body {
+  background-color: transparent;
+}
+
 /* 对话详情页正文/标题颜色对齐设计稿（#000000 88%）。
    仅作用于聊天消息正文，不动全局 --foreground。
    暗色模式回退到 --foreground，避免黑字黑底。 */
@@ -1991,3 +1999,14 @@
     animation: none;
   }
 }
+
+/* 隐藏滚动条（用于对话列表，改用砝码导航） */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+

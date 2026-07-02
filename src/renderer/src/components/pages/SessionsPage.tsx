@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { CheckSquare, Copy, FolderMinus, FolderPlus, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { Copy, FolderMinus, FolderPlus, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getProjectDisplayDescription, getProjectDisplayName } from '@/lib/projectDisplay'
 import { ConfirmDeleteSessionDialog } from '../common/ConfirmDeleteSessionDialog'
@@ -56,6 +56,11 @@ export function SessionsPage() {
   const [projects, setProjects] = useState<DbProjectRow[]>([])
   const [assignDialog, setAssignDialog] = useState<AssignProjectDialogState | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<PendingDeleteConfirm | null>(null)
+
+  // 分页相关 state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
+
   const skipNextReloadCountRef = useRef(0)
   const floatingMenuRef = useRef<HTMLDivElement | null>(null)
   const dragSelectRef = useRef<{ active: boolean; adding: boolean; visited: Set<string> }>({ active: false, adding: true, visited: new Set() })
@@ -151,14 +156,37 @@ export function SessionsPage() {
     }
   }, [menuState])
 
-  const filteredSessions = useMemo(() => {
+  // 过滤 + 排序
+  const filteredAndSortedSessions = useMemo(() => {
     const keyword = search.trim().toLowerCase()
-    if (!keyword) return sessions
-    return sessions.filter((session) => {
-      const label = getSessionLabel(session.title, session.session_id, t).toLowerCase()
-      return label.includes(keyword) || session.session_id.toLowerCase().includes(keyword)
+    let filtered = sessions
+
+    if (keyword) {
+      filtered = sessions.filter((session) => {
+        const label = getSessionLabel(session.title, session.session_id, t).toLowerCase()
+        return label.includes(keyword) || session.session_id.toLowerCase().includes(keyword)
+      })
+    }
+
+    // 按更新时间倒序排列
+    return filtered.sort((a, b) => {
+      const timeA = new Date(a.updated_at || a.created_at).getTime()
+      const timeB = new Date(b.updated_at || b.created_at).getTime()
+      return timeB - timeA  // 倒序：最新的在前
     })
   }, [search, sessions, t])
+
+  // 分页计算
+  const totalCount = filteredAndSortedSessions.length
+  const totalPages = Math.ceil(totalCount / pageSize)
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = Math.min(startIndex + pageSize, totalCount)
+  const paginatedSessions = filteredAndSortedSessions.slice(startIndex, endIndex)
+
+  // 搜索时重置到第1页
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search])
 
   const projectMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -355,9 +383,9 @@ export function SessionsPage() {
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col px-6 pt-6 pb-6">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
+      <div className="flex h-full min-h-0 flex-col" style={{ paddingLeft: '38px', paddingRight: '38px', paddingTop: '46px', paddingBottom: '53px' }}>
+        <div className="flex items-center justify-between gap-4" style={{ marginBottom: '20px' }}>
+          <div className="flex flex-col gap-4">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
               {t('sessions.title')}
             </h1>
@@ -374,14 +402,14 @@ export function SessionsPage() {
                 placeholder={t('sessions.searchPlaceholder')}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="pl-10 pr-4 py-2 w-64 bg-background/50 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                className="h-7 pl-9 pr-3 w-64 bg-background/50 border border-border rounded-[14px] text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
               />
             </div>
             <button
               onClick={multiSelectMode ? exitMultiSelectMode : handleEnterMultiSelectMode}
               disabled={sessions.length === 0}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all",
+                "flex items-center gap-1 px-3 h-7 rounded-[14px] text-sm font-medium transition-all",
                 multiSelectMode
                   ? "bg-primary/10 text-primary border border-primary/20"
                   : "bg-background/50 border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20",
@@ -394,15 +422,12 @@ export function SessionsPage() {
                   {t('sessions.exitMultiSelect')}
                 </>
               ) : (
-                <>
-                  <CheckSquare className="h-4 w-4" />
-                  {t('sessions.enterMultiSelect')}
-                </>
+                t('sessions.enterMultiSelect')
               )}
             </button>
             <button
               onClick={handleStartChat}
-              className="flex items-center gap-2 bg-foreground text-background px-4 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-all active:scale-95 shadow-sm dark:bg-primary dark:text-primary-foreground"
+              className="flex items-center gap-1 bg-[#4E5969] text-white px-3 h-7 rounded-[14px] text-sm font-medium hover:opacity-90 transition-all active:scale-95 shadow-sm"
             >
               <Plus className="h-4 w-4" />
               {t('sessions.newSession')}
@@ -414,7 +439,7 @@ export function SessionsPage() {
           <div className="flex flex-1 items-center justify-center">
             <p className="text-sm text-muted-foreground">{t('sessions.loading')}</p>
           </div>
-        ) : filteredSessions.length === 0 ? (
+        ) : filteredAndSortedSessions.length === 0 ? (
           <div className="flex flex-1 items-center justify-center">
             <div className="flex h-full flex-col items-center justify-center p-8 text-center">
               <div className="mb-4 rounded-full bg-accent/50 p-4">
@@ -429,37 +454,60 @@ export function SessionsPage() {
             </div>
           </div>
         ) : (
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
+            {/* 表头 */}
             <div
               className={cn(
-                'grid gap-4 border-b border-border bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground',
+                'grid items-center font-medium',
                 multiSelectMode
-                  ? 'grid-cols-[52px_minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px]'
-                  : 'grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px]'
+                  ? 'grid-cols-[52px_60px_minmax(0,0.5fr)_minmax(0,1.9fr)_140px_56px]'
+                  : 'grid-cols-[60px_minmax(0,0.5fr)_minmax(0,1.9fr)_140px_56px]'
               )}
+              style={{
+                height: '48px',
+                borderRadius: '10px 10px 0px 0px',
+                paddingLeft: '20px',
+                paddingRight: '32px',
+                gap: '24px',
+                background: 'rgba(226, 226, 226, 0.46)',
+                borderBottom: '1px solid #F3F4F6',
+                fontSize: '14px',
+                lineHeight: '22px',
+                color: 'rgba(0, 0, 0, 0.88)'
+              }}
             >
               {multiSelectMode && <span className="text-center">{t('sessions.header.select')}</span>}
-              <span>{multiSelectMode ? t('sessions.header.selectedSession') : t('sessions.header.session')}</span>
+              <span>序号</span>
               <span>{t('sessions.header.project')}</span>
+              <span>{multiSelectMode ? t('sessions.header.selectedSession') : t('sessions.header.session')}</span>
               <span>{t('sessions.header.lastUpdated')}</span>
               <span className="text-right">{t('sessions.header.actions')}</span>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-border">
-              {filteredSessions.map((session) => {
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {paginatedSessions.map((session, index) => {
                 const isRenaming = renamingSessionId === session.session_id
                 const isSelected = selectedSessionSet.has(session.session_id)
+                const globalIndex = startIndex + index + 1  // 全局序号
                 return (
                   <div
                     key={session.session_id}
                     ref={(el) => { if (el) sessionRowRefs.current.set(session.session_id, el); else sessionRowRefs.current.delete(session.session_id) }}
                     className={cn(
-                      'relative grid gap-4 px-4 py-2.5 transition-colors hover:bg-muted/20',
+                      'relative grid px-4 py-2.5 transition-colors hover:bg-muted/20',
                       multiSelectMode
-                        ? 'grid-cols-[52px_minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px] select-none'
-                        : 'grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_140px_56px]',
+                        ? 'grid-cols-[52px_60px_minmax(0,0.5fr)_minmax(0,1.9fr)_140px_56px] select-none'
+                        : 'grid-cols-[60px_minmax(0,0.5fr)_minmax(0,1.9fr)_140px_56px]',
                       multiSelectMode && isSelected && 'bg-accent/30'
                     )}
+                    style={{
+                      gap: '24px',
+                      paddingLeft: '20px',
+                      paddingRight: '32px',
+                      height: '62px',
+                      borderBottom: '1px solid #F3F4F6'
+                    }}
                     onMouseDown={() => handleDragSelectStart(session.session_id)}
                     onMouseEnter={() => handleDragSelectMove(session.session_id)}
                   >
@@ -485,6 +533,23 @@ export function SessionsPage() {
                       </div>
                     )}
 
+                    {/* 序号列 */}
+                    <div className="flex items-center" style={{ fontSize: '14px', lineHeight: '24px', color: '#111827' }}>
+                      {globalIndex}
+                    </div>
+
+                    {/* 项目列 */}
+                    <div className="flex items-center" style={{ fontSize: '14px', lineHeight: '24px' }}>
+                      {session.project_id && projectMap.has(session.project_id) ? (
+                        <span className="truncate" style={{ fontSize: '14px', color: '#111827' }}>
+                          {projectMap.get(session.project_id)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40" style={{ fontSize: '14px' }}>—</span>
+                      )}
+                    </div>
+
+                    {/* 对话列 */}
                     <button
                       onClick={() => {
                         if (multiSelectMode) {
@@ -494,7 +559,7 @@ export function SessionsPage() {
 
                         handleOpenChat(session.session_id)
                       }}
-                      className="min-w-0 text-left"
+                      className="min-w-0 text-left flex items-center"
                     >
                       {isRenaming ? (
                         <input
@@ -512,52 +577,42 @@ export function SessionsPage() {
                               setRenameValue('')
                             }
                           }}
-                          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
+                          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 outline-none focus:border-primary"
+                          style={{ fontSize: '14px', lineHeight: '24px' }}
                         />
                       ) : (
-                        <>
-                          <p className="truncate text-sm font-medium text-foreground">
-                            {getSessionLabel(session.title, session.session_id, t)}
-                          </p>
-                          <div className="mt-0.5 flex items-center text-xs text-muted-foreground">
-                            <span>{t('sessions.messageCount', { n: session.messageCount })}</span>
-                          </div>
-                        </>
+                        <p className="truncate" style={{ fontSize: '14px', lineHeight: '24px', color: '#111827', fontWeight: 'normal' }}>
+                          {getSessionLabel(session.title, session.session_id, t)}
+                        </p>
                       )}
                     </button>
 
-                    <div className="flex items-center">
-                      {session.project_id && projectMap.has(session.project_id) ? (
-                        <span className="truncate rounded-md bg-accent px-2 py-0.5 text-xs text-accent-foreground">
-                          {projectMap.get(session.project_id)}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/40">—</span>
-                      )}
-                    </div>
-
+                    {/* 更新时间列 */}
                     {multiSelectMode ? (
                       <button
                         type="button"
                         onClick={() => toggleSessionSelection(session.session_id)}
-                        className="flex h-full w-full items-center rounded-lg text-left text-xs text-muted-foreground transition-colors hover:bg-accent/60"
+                        className="flex h-full w-full items-center rounded-lg text-left text-muted-foreground transition-colors hover:bg-accent/60"
+                        style={{ fontSize: '14px', lineHeight: '24px' }}
                         aria-label={t('sessions.multiSelect.ariaTimeRegion', { name: getSessionLabel(session.title, session.session_id, t) })}
                       >
-                        {new Date(session.updated_at).toLocaleString(i18n.language === 'en' ? 'en-US' : 'zh-CN', {
-                          month: 'numeric',
-                          day: 'numeric',
+                        {new Date(session.updated_at).toLocaleString('zh-CN', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
                           hour: '2-digit',
                           minute: '2-digit',
-                        })}
+                        }).replace(/\//g, '-').replace(',', '')}
                       </button>
                     ) : (
-                      <div className="flex items-center text-xs text-muted-foreground">
-                        {new Date(session.updated_at).toLocaleString(i18n.language === 'en' ? 'en-US' : 'zh-CN', {
-                          month: 'numeric',
-                          day: 'numeric',
+                      <div className="flex items-center text-muted-foreground" style={{ fontSize: '14px', lineHeight: '24px' }}>
+                        {new Date(session.updated_at).toLocaleString('zh-CN', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
                           hour: '2-digit',
                           minute: '2-digit',
-                        })}
+                        }).replace(/\//g, '-').replace(',', '')}
                       </div>
                     )}
 
@@ -641,6 +696,107 @@ export function SessionsPage() {
                     <X size={16} />
                   </button>
                   </div>
+                </div>
+              </div>
+            )}
+            </div>
+
+            {/* 分页控件（独立于卡片，无分割线） */}
+            {!loading && filteredAndSortedSessions.length > 0 && (
+              <div className="flex h-8 items-center justify-between px-2">
+                {/* 左侧：总条数 */}
+                <div className="text-sm text-muted-foreground">
+                  共{totalCount}条
+                </div>
+
+                {/* 中间：页码按钮（32×32，无边框，圆角 4px，选中灰底，无间距） */}
+                <div className="flex items-center">
+                  {/* 上一页 */}
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className={cn(
+                      'inline-flex h-8 w-8 items-center justify-center rounded text-sm transition-colors',
+                      currentPage === 1
+                        ? 'cursor-not-allowed text-muted-foreground/50'
+                        : 'text-foreground hover:bg-accent'
+                    )}
+                  >
+                    ‹
+                  </button>
+
+                  {/* 页码按钮 */}
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                    let pageNum: number
+                    if (totalPages <= 5) {
+                      pageNum = i + 1
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i
+                    } else {
+                      pageNum = currentPage - 2 + i
+                    }
+
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={cn(
+                          'inline-flex h-8 w-8 items-center justify-center rounded text-sm transition-colors',
+                          currentPage === pageNum
+                            ? 'bg-[rgba(226,226,226,0.46)] text-foreground font-medium'
+                            : 'text-foreground hover:bg-accent'
+                        )}
+                      >
+                        {pageNum}
+                      </button>
+                    )
+                  })}
+
+                  {/* 省略号 + 最后一页 */}
+                  {totalPages > 5 && currentPage < totalPages - 2 && (
+                    <>
+                      <span className="inline-flex h-8 w-8 items-center justify-center text-sm text-muted-foreground">...</span>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded text-sm text-foreground transition-colors hover:bg-accent"
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  )}
+
+                  {/* 下一页 */}
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className={cn(
+                      'inline-flex h-8 w-8 items-center justify-center rounded text-sm transition-colors',
+                      currentPage === totalPages
+                        ? 'cursor-not-allowed text-muted-foreground/50'
+                        : 'text-foreground hover:bg-accent'
+                    )}
+                  >
+                    ›
+                  </button>
+                </div>
+
+                {/* 右侧：每页条数选择 */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value))
+                      setCurrentPage(1)  // 切换每页条数时重置到第1页
+                    }}
+                    className="rounded-lg border border-border bg-background px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value={5}>5条/页</option>
+                    <option value={10}>10条/页</option>
+                    <option value={20}>20条/页</option>
+                    <option value={50}>50条/页</option>
+                  </select>
                 </div>
               </div>
             )}

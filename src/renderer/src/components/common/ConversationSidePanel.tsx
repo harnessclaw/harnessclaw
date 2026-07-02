@@ -905,9 +905,9 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
                 aria-selected={activeTab === 'plan'}
                 onClick={() => setActiveTab('plan')}
                 className={cn(
-                  'inline-flex h-8 w-12 items-center justify-center rounded-lg text-xs font-medium transition-colors',
+                  'inline-flex h-8 w-12 items-center justify-center rounded-[10px] text-xs font-medium transition-colors',
                   activeTab === 'plan'
-                    ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                    ? 'bg-white text-foreground shadow-[0px_2px_4px_0px_rgba(46,51,68,0.0373)]'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
@@ -919,9 +919,9 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
               aria-selected={activeTab === 'logs'}
               onClick={() => setActiveTab('logs')}
               className={cn(
-                'inline-flex h-8 w-12 items-center justify-center rounded-lg text-xs font-medium transition-colors',
+                'inline-flex h-8 w-12 items-center justify-center rounded-[10px] text-xs font-medium transition-colors',
                 activeTab === 'logs'
-                  ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                  ? 'bg-white text-foreground shadow-[0px_2px_4px_0px_rgba(46,51,68,0.0373)]'
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
@@ -932,9 +932,9 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
               aria-selected={activeTab === 'artifacts'}
               onClick={() => setActiveTab('artifacts')}
               className={cn(
-                'inline-flex h-8 w-12 items-center justify-center rounded-lg text-xs font-medium transition-colors',
+                'inline-flex h-8 w-12 items-center justify-center rounded-[10px] text-xs font-medium transition-colors',
                 activeTab === 'artifacts'
-                  ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                  ? 'bg-white text-foreground shadow-[0px_2px_4px_0px_rgba(46,51,68,0.0373)]'
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >

@@ -6528,8 +6528,10 @@ function UpdateSection() {
           setIsChecking(false)
           setProgress(typeof updateEvent.percent === 'number' ? updateEvent.percent : null)
           setMessage(typeof updateEvent.percent === 'number'
-            ? t('updates.downloadProgress', { percent: updateEvent.percent.toFixed(1) })
-            : t('updates.downloadProgressGeneric'))
+            ? (updateEvent.version
+                ? t('updates.downloadProgress', { version: updateEvent.version, percent: updateEvent.percent.toFixed(1) })
+                : t('updates.downloadProgressGeneric', { percent: updateEvent.percent.toFixed(1) }))
+            : t('updates.downloadProgressGeneric', { percent: '0' }))
           break
         case 'downloaded':
           setStatus('downloaded')

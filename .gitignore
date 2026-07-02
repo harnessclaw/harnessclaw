@@ -56,3 +56,6 @@ test_report.json
 
 # Custom Ignores
 /commits.txt
+
+# 本地工作笔记（不入库）
+docs/feature-new_ui-tasks.md

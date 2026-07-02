@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, Loader2, Sparkles } from 'lucide-react'
+import { Check, ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProviderLogo } from '@/components/common/ProviderLogo'
+import { WelcomeShaderBackground } from './WelcomeShaderBackground'
 import emmaAvatar from '@/assets/emma-avatar.svg'
 import emmaText from '@/assets/emma-text.svg'
 import welcomeHeading from '@/assets/welcome-heading.svg'
+import welcomeFileChip from '@/assets/welcome-file-chip.svg'
 import {
   AGENT_PROVIDER_KEYS,
   MANAGED_PROVIDER_KEYS,
@@ -286,31 +288,8 @@ function buildAppConfig(previous: ConfigRecord, draft: SetupDraft): ConfigRecord
 }
 
 export function WelcomeModal() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
 
-  // Selecting a language from the onboarding header:
-  //   1. Switch i18next immediately so the wizard re-renders in the
-  //      target language without waiting for the appConfig write.
-  //   2. Persist `ui.language` into appConfig so Sidebar's hydration
-  //      pass and the next launch both pick up the user's choice — the
-  //      localStorage cache that i18next maintains is per-renderer and
-  //      can drift if the user reinstalls or wipes browser data.
-  //
-  // Replaces the old single-icon toggle whose intent was easy to miss
-  // (#74). Two explicit buttons make the choice discoverable.
-  const setLanguage = async (next: 'zh' | 'en') => {
-    if (i18n.language === next) return
-    await i18n.changeLanguage(next)
-    try {
-      const cfg = await window.appConfig.read()
-      const ui = asRecord((cfg as ConfigRecord | undefined)?.ui)
-      await window.appConfig.save({ ...(cfg as ConfigRecord), ui: { ...ui, language: next } })
-    } catch {
-      // ignore — language change still takes effect for the current session
-    }
-  }
-
-  const isZh = i18n.language.startsWith('zh')
   // Intro feature categories shown in stage 1. Each category has its own
   // set of conversation examples.
   const introCategories: Array<{
@@ -482,200 +461,167 @@ export function WelcomeModal() {
       aria-modal="true"
       aria-labelledby="first-run-title"
     >
-      <div className="relative flex h-[540px] max-h-[calc(100vh-3rem)] w-[720px] max-w-full flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl">
-        {/* Right-top triangular orange gradient with noise texture - no hard edge */}
-        <div className="pointer-events-none absolute right-0 top-0 h-full w-full">
-          <div
-            className="absolute right-0 top-0 h-full w-full"
-            style={{
-              background: 'radial-gradient(ellipse 120% 120% at 100% 0%, #fb923c 0%, #fed7aa 25%, #fef3c7 40%, rgba(255,255,255,0.6) 60%, transparent 80%)',
-              maskImage: 'linear-gradient(to bottom left, black 0%, black 30%, transparent 100%)',
-              WebkitMaskImage: 'linear-gradient(to bottom left, black 0%, black 30%, transparent 100%)'
-            }}
-          />
-        </div>
+      <div className="relative flex h-[440px] max-h-[calc(100vh-3rem)] w-[650px] max-w-full flex-col overflow-hidden rounded-[22px] border border-border bg-white shadow-2xl">
+        {/* Orange shader panel — inset with white margins (top/sides); its
+            rounded corners clip the shader so the gradient is "framed" in the
+            upper part with white around it. The footer below sits on the white
+            card, giving the white bottom strip. */}
+        <div className="relative mx-1 mt-1 mb-[14px] flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
+          <WelcomeShaderBackground className="pointer-events-none absolute inset-0 h-full w-full" />
 
-        {/* Title area */}
-        <div className="relative z-10 flex h-[92px] shrink-0 items-center justify-center">
-          {currentStage.key === 'intro' ? (
-            <img
-              src={welcomeHeading}
-              alt={t('welcome.intro.heading')}
-              className="h-10 object-contain"
-            />
-          ) : (
-            <h2
-              id="first-run-title"
-              className="px-12 text-center text-lg font-semibold leading-snug text-foreground"
-            >
-              {t('welcome.stages.connection')}
-            </h2>
-          )}
-          <div
-            role="group"
-            aria-label={t('sidebar.switchToChinese')}
-            className="absolute right-3 top-3 inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5 text-[11px] font-medium"
-          >
-            <button
-              type="button"
-              onClick={() => void setLanguage('zh')}
-              aria-pressed={isZh}
-              className={cn(
-                'rounded-md px-2 py-0.5 transition-colors',
-                isZh
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              中文
-            </button>
-            <button
-              type="button"
-              onClick={() => void setLanguage('en')}
-              aria-pressed={!isZh}
-              className={cn(
-                'rounded-md px-2 py-0.5 transition-colors',
-                !isZh
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              English
-            </button>
+          {/* Title area */}
+          <div className="relative z-10 flex h-[56px] shrink-0 items-center justify-center">
+            {currentStage.key === 'intro' ? (
+              <img
+                src={welcomeHeading}
+                alt={t('welcome.intro.heading')}
+                className="h-9 object-contain"
+              />
+            ) : (
+              <h2
+                id="first-run-title"
+                className="px-12 text-center text-lg font-semibold leading-snug text-foreground"
+              >
+                {t('welcome.stages.connection')}
+              </h2>
+            )}
           </div>
-        </div>
 
-        <div className="relative z-10 min-h-0 flex-1 overflow-hidden px-7 py-5">
           <div
             className={cn(
-              'mx-auto h-full w-full',
-              currentStage.key === 'intro' ? 'max-w-full' : 'max-w-[460px]'
+              'relative z-10 min-h-0 flex-1 overflow-hidden px-6',
+              currentStage.key === 'intro' ? 'pb-3 pt-[43px]' : 'py-3'
             )}
           >
-          {currentStage.key === 'intro' && (
-            <IntroShowcase categories={introCategories} />
-          )}
+            <div
+              className={cn(
+                'mx-auto h-full w-full',
+                currentStage.key === 'intro' ? 'max-w-full' : 'max-w-full'
+              )}
+            >
+            {currentStage.key === 'intro' && (
+              <IntroShowcase categories={introCategories} />
+            )}
 
-          {currentStage.key === 'connection' && (
-            <div className="grid gap-3">
-              <ProviderSelect
-                label={t('welcome.providerLabel')}
-                placeholder={t('welcome.providerPlaceholder')}
-                options={providerOptions}
-                value={draft.engineMode}
-                onChange={(key) =>
-                  setDraft((d) => ({
-                    ...d,
-                    engineMode: key,
-                    apiBase: '',
-                    protocol: key === 'anthropic' ? 'anthropic' : 'openai',
-                  }))
-                }
-              />
-              <FormField
-                label="API Base URL"
-                value={draft.apiBase}
-                placeholder={getDefaultApiBase(draft.engineMode) || 'https://api.example.com/v1'}
-                onChange={(v) => setDraft((d) => ({ ...d, apiBase: v }))}
-              />
-              <FormField
-                label="API Key"
-                value={draft.apiKey}
-                placeholder="sk-..."
-                type="password"
-                required
-                onChange={(v) => setDraft((d) => ({ ...d, apiKey: v }))}
-              />
-              <FormField
-                label="Model ID"
-                value={draft.modelId}
-                placeholder={t('welcome.modelIdPlaceholder')}
-                required
-                onChange={(v) => setDraft((d) => ({ ...d, modelId: v }))}
-              />
-              <FormField
-                label={t('welcome.modelGroupLabel')}
-                hint={t('welcome.modelGroupHint')}
-                value={draft.modelGroup}
-                placeholder={t('welcome.modelGroupPlaceholder')}
-                onChange={(v) => setDraft((d) => ({ ...d, modelGroup: v }))}
-              />
-            </div>
-          )}
+            {currentStage.key === 'connection' && (
+              <div className="grid gap-3">
+                <ProviderSelect
+                  label={t('welcome.providerLabel')}
+                  placeholder={t('welcome.providerPlaceholder')}
+                  options={providerOptions}
+                  value={draft.engineMode}
+                  onChange={(key) =>
+                    setDraft((d) => ({
+                      ...d,
+                      engineMode: key,
+                      apiBase: '',
+                      protocol: key === 'anthropic' ? 'anthropic' : 'openai',
+                    }))
+                  }
+                />
+                <FormField
+                  label="API Base URL"
+                  value={draft.apiBase}
+                  placeholder={getDefaultApiBase(draft.engineMode) || 'https://spark-api-open.xf-yun.com/agent/v1'}
+                  onChange={(v) => setDraft((d) => ({ ...d, apiBase: v }))}
+                />
+                <FormField
+                  label="API Key"
+                  value={draft.apiKey}
+                  placeholder="sk-"
+                  type="password"
+                  required
+                  onChange={(v) => setDraft((d) => ({ ...d, apiKey: v }))}
+                />
+                <FormField
+                  label="Model ID"
+                  value={draft.modelId}
+                  placeholder="model-id，例：gpt-4o-mini 或 claude-sonnet-4"
+                  required
+                  onChange={(v) => setDraft((d) => ({ ...d, modelId: v }))}
+                />
+              </div>
+            )}
 
-          {errorMessage && (
-            <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-300">
-              {errorMessage}
+            {errorMessage && (
+              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+                {errorMessage}
+              </div>
+            )}
             </div>
-          )}
           </div>
         </div>
 
-        <footer className="grid grid-cols-3 items-center border-t border-border/70 bg-card px-7 py-4">
-          {/* Left: back button (hidden on first stage) */}
+        <footer className="relative z-10 grid grid-cols-3 items-center px-7 pb-4 pt-2">
+          {/* Left: back (plain text link, hidden on first stage) */}
           <div className="flex justify-start">
             {stageIndex > 0 && (
               <button
                 type="button"
                 onClick={handleBack}
                 disabled={submitting}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                className="text-sm font-medium text-foreground/70 transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <ChevronLeft size={14} />
                 {t('welcome.back')}
               </button>
             )}
           </div>
 
-          {/* Center: page dots */}
-          <div className="flex justify-center gap-1.5">
+          {/* Center: page dots — 8×8, 10px gap; #DADEE4 inactive, orange active */}
+          <div className="flex justify-center gap-2.5">
             {stages.map((stage, index) => (
               <span
                 key={stage.key}
                 className={cn(
-                  'h-1.5 rounded-full transition-all',
-                  index === stageIndex ? 'w-5 bg-orange-400' : 'w-1.5 bg-border'
+                  'h-2 w-2 rounded-full transition-colors',
+                  index === stageIndex ? 'bg-orange-400' : 'bg-[#DADEE4]'
                 )}
                 aria-hidden="true"
               />
             ))}
           </div>
 
-          {/* Right: skip + primary action */}
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => void handleSkip()}
-              disabled={submitting}
-              className="rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t('welcome.skip')}
-            </button>
+          {/* Right: primary action. Page 1 → plain-text "下一步"; last page →
+              dark filled button. NB: design labels the last-page dark button
+              "跳过", but we keep it wired to Finish (saves the entered config).
+              Confirm with product whether it should skip instead. */}
+          <div className="flex items-center justify-end gap-3">
             {isLastStage ? (
-              <button
-                type="button"
-                onClick={handleFinish}
-                disabled={!allStagesDone || submitting}
-                className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-5 py-2 text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-slate-600"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    <span>{t('welcome.submitting')}</span>
-                  </>
-                ) : (
-                  <span>{t('welcome.finish')}</span>
-                )}
-              </button>
+              <>
+                {/* Skip (secondary), left of the primary action */}
+                <button
+                  type="button"
+                  onClick={() => void handleSkip()}
+                  disabled={submitting}
+                  className="text-sm font-medium text-foreground/70 transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {t('welcome.skip')}
+                </button>
+                {/* Primary: finish + enter app (saves the entered config) */}
+                <button
+                  type="button"
+                  onClick={handleFinish}
+                  disabled={!allStagesDone || submitting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-5 py-2 text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>{t('welcome.submitting')}</span>
+                    </>
+                  ) : (
+                    <span>{t('welcome.finish')}</span>
+                  )}
+                </button>
+              </>
             ) : (
               <button
                 type="button"
                 onClick={handleNext}
                 disabled={!currentStageDone}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-5 py-2 text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-slate-600"
+                className="text-sm font-medium text-foreground transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {t('welcome.next')}
-                <ArrowRight size={14} />
               </button>
             )}
           </div>
@@ -694,24 +640,31 @@ function IntroShowcase({
   categories: Array<{ key: string; label: string; cards: Array<{ title: string; description: string | string[] }> }>
 }) {
   const [activeIndex, setActiveIndex] = useState(0)
-  const active = categories[activeIndex] ?? categories[0]
+
+  // Single fixed sample conversation per the design. Category clicks only
+  // highlight the nav; the chat content is placeholder (one fake set).
+  const sample = categories[0]?.cards?.[0]
+  const sampleReplies = sample
+    ? (Array.isArray(sample.description) ? sample.description : [sample.description])
+    : []
 
   return (
     <div className="flex h-full gap-5">
       {/* Left nav */}
-      <nav className="flex w-[140px] shrink-0 flex-col gap-1">
+      <nav className="flex shrink-0 flex-col gap-3">
         {categories.map((cat, index) => {
           const isActive = index === activeIndex
+          const isLast = index === categories.length - 1
           return (
             <button
               key={cat.key}
               type="button"
               onClick={() => setActiveIndex(index)}
+              style={{ fontFamily: 'Source Han Sans CN', fontVariationSettings: '"opsz" auto' }}
               className={cn(
-                'rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors',
-                isActive
-                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                'flex h-9 flex-col justify-center whitespace-nowrap rounded-md px-3 text-left text-[16px] font-medium leading-normal text-[#4E5969] shadow-[0px_1px_0px_0px_rgba(0,0,0,0.15)] transition-colors',
+                isLast ? 'w-[104px]' : 'w-[88px]',
+                isActive ? 'bg-[#DADEE4]' : 'bg-white hover:bg-[#EDEFF1]'
               )}
             >
               {cat.label}
@@ -720,41 +673,41 @@ function IntroShowcase({
         })}
       </nav>
 
-      {/* Right: chat preview */}
-      <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto pr-1">
-        {active.cards.map((card, index) => {
-          const replies = Array.isArray(card.description) ? card.description : [card.description]
-          return (
-            <div key={index} className="flex flex-col gap-4">
-              {/* User question bubble (right-aligned) */}
-              <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-orange-100 px-4 py-2.5 text-[13px] leading-6 text-orange-950 dark:bg-orange-500/15 dark:text-orange-100">
-                  {card.title}
-                </div>
+      {/* Right: chat preview — one fixed sample conversation */}
+      <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+        {sample && (
+          <>
+            {/* User question bubble (right-aligned) */}
+            <div className="flex justify-end">
+              <div className="max-w-[80%] rounded-2xl bg-[#FDEBDA] px-4 py-2.5 text-[13px] leading-6 text-[#333333]">
+                {sample.title}
               </div>
-              {/* Emma answer bubbles (left-aligned with avatar) */}
-              {replies.map((reply, replyIndex) => (
-                <div key={replyIndex} className="flex items-start gap-2">
-                  <div className="flex shrink-0 flex-col items-center gap-1">
-                    <img
-                      src={emmaAvatar}
-                      alt="Emma"
-                      className="h-9 w-9 rounded-full object-cover"
-                    />
-                    <img
-                      src={emmaText}
-                      alt="EMMA"
-                      className="h-3 object-contain"
-                    />
-                  </div>
-                  <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-border bg-background px-4 py-2.5 text-[13px] leading-6 text-foreground">
+            </div>
+            {/* Emma answers: avatar shown once, bubbles + file chip stacked */}
+            <div className="flex items-start gap-2">
+              <div className="flex shrink-0 flex-col items-center gap-1">
+                <img
+                  src={emmaAvatar}
+                  alt="Emma"
+                  className="h-9 w-9 rounded-full object-cover"
+                />
+                <img src={emmaText} alt="EMMA" className="h-3 object-contain" />
+              </div>
+              <div className="flex min-w-0 flex-col gap-3">
+                {sampleReplies.map((reply, i) => (
+                  <div
+                    key={i}
+                    className="w-fit max-w-full rounded-2xl bg-white/90 px-4 py-2.5 text-[13px] leading-6 text-[#333333] shadow-sm"
+                  >
                     {reply}
                   </div>
-                </div>
-              ))}
+                ))}
+                {/* Sample deliverable file chip */}
+                <img src={welcomeFileChip} alt="评审文件.doc" className="h-9 w-[218px]" />
+              </div>
             </div>
-          )
-        })}
+          </>
+        )}
       </div>
     </div>
   )
@@ -799,7 +752,7 @@ function ProviderSelect({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+          className="flex w-full items-center justify-between rounded-lg border border-white/60 bg-white/80 px-3.5 py-2 text-sm outline-none transition-colors focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
         >
           <div className="flex items-center gap-2">
             {selected && <ProviderLogo provider={selected.key} size={20} />}
@@ -869,7 +822,7 @@ function FormField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+        className="block w-full rounded-lg border border-white/60 bg-white/80 px-3.5 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
       />
       {hint && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</p>}
     </label>

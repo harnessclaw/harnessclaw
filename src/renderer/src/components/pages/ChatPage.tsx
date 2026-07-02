@@ -44,6 +44,8 @@ import lilyAvatar from '../../assets/lily-avatar.svg'
 import maryAvatar from '../../assets/mary-avatar.svg'
 import iconAttachFile from '../../assets/icon-attach-file.svg'
 import iconTitleMenu from '../../assets/icon-title-menu.svg'
+import sendIconActive from '../../assets/send-icon-active.svg'
+import sendIcon from '../../assets/send-icon.svg'
 import analystAvatar from '../../assets/team/analyst.png'
 import developerAvatar from '../../assets/team/developer.png'
 import lifestyleAvatar from '../../assets/team/lifestyle.png'
@@ -975,7 +977,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     <div
       ref={messagesViewportRef}
       onScroll={onScroll}
-      className="flex-1 overflow-x-hidden overflow-y-auto pl-[70px] pr-[70px] py-5"
+      className="flex-1 overflow-x-hidden overflow-y-auto pl-[70px] pr-[70px] py-5 scrollbar-hide"
     >
       <div className="flex w-full min-w-0 flex-col gap-5">
         <CollaborationOverview collaboration={collaboration} />
@@ -1085,16 +1087,10 @@ const ConversationQuickNav = memo(function ConversationQuickNav({
     [displayMessages]
   )
 
-  const [isHovered, setIsHovered] = useState(false)
-  const [isScrollLong, setIsScrollLong] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
-  const upWheelTimestampsRef = useRef<number[]>([])
-  const upWheelDistancesRef = useRef<number[]>([])
-  const idleTimerRef = useRef<number | null>(null)
-  const fadeTimerRef = useRef<number | null>(null)
   const navRef = useRef<HTMLDivElement>(null)
-
   const userMessagesRef = useRef(userMessages)
   userMessagesRef.current = userMessages
   const activeIndexRef = useRef(activeIndex)
@@ -1141,82 +1137,28 @@ const ConversationQuickNav = memo(function ConversationQuickNav({
   const scrollToIndexRef = useRef(scrollToIndex)
   scrollToIndexRef.current = scrollToIndex
 
-  // Listeners:
-  // - wheel: trigger panel when user pages UP repeatedly (>3 upward events within 2s window)
-  // - scroll: keep active index in sync; auto-fade panel after scroll idle
+  // 滚动时更新 activeIndex
   useEffect(() => {
     const viewport = messagesViewportRef.current
     if (!viewport) return
 
-    const UP_WINDOW_MS = 2000
-    const UP_EVENT_THRESHOLD = 8 // strictly greater than 8 upward wheel events in window
-    const UP_DISTANCE_THRESHOLD = 800 // and accumulated upward |deltaY| >= 800px
-
-    const onWheel = (e: WheelEvent) => {
-      // Downward scroll → close the panel immediately
-      if (e.deltaY > 0) {
-        upWheelTimestampsRef.current = []
-        upWheelDistancesRef.current = []
-        if (fadeTimerRef.current != null) {
-          window.clearTimeout(fadeTimerRef.current)
-          fadeTimerRef.current = null
-        }
-        setIsScrollLong(false)
-        return
-      }
-      // Only count upward (negative deltaY) wheel events
-      if (e.deltaY >= 0) return
-      const now = Date.now()
-      const ts = upWheelTimestampsRef.current
-      const distances = upWheelDistancesRef.current
-      ts.push(now)
-      distances.push(Math.abs(e.deltaY))
-      // Drop entries older than the rolling window
-      while (ts.length > 0 && now - ts[0] > UP_WINDOW_MS) {
-        ts.shift()
-        distances.shift()
-      }
-      const totalDistance = distances.reduce((sum, d) => sum + d, 0)
-      if (ts.length > UP_EVENT_THRESHOLD && totalDistance >= UP_DISTANCE_THRESHOLD) {
-        setIsScrollLong(true)
-        if (fadeTimerRef.current != null) {
-          window.clearTimeout(fadeTimerRef.current)
-          fadeTimerRef.current = null
-        }
-      }
-    }
-
     const onScroll = () => {
       updateActiveIndex()
-      if (idleTimerRef.current != null) window.clearTimeout(idleTimerRef.current)
-      idleTimerRef.current = window.setTimeout(() => {
-        // Scroll idle — clear upward-event history and queue fade-out
-        upWheelTimestampsRef.current = []
-        upWheelDistancesRef.current = []
-        if (fadeTimerRef.current != null) window.clearTimeout(fadeTimerRef.current)
-        fadeTimerRef.current = window.setTimeout(() => {
-          setIsScrollLong(false)
-        }, 1500)
-      }, 600)
     }
 
-    viewport.addEventListener('wheel', onWheel, { passive: true })
     viewport.addEventListener('scroll', onScroll, { passive: true })
     updateActiveIndex()
     return () => {
-      viewport.removeEventListener('wheel', onWheel)
       viewport.removeEventListener('scroll', onScroll)
-      if (idleTimerRef.current != null) window.clearTimeout(idleTimerRef.current)
-      if (fadeTimerRef.current != null) window.clearTimeout(fadeTimerRef.current)
     }
   }, [messagesViewportRef, updateActiveIndex])
 
-  // Recalc when message list changes
+  // 消息列表变化时重新计算
   useEffect(() => {
     updateActiveIndex()
   }, [userMessages, updateActiveIndex])
 
-  // Wheel inside the nav steps between messages
+  // 导航条内滚轮切换区间
   useEffect(() => {
     const el = navRef.current
     if (!el) return
@@ -1229,10 +1171,22 @@ const ConversationQuickNav = memo(function ConversationQuickNav({
       const now = Date.now()
       if (now - lastWheel < 120) return
       lastWheel = now
+
+      // 计算当前所在区间和目标区间
+      const totalMessages = msgs.length
+      const numBars = Math.min(totalMessages, 7)
+      const messagesPerBar = totalMessages / numBars
+      const currentBar = activeIndexRef.current >= 0
+        ? Math.min(Math.floor(activeIndexRef.current / messagesPerBar), numBars - 1)
+        : 0
+
       const direction = e.deltaY > 0 ? 1 : -1
-      const cur = activeIndexRef.current < 0 ? 0 : activeIndexRef.current
-      const next = Math.max(0, Math.min(msgs.length - 1, cur + direction))
-      if (next !== cur) scrollToIndexRef.current(next)
+      const nextBar = Math.max(0, Math.min(numBars - 1, currentBar + direction))
+
+      if (nextBar !== currentBar) {
+        const targetIndex = Math.floor(nextBar * messagesPerBar)
+        scrollToIndexRef.current(Math.min(targetIndex, totalMessages - 1))
+      }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => {
@@ -1242,51 +1196,113 @@ const ConversationQuickNav = memo(function ConversationQuickNav({
 
   if (userMessages.length === 0) return null
 
-  const visible = isHovered || isScrollLong
+  // 计算砝码数量和区间映射
+  const MAX_BARS = 7
+  const totalMessages = userMessages.length
+  const numBars = Math.min(totalMessages, MAX_BARS)  // 最多7个砝码
+  const messagesPerBar = totalMessages / numBars  // 每个砝码代表的消息数（可能是小数）
+
+  // 调试：打印砝码数量
+  console.log('[ConversationQuickNav] totalMessages:', totalMessages, 'numBars:', numBars, 'messagesPerBar:', messagesPerBar)
+
+  // 计算当前 activeIndex 属于哪个砝码区间
+  const activeBarIndex = activeIndex >= 0
+    ? Math.min(Math.floor(activeIndex / messagesPerBar), numBars - 1)
+    : -1
+
+  // 计算每个砝码的宽度和颜色
+  const getBarStyle = (barIndex: number) => {
+    // 确定磁吸中心：hover 时用 hoveredIndex，否则用 activeBarIndex
+    const magnetCenter = hoveredIndex !== null ? hoveredIndex : activeBarIndex
+
+    if (magnetCenter === -1) {
+      // 没有任何中心点，所有砝码都是默认大小
+      return { width: '5px', background: '#D8D8D8' }
+    }
+
+    const distance = Math.abs(barIndex - magnetCenter)
+
+    if (distance === 0) {
+      // 中心砝码：12px 深灰
+      return { width: '12px', background: '#4E5969' }
+    } else if (distance === 1) {
+      // 相邻 1 格：8px 浅灰
+      return { width: '8px', background: '#D8D8D8' }
+    } else {
+      // 其他：5px 浅灰
+      return { width: '5px', background: '#D8D8D8' }
+    }
+  }
+
+  // 点击砝码跳转到对应区间的起始消息
+  const handleBarClick = (barIndex: number) => {
+    const targetIndex = Math.floor(barIndex * messagesPerBar)
+    scrollToIndex(Math.min(targetIndex, totalMessages - 1))
+  }
 
   return (
-    <>
-      {/* Right-edge hover hot-zone (always interactive, invisible) */}
-      <div
-        className="pointer-events-auto absolute bottom-0 right-0 top-0 z-20 w-12"
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        aria-hidden="true"
-      />
-      {/* Quick nav pill */}
-      <div
-        ref={navRef}
-        className={cn(
-          'absolute right-3 top-1/2 z-30 -translate-y-1/2 transition-all duration-200 ease-out',
-          visible
-            ? 'pointer-events-auto translate-x-0 opacity-100'
-            : 'pointer-events-none translate-x-2 opacity-0'
-        )}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        role="navigation"
-        aria-label={t('chat.chatQuickSwitch')}
-      >
-        <div className="flex max-h-[60vh] flex-col items-center gap-2 overflow-y-auto px-1 py-2">
-          {userMessages.map((msg, idx) => (
-            <button
-              key={msg.id}
-              type="button"
-              onClick={() => scrollToIndex(idx)}
-              title={(msg.content || '').slice(0, 60) || t('chat.header.chatIndex', { n: idx + 1 })}
-              aria-label={t('chat.header.jumpToIndex', { n: idx + 1 })}
-              aria-current={activeIndex === idx ? 'true' : undefined}
-              className={cn(
-                'h-1.5 rounded-full transition-all',
-                activeIndex === idx
-                  ? 'w-7 bg-orange-500'
-                  : 'w-5 bg-slate-400 hover:w-6 hover:bg-slate-600 dark:bg-slate-300 dark:hover:bg-slate-100'
+    <div
+      ref={navRef}
+      className="pointer-events-auto absolute right-3 top-1/2 z-30 -translate-y-1/2"
+      role="navigation"
+      aria-label={t('chat.chatQuickSwitch')}
+    >
+      <div className="flex flex-col items-center gap-2 px-1 py-2">
+        {Array.from({ length: numBars }, (_, barIndex) => {
+          const barStyle = getBarStyle(barIndex)
+          const startMsgIndex = Math.floor(barIndex * messagesPerBar)
+          const endMsgIndex = Math.min(Math.floor((barIndex + 1) * messagesPerBar), totalMessages)
+          const representedMessages = userMessages.slice(startMsgIndex, endMsgIndex)
+          const firstMsg = representedMessages[0]
+          const tooltipContent = firstMsg?.content || `${t('chat.header.chatIndex', { n: startMsgIndex + 1 })}`
+
+          return (
+            <div key={barIndex} className="relative flex items-center">
+              {/* Tooltip - 显示在砝码左侧 */}
+              {hoveredIndex === barIndex && (
+                <div
+                  className="absolute right-full mr-2 whitespace-nowrap rounded-md shadow-lg"
+                  style={{
+                    background: '#FFFFFF',
+                    padding: '4px 6px',
+                    borderRadius: '6px',
+                    minWidth: '120px',
+                    maxWidth: '408px',
+                    zIndex: 50,
+                  }}
+                >
+                  <div
+                    className="truncate"
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 'normal',
+                      lineHeight: '20px',
+                      color: 'rgba(0, 0, 0, 0.88)',
+                    }}
+                  >
+                    {tooltipContent}
+                  </div>
+                </div>
               )}
-            />
-          ))}
-        </div>
+
+              {/* 砝码按钮 */}
+              <button
+                type="button"
+                onClick={() => handleBarClick(barIndex)}
+                onMouseEnter={() => setHoveredIndex(barIndex)}
+                onMouseLeave={() => setHoveredIndex(null)}
+                aria-label={t('chat.header.jumpToIndex', { n: startMsgIndex + 1 })}
+                className="h-1 rounded-[2px] transition-all duration-150"
+                style={{
+                  width: barStyle.width,
+                  background: barStyle.background,
+                }}
+              />
+            </div>
+          )
+        })}
       </div>
-    </>
+    </div>
   )
 })
 
@@ -7813,7 +7829,7 @@ export function ChatPage() {
                   />
                 ) : (
                   <h1
-                    className="min-w-0 flex-1 truncate text-[12px] font-medium leading-5 text-[rgba(0,0,0,0.88)]"
+                    className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5 text-[rgba(0,0,0,0.88)]"
                     style={{ letterSpacing: 0, fontVariationSettings: '"opsz" auto' }}
                     title={activeSessionId ? activeSessionPrompt || t('chat.newChat') : t('chat.newChat')}
                   >
@@ -8228,12 +8244,7 @@ export function ChatPage() {
                             aria-label={t('chat.composer.sendAria')}
                           >
                             <img
-                              src={new URL(
-                                canSend
-                                  ? '../../assets/send-icon-active.svg'
-                                  : '../../assets/send-icon.svg',
-                                import.meta.url
-                              ).href}
+                              src={canSend ? sendIconActive : sendIcon}
                               alt={t('chat.composer.sendAria')}
                               className="w-full h-full"
                             />

@@ -838,6 +838,10 @@ interface WindowControlsAPI {
   isMaximized: () => Promise<boolean>
   /** Subscribe to maximize-state changes (incl. OS snap). Returns unsubscribe. */
   onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
+  /** Current window outer bounds (screen px); null if unavailable. */
+  getBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>
+  /** Set window outer bounds (screen px); main clamps to the min window size. */
+  setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
 }
 
 interface ChatAPI {
