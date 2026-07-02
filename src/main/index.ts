@@ -1122,12 +1122,14 @@ function createWindow(): BrowserWindow {
     minHeight: MIN_WINDOW_HEIGHT,
     show: false,
     autoHideMenuBar: true,
-    // 两个平台都用无边框标题栏,右上角的最小化/最大化/关闭按钮由渲染层
-    // 的自定义 <WindowControls> 绘制(macOS 的原生交通灯在窗口创建后通过
-    // setWindowButtonVisibility(false) 隐藏)。
-    titleBarStyle: 'hidden',
-    trafficLightPosition: { x: 13, y: 16 },
-    backgroundColor: '#F5F5F7',
+    // 两平台统一「无边框 + 透明」:渲染层用 CSS 画 R22 圆角外轮廓,
+    // <WindowControls> 画最小/最大/关闭,<WindowResizeHandles> 自定义缩放,
+    // 最大化/全屏时切回直角。不再用 titleBarStyle / trafficLightPosition
+    // (那是「保留边框仅隐藏标题栏」方案专用),避免在 macOS 上与 frame:false
+    // 冲突;frame:false 下 macOS 也没有原生交通灯,无需再隐藏。
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
     ...(process.platform === 'darwin'
       ? {}
       : {
@@ -1146,10 +1148,8 @@ function createWindow(): BrowserWindow {
   })
 
   mainWindow.on('ready-to-show', () => {
-    // macOS: 隐藏原生交通灯,改用渲染层自定义的窗口控制按钮。
-    if (process.platform === 'darwin') {
-      mainWindow.setWindowButtonVisibility(false)
-    }
+    // frame:false 下 macOS 已无原生交通灯,无需再 setWindowButtonVisibility
+    // (在无边框窗口上调用它在部分版本会抛错)。
     mainWindow.show()
     if (windowState.isMaximized) {
       mainWindow.maximize()
@@ -1159,7 +1159,12 @@ function createWindow(): BrowserWindow {
   // 把最大化状态变化推给渲染层,让自定义按钮在「最大化 ⇄ 还原」间切换图标。
   const pushMaximizeState = () => {
     if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('window:maximized-changed', mainWindow.isMaximized())
+      // 圆角切换用:最大化(含 macOS 的 zoom)或全屏都视为「铺满」,渲染层据此
+      // 切回直角。macOS 的最大化语义是 zoom,再叠加全屏事件,避免圆角判断出错。
+      mainWindow.webContents.send(
+        'window:maximized-changed',
+        mainWindow.isMaximized() || mainWindow.isFullScreen()
+      )
     }
   }
 
@@ -1182,7 +1187,22 @@ function createWindow(): BrowserWindow {
   mainWindow.on('unmaximize', () => {
     persistWindowState()
     pushMaximizeState()
+    // Windows transparent-window quirk: after restoring from maximized, the
+    // R22 corners can keep showing stale opaque (square) pixels because the
+    // compositor doesn't repaint the now-transparent corner regions. Nudge the
+    // height by 1px on the next tick to force a repaint.
+    if (process.platform === 'win32' && !mainWindow.isMaximized()) {
+      const bounds = mainWindow.getBounds()
+      setTimeout(() => {
+        if (mainWindow.isDestroyed() || mainWindow.isMaximized()) return
+        mainWindow.setBounds({ ...bounds, height: bounds.height + 1 })
+        mainWindow.setBounds(bounds)
+      }, 0)
+    }
   })
+  // macOS 的 zoom / 全屏也要切换圆角(直角 ⇄ R22)。
+  mainWindow.on('enter-full-screen', pushMaximizeState)
+  mainWindow.on('leave-full-screen', pushMaximizeState)
   mainWindow.on('close', () => {
     if (persistTimer) {
       clearTimeout(persistTimer)
@@ -1653,6 +1673,15 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('window:isMaximized', (event) => {
     return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
+  })
+  // 无边框窗口自定义缩放:渲染层的 <WindowResizeHandles> 拖拽边缘时读取当前
+  // 外框、按位移算出新外框回写。minWidth/minHeight 由窗口创建参数强制,
+  // setBounds 会自动夹取,不会小于最小尺寸。
+  ipcMain.handle('window:getBounds', (event) => {
+    return BrowserWindow.fromWebContents(event.sender)?.getBounds() ?? null
+  })
+  ipcMain.handle('window:setBounds', (event, bounds: Electron.Rectangle) => {
+    BrowserWindow.fromWebContents(event.sender)?.setBounds(bounds)
   })
 
   // First-launch detection

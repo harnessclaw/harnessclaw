@@ -211,6 +211,18 @@ export function HomePage() {
     }
   }, [selectedCategory])
 
+  // 各分类案例数不一(如「日常生活」只有 1 条),切过去会让案例区从多行塌成
+  // 一行、页面高度跳动。取所有 tab 里最多的条数,后面用隐形占位格把当前分类
+  // 补齐到同样的格子数,保证案例区高度恒定、下方位置不变。
+  const maxCaseCount = useMemo(() => {
+    const featuredCount = HOME_CATEGORIES.reduce(
+      (n, key) => n + HOME_CASES[key].filter((c) => c.featured).length,
+      0,
+    )
+    const perCategoryMax = Math.max(...HOME_CATEGORIES.map((key) => HOME_CASES[key].length))
+    return Math.max(featuredCount, perCategoryMax)
+  }, [])
+
   // Paste hand-off: clipboard images go to the attachments pipeline
   // (same shape as drag/drop), everything else falls through to the
   // pasted-text bar via the existing hook. Both flows can fire in a
@@ -476,6 +488,11 @@ export function HomePage() {
                   {t(`home.cases.${caseItem.id}.content`)}
                 </p>
               </button>
+            ))}
+            {/* 隐形占位格:把当前分类补齐到最大条数,保证案例区高度恒定、
+                切分类时下方内容不上移(只占位,不显示任何内容)。 */}
+            {Array.from({ length: Math.max(0, maxCaseCount - displayedCases.length) }).map((_, i) => (
+              <div key={`case-placeholder-${i}`} aria-hidden="true" className="invisible min-h-[120px]" />
             ))}
           </div>
         </div>

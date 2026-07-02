@@ -520,6 +520,10 @@ const windowControlsAPI = {
     ipcRenderer.on('window:maximized-changed', handler)
     return () => ipcRenderer.removeListener('window:maximized-changed', handler)
   },
+  getBounds: (): Promise<{ x: number; y: number; width: number; height: number } | null> =>
+    ipcRenderer.invoke('window:getBounds'),
+  setBounds: (bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
+    ipcRenderer.invoke('window:setBounds', bounds),
 }
 
 if (process.contextIsolated) {
