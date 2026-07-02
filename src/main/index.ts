@@ -1672,7 +1672,10 @@ app.whenReady().then(() => {
     BrowserWindow.fromWebContents(event.sender)?.close()
   })
   ipcMain.handle('window:isMaximized', (event) => {
-    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
+    // 与 pushMaximizeState 的广播口径保持一致:最大化或全屏都算「已最大化」,
+    // 保证渲染层初始查询到的状态正确(启动即全屏时中间按钮显示还原图标)。
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return win ? win.isMaximized() || win.isFullScreen() : false
   })
   // 无边框窗口自定义缩放:渲染层的 <WindowResizeHandles> 拖拽边缘时读取当前
   // 外框、按位移算出新外框回写。minWidth/minHeight 由窗口创建参数强制,
