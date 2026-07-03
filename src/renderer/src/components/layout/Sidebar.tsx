@@ -755,8 +755,8 @@ export function Sidebar() {
                           className={cn(
                             'group rounded-xl px-1 py-0.5 transition-colors',
                           selectedRecentSessionId === item.id
-                            ? 'bg-accent text-[#222529]'
-                            : 'text-[#222529] hover:bg-accent'
+                            ? 'bg-[rgba(226,226,226,0.46)] text-[#222529]'
+                            : 'text-[#222529] hover:bg-[rgba(226,226,226,0.2)]'
                         )}
                       >
                         <div className="flex items-center gap-1">
@@ -838,8 +838,8 @@ export function Sidebar() {
               className={cn(
                 'flex flex-1 items-center gap-1.5 rounded-lg px-3 py-2 transition-colors',
                 isActive('/settings')
-                  ? 'bg-accent text-foreground'
-                  : 'text-foreground/78 hover:text-foreground hover:bg-accent'
+                  ? 'bg-[rgba(226,226,226,0.46)] text-foreground'
+                  : 'text-foreground/78 hover:text-foreground hover:bg-[rgba(226,226,226,0.2)]'
               )}
             >
               <img src={iconSettings} alt="" className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />
