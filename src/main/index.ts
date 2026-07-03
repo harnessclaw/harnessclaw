@@ -514,10 +514,18 @@ interface AppRuntimeStatus {
   lastError?: string
 }
 
+type AgentFrameworkEngine = 'emma' | 'codex'
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+}
+
+function readActiveAgentFrameworkEngine(): AgentFrameworkEngine {
+  const raw = readHarnessclawConfig({})
+  const agentFramework = asRecord(raw.agentFramework)
+  return agentFramework.engine === 'codex' ? 'codex' : 'emma'
 }
 
 // Returns true when the only differences between `previous` and `next`
@@ -1125,12 +1133,24 @@ async function stopHarnessclawEngine(): Promise<void> {
   }
 }
 
-async function startHarnessclawRuntimeAsync(): Promise<void> {
+async function syncBundledEngineForActiveAgentFramework(): Promise<void> {
+  const activeEngine = readActiveAgentFrameworkEngine()
+  if (activeEngine === 'codex') {
+    await stopHarnessclawEngine()
+    writeAppLog('info', 'agent-framework', 'Bundled HarnessClaw engine stopped for Codex engine')
+    return
+  }
+
   if (process.env.HARNESSCLAW_SKIP_ENGINE_START === '1') {
     writeAppLog('info', 'harnessclaw-engine.process', 'Skipping bundled engine start')
-  } else {
-    startHarnessclawEngine()
+    return
   }
+
+  startHarnessclawEngine()
+}
+
+async function startHarnessclawRuntimeAsync(): Promise<void> {
+  await syncBundledEngineForActiveAgentFramework()
   harnessclawClient.connect()
   broadcastAppRuntimeStatus()
 }
@@ -1797,8 +1817,10 @@ app.whenReady().then(() => {
     if (result.ok) {
       reportAppConfigDiff(previousAppConfig, data)
       setLogThreshold(normalizeLogThreshold(asRecord(asRecord(data).logging).level))
-      harnessclawClient.applyRuntimeConfig()
-      broadcastAppRuntimeStatus()
+      void syncBundledEngineForActiveAgentFramework().finally(() => {
+        harnessclawClient.applyRuntimeConfig()
+        broadcastAppRuntimeStatus()
+      })
       // Re-apply launcher hotkey / enabled state so changes from the
       // settings page take effect without an app restart.
       applyLauncherConfig()
