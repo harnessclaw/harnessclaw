@@ -295,6 +295,14 @@ export function writeAppLog(level: LogLevel, source: string, message: string, me
   writeLog(level, source, message, meta)
 }
 
+export function writeRawStreamLog(name: string, line: string, timestamp = Date.now()): void {
+  const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'stream'
+  ensureDir(LOG_DIR)
+  const path = join(LOG_DIR, `${safeName}.log`)
+  ensureParent(path)
+  appendFileSync(path, `[${formatLocalIsoTime(new Date(timestamp))}] ${line}\n`, 'utf-8')
+}
+
 export function writeRendererLog(level: LogLevel, message: string, meta?: unknown, source = 'renderer'): void {
   writeLog(level, source, message, meta)
 }
