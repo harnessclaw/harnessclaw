@@ -124,6 +124,10 @@ interface HarnessclawAPI {
     options?: {
       coordinatorMode?: 'react' | 'plan'
       planConfirmation?: 'auto' | 'required'
+      approvalPolicy?: 'on-request' | 'never'
+      approvalsReviewer?: 'user' | 'auto_review'
+      sandbox?: 'danger-full-access'
+      cwd?: string
       // images are forwarded into user.message.content as
       // {type:'image',source:{type:'base64',media_type,data}} blocks.
       // Use window.files.readBase64() to obtain the {mime,base64} pair.
@@ -140,7 +144,7 @@ interface HarnessclawAPI {
   respondAskQuestion: (toolUseId: string, status: 'success' | 'cancelled', output?: string, errorMessage?: string) => Promise<{ ok: boolean; error?: string }>
   respondPlan: (planId: string, approved: boolean, sessionId?: string, options?: { steps?: Array<Record<string, unknown>>; reason?: string }) => Promise<{ ok: boolean; error?: string }>
   respondStepDecision: (requestId: string, decision: 'continue' | 'retry' | 'cancel', sessionId?: string, note?: string) => Promise<{ ok: boolean; error?: string }>
-  getStatus: () => Promise<{ status: string; clientId: string; sessionId: string; subscriptions: string[] }>
+  getStatus: () => Promise<{ status: string; clientId: string; sessionId: string; subscriptions: string[]; engine?: 'emma' | 'codex' }>
   onStatus: (callback: (status: string) => void) => () => void
   onEvent: (callback: (event: Record<string, unknown>) => void) => () => void
 }
@@ -327,6 +331,7 @@ interface DbAPI {
   listProjects: () => Promise<DbProjectRow[]>
   getProject: (projectId: string) => Promise<DbProjectRow | null>
   createProject: (input: { projectId: string; name: string; description?: string }) => Promise<{ ok: boolean; project?: DbProjectRow; error?: string }>
+  createBlankProject: (input: { name: string }) => Promise<{ ok: boolean; project?: DbProjectRow; path?: string; error?: string }>
   deleteProject: (projectId: string) => Promise<{ ok: boolean; deletedSessions?: number; error?: string }>
   listProjectSessions: (projectId: string) => Promise<DbSessionRow[]>
   onSessionsChanged: (callback: () => void) => () => void
@@ -343,6 +348,7 @@ interface PickedLocalFile {
 
 interface FilesAPI {
   pick: () => Promise<PickedLocalFile[]>
+  pickDirectory: () => Promise<{ ok: boolean; path?: string; name?: string; cancelled?: boolean; error?: string }>
   resolve: (paths: string[]) => Promise<PickedLocalFile[]>
   read: (path: string) => Promise<{ ok: boolean; content?: string; path?: string; size?: number; isBinary?: boolean; previewKind?: 'html' | 'text'; error?: string }>
   // readBase64 reads a whitelisted media file (PNG/JPEG/GIF/WebP/PDF
@@ -888,6 +894,10 @@ interface WorkspaceFileNode {
   children?: WorkspaceFileNode[]
 }
 interface WorkspaceAPI {
+  createDefaultCwd: () => Promise<
+    | { ok: true; path: string }
+    | { ok: false; error: string }
+  >
   listSession: (sessionId: string) => Promise<
     | { ok: true; root: string; exists: boolean; tree: WorkspaceFileNode[]; fileCount: number; truncated?: boolean }
     | { ok: false; error: string }
