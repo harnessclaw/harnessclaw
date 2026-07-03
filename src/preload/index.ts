@@ -85,6 +85,10 @@ const harnessclawAPI = {
     options?: {
       coordinatorMode?: 'react' | 'plan'
       planConfirmation?: 'auto' | 'required'
+      approvalPolicy?: 'on-request' | 'never'
+      approvalsReviewer?: 'user' | 'auto_review'
+      sandbox?: 'danger-full-access'
+      cwd?: string
       images?: Array<{ mime: string; base64: string }>
     },
   ) => ipcRenderer.invoke('harnessclaw:send', content, sessionId, options),
@@ -188,6 +192,8 @@ const dbAPI = {
   getProject: (projectId: string) => ipcRenderer.invoke('db:getProject', projectId),
   createProject: (input: { projectId: string; name: string; description?: string }) =>
     ipcRenderer.invoke('db:createProject', input),
+  createBlankProject: (input: { name: string }) =>
+    ipcRenderer.invoke('db:createBlankProject', input),
   deleteProject: (projectId: string) => ipcRenderer.invoke('db:deleteProject', projectId),
   listProjectSessions: (projectId: string) => ipcRenderer.invoke('db:listProjectSessions', projectId),
   onSessionsChanged: (callback: () => void) => {
@@ -199,6 +205,7 @@ const dbAPI = {
 
 const filesAPI = {
   pick: () => ipcRenderer.invoke('files:pick'),
+  pickDirectory: () => ipcRenderer.invoke('files:pickDirectory'),
   resolve: (paths: string[]) => ipcRenderer.invoke('files:resolve', paths),
   read: (path: string) => ipcRenderer.invoke('files:read', path),
   // readBase64 returns the file as base64 + sniffed MIME for multimodal
@@ -247,6 +254,11 @@ export interface WorkspaceFileNode {
   children?: WorkspaceFileNode[]
 }
 const workspaceAPI = {
+  createDefaultCwd: () =>
+    ipcRenderer.invoke('workspace:createDefaultCwd') as Promise<
+      | { ok: true; path: string }
+      | { ok: false; error: string }
+    >,
   listSession: (sessionId: string) =>
     ipcRenderer.invoke('workspace:listSession', sessionId) as Promise<
       | { ok: true; root: string; exists: boolean; tree: WorkspaceFileNode[]; fileCount: number; truncated?: boolean }
