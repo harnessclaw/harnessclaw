@@ -617,7 +617,7 @@ function AgentCard({
 
       {/* 展开的内容：元数据 + 工具列表（运行中不可展开） */}
       {isExpanded && canExpand && (
-        <div className="ml-[20px] mt-2 border-l-2 border-muted-foreground/10 pl-3">{/* 头像中心位置：8px padding + 12px 半径 = 20px */}
+        <div className="ml-[20px] mt-2 border-l-[1.5px] border-dashed border-border pl-3">{/* 头像中心位置：8px padding + 12px 半径 = 20px；引导线与秘书 agent 连接线一致用虚线 */}
           {/* Agent 元数据 JSON (subagent_end 完整字段) */}
           {hasMetadata && (
             <div className="mb-2">

@@ -7966,7 +7966,7 @@ export function SettingsPage() {
                   'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left',
                   active === key
                     ? 'bg-accent text-foreground font-medium'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    : 'text-muted-foreground hover:bg-[rgba(226,226,226,0.46)] hover:text-foreground'
                 )}
               >
                 <Icon size={15} className="flex-shrink-0" />
