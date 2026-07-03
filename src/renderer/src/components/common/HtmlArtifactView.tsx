@@ -3,6 +3,77 @@ import { useTranslation } from 'react-i18next'
 import { Eye, Code2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+const RESPONSIVE_ARTIFACT_HEAD = `
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style data-harnessclaw-responsive-preview>
+  html {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    box-sizing: border-box;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body > * {
+    max-width: 100%;
+  }
+
+  img,
+  svg,
+  video,
+  canvas,
+  iframe {
+    max-width: 100%;
+    height: auto;
+  }
+
+  pre,
+  code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  table {
+    max-width: 100%;
+  }
+
+  @media (max-width: 720px) {
+    body {
+      padding-inline: min(16px, 4vw);
+    }
+
+    table {
+      display: block;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+</style>
+`
+
+function withResponsiveArtifactHead(content: string): string {
+  if (/<head[\s>]/i.test(content)) {
+    return content.replace(/<head([^>]*)>/i, `<head$1>${RESPONSIVE_ARTIFACT_HEAD}`)
+  }
+
+  if (/<html[\s>]/i.test(content)) {
+    return content.replace(/<html([^>]*)>/i, `<html$1><head>${RESPONSIVE_ARTIFACT_HEAD}</head>`)
+  }
+
+  return `<!doctype html><html><head>${RESPONSIVE_ARTIFACT_HEAD}</head><body>${content}</body></html>`
+}
+
 /**
  * HtmlArtifactView —— HTML 产物的双视图展示组件。
  *
@@ -24,6 +95,7 @@ export function HtmlArtifactView({
 }): JSX.Element {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'render' | 'source'>('render')
+  const responsiveContent = withResponsiveArtifactHead(content)
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
@@ -61,7 +133,7 @@ export function HtmlArtifactView({
       {mode === 'render' ? (
         <iframe
           title={t('chat.file.viewRender')}
-          srcDoc={content}
+          srcDoc={responsiveContent}
           sandbox="allow-scripts"
           className="min-h-0 w-full flex-1 border-0 bg-white"
         />

@@ -300,8 +300,11 @@ function SliderInput({
 function ConnectionSection() {
   const { t } = useTranslation()
   const { config, loading, updateConfig } = useEngineConfig()
+  const { config: appConfig, loading: appLoading, updateConfig: updateAppConfig } = useAppConfig()
 
   const gw = (config?.gateway || {}) as { host?: string; port?: number; heartbeat?: { enabled?: boolean; intervalS?: number } }
+  const agentFramework = (appConfig?.agentFramework || {}) as { engine?: string }
+  const activeEngine = agentFramework.engine === 'codex' ? 'codex' : 'emma'
   const host = gw.host ?? '0.0.0.0'
   const port = gw.port ?? 8090
   const hbEnabled = gw.heartbeat?.enabled ?? true
@@ -319,6 +322,11 @@ function ConnectionSection() {
     if (patch.port != null) {
       void window.agentApi.setPort(patch.port as number)
     }
+  }
+  const updateAgentFramework = (engine: string) => {
+    const nextAgentFramework = { ...agentFramework, engine }
+    updateAppConfig({ agentFramework: nextAgentFramework })
+    void window.appConfig.save({ ...(appConfig || {}), agentFramework: nextAgentFramework })
   }
 
   useEffect(() => {
@@ -343,13 +351,26 @@ function ConnectionSection() {
     setTimeout(() => setProbeState('idle'), 4000)
   }
 
-  if (loading) {
+  if (loading || appLoading) {
     return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
   }
 
   return (
     <div>
       <SectionHeader icon={Wifi} title={t('settings.connection.title')} subtitle={t('settings.connection.subtitle')} />
+      <GroupCard title={t('settings.connection.agentFramework.title')}>
+        <SettingRow label={t('settings.connection.agentFramework.engine')} description={t('settings.connection.agentFramework.engineDesc')}>
+          <Segment
+            value={activeEngine}
+            onChange={updateAgentFramework}
+            options={[
+              { label: t('settings.connection.agentFramework.emma'), value: 'emma' },
+              { label: t('settings.connection.agentFramework.codex'), value: 'codex' },
+            ]}
+          />
+        </SettingRow>
+      </GroupCard>
+
       <GroupCard title={t('settings.connection.gateway.title')}>
         <SettingRow label={t('settings.connection.gateway.host')} description={t('settings.connection.gateway.hostDesc')}>
           <TextInput value={host} onChange={(v) => updateGateway({ host: v })} placeholder="0.0.0.0" className="w-40" mono />
