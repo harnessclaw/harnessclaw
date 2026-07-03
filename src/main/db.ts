@@ -516,7 +516,7 @@ export function insertMessage(msg: {
     msg.createdAt
   )
   // Touch session updated_at
-  getDb().prepare(`UPDATE sessions SET updated_at = ? WHERE session_id = ?`)
+  getDb().prepare(`UPDATE sessions SET updated_at = MAX(updated_at, ?) WHERE session_id = ?`)
     .run(msg.createdAt, msg.sessionId)
 }
 
@@ -607,7 +607,10 @@ export interface FullMessage {
 
 export function getMessages(sessionId: string): FullMessage[] {
   const msgs = getDb().prepare(
-    `SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`
+    `SELECT * FROM messages WHERE session_id = ?
+     ORDER BY created_at ASC,
+       CASE role WHEN 'user' THEN 0 WHEN 'assistant' THEN 1 ELSE 2 END,
+       id ASC`
   ).all(sessionId) as MessageRow[]
 
   if (msgs.length === 0) return []
