@@ -5,10 +5,11 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { readEngineConfig } from './config'
+import { readEngineConfig, readHarnessclawConfig } from './config'
 import { sanitizeForLogging, writeAppLog } from './logging'
 import { reportTelemetry } from './telemetry-helper'
 import type { BrowserAgentSessionManagerLike } from './browser-agent-session'
+import { CodexAppServerClient } from './codex-app-server'
 
 interface HarnessclawConfig {
   enabled: boolean
@@ -2233,6 +2234,10 @@ export class HarnessclawClient extends EventEmitter {
     options?: {
       coordinatorMode?: 'react' | 'plan'
       planConfirmation?: 'auto' | 'required'
+      approvalPolicy?: 'on-request' | 'never'
+      approvalsReviewer?: 'user' | 'auto_review'
+      sandbox?: 'danger-full-access'
+      cwd?: string
       // images carries multimodal user input. Each entry becomes one
       // `{type:'image',source:{type:'base64',media_type,data}}` block
       // in the wire content[] array. Read via `window.files.readBase64`.
@@ -2284,6 +2289,18 @@ export class HarnessclawClient extends EventEmitter {
       }
       if (options?.planConfirmation === 'required') {
         payload.plan_confirmation = 'required'
+      }
+      if (options?.approvalPolicy === 'on-request' || options?.approvalPolicy === 'never') {
+        payload.approval_policy = options.approvalPolicy
+      }
+      if (options?.approvalsReviewer === 'user' || options?.approvalsReviewer === 'auto_review') {
+        payload.approvals_reviewer = options.approvalsReviewer
+      }
+      if (options?.sandbox === 'danger-full-access') {
+        payload.sandbox = 'danger-full-access'
+      }
+      if (typeof options?.cwd === 'string' && options.cwd.trim()) {
+        payload.cwd = options.cwd.trim()
       }
       // Don't log base64 image data — it bloats logs and may leak PII.
       // Substitute summary placeholders before emitting the frame log.
@@ -3471,4 +3488,159 @@ export class HarnessclawClient extends EventEmitter {
   }
 }
 
-export const harnessclawClient = new HarnessclawClient()
+type AgentFrameworkEngine = 'emma' | 'codex'
+
+function readActiveAgentFrameworkEngine(): AgentFrameworkEngine {
+  const raw = readHarnessclawConfig({})
+  const agentFramework = isPlainObject(raw.agentFramework) ? raw.agentFramework : {}
+  const engine = typeof agentFramework.engine === 'string' ? agentFramework.engine : 'emma'
+  return engine === 'codex' ? 'codex' : 'emma'
+}
+
+class AgentFrameworkClient extends EventEmitter {
+  private emma = new HarnessclawClient()
+  private codex = new CodexAppServerClient()
+  private activeEngine: AgentFrameworkEngine = readActiveAgentFrameworkEngine()
+
+  constructor() {
+    super()
+    this.emma.on('event', (event) => {
+      if (this.activeEngine === 'emma') this.emit('event', event)
+    })
+    this.codex.on('event', (event) => {
+      if (this.activeEngine === 'codex') this.emit('event', event)
+    })
+    this.emma.on('statusChange', (status) => {
+      if (this.activeEngine === 'emma') this.emit('statusChange', status)
+    })
+    this.codex.on('statusChange', (status) => {
+      if (this.activeEngine === 'codex') this.emit('statusChange', status)
+    })
+  }
+
+  applyRuntimeConfig(): void {
+    const next = readActiveAgentFrameworkEngine()
+    if (next === this.activeEngine) {
+      this.emit('statusChange', this.getStatus().status)
+      return
+    }
+
+    const previous = this.activeEngine
+    this.activeEngine = next
+    writeAppLog('info', 'agent-framework', 'Switching active agent framework engine', {
+      from: previous,
+      to: next,
+    })
+
+    if (previous === 'emma') {
+      this.emma.disconnect()
+    } else {
+      this.codex.disconnect()
+    }
+
+    this.activeClient().connect()
+    this.emit('statusChange', this.getStatus().status)
+  }
+
+  private activeClient(): HarnessclawClient | CodexAppServerClient {
+    return this.activeEngine === 'codex' ? this.codex : this.emma
+  }
+
+  connect(): void {
+    this.activeClient().connect()
+  }
+
+  disconnect(): void {
+    this.activeClient().disconnect()
+  }
+
+  async send(
+    content: string,
+    sessionId?: string,
+    options?: {
+      coordinatorMode?: 'react' | 'plan'
+      planConfirmation?: 'auto' | 'required'
+      approvalPolicy?: 'on-request' | 'never'
+      approvalsReviewer?: 'user' | 'auto_review'
+      sandbox?: 'danger-full-access'
+      cwd?: string
+      images?: Array<{ mime: string; base64: string }>
+    },
+  ): Promise<boolean> {
+    return this.activeClient().send(content, sessionId, options)
+  }
+
+  command(cmd: string, sessionId?: string): void {
+    this.activeClient().command(cmd, sessionId)
+  }
+
+  async stop(sessionId?: string): Promise<boolean> {
+    return this.activeClient().stop(sessionId)
+  }
+
+  subscribe(sessionId: string): void {
+    this.activeClient().subscribe(sessionId)
+  }
+
+  unsubscribe(sessionId: string): void {
+    this.activeClient().unsubscribe(sessionId)
+  }
+
+  listSessions(): void {
+    this.activeClient().listSessions()
+  }
+
+  async probe(timeoutMs = 3000): Promise<boolean> {
+    return this.activeClient().probe(timeoutMs)
+  }
+
+  getStatus(): { status: HarnessclawStatus; clientId: string; sessionId: string; subscriptions: string[]; engine: AgentFrameworkEngine } {
+    const status = this.activeClient().getStatus()
+    return {
+      ...status,
+      engine: this.activeEngine,
+    }
+  }
+
+  respondPermission(
+    requestId: string,
+    approved: boolean,
+    scope: 'once' | 'session' = 'once',
+    message?: string,
+  ): boolean {
+    return this.activeClient().respondPermission(requestId, approved, scope, message)
+  }
+
+  respondAskQuestion(
+    toolUseId: string,
+    status: 'success' | 'cancelled',
+    output?: string,
+    errorMessage?: string,
+  ): boolean {
+    return this.activeClient().respondAskQuestion(toolUseId, status, output, errorMessage)
+  }
+
+  async respondPlan(
+    planId: string,
+    approved: boolean,
+    sessionId?: string,
+    options?: { steps?: Array<Record<string, unknown>>; reason?: string },
+  ): Promise<boolean> {
+    return this.activeClient().respondPlan(planId, approved, sessionId, options)
+  }
+
+  respondStepDecision(
+    requestId: string,
+    decision: 'continue' | 'retry' | 'cancel',
+    sessionId?: string,
+    note?: string,
+  ): boolean {
+    return this.activeClient().respondStepDecision(requestId, decision, sessionId, note)
+  }
+
+  setBrowserAgentSessionManager(manager: BrowserAgentSessionManagerLike | null): void {
+    this.emma.setBrowserAgentSessionManager(manager)
+  }
+}
+
+export const harnessclawClient = new AgentFrameworkClient()

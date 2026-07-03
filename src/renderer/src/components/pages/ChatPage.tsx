@@ -503,6 +503,14 @@ interface SystemNoticeData {
   hint?: string
 }
 
+interface SessionNotice {
+  id: string
+  title: string
+  message: string
+  tone: 'info' | 'warning'
+  ts: number
+}
+
 /**
  * Search-result URL extracted from a tool result's metadata.urls (WebSearch /
  * TavilySearch). Rendered as a clickable chip in the tool card; clicking
@@ -646,6 +654,11 @@ interface SessionState {
    * server's card_id, which is session-deduped upstream).
    */
   systemNotices?: SystemNotice[]
+  /**
+   * Lightweight user-facing runtime note. Unlike systemNotices, this is not
+   * persisted into the transcript and is dismissed inline above the composer.
+   */
+  sessionNotice?: SessionNotice
   /**
    * v4 (2026-06-22) — Agent 树状日志数据,用于右侧日志面板渲染子秘书层级结构。
    * 根节点是 Emma(Leader),子节点是各个专业 agent(Browser/Research/File...)。
@@ -829,6 +842,8 @@ const ATTACHMENT_BLOCK_END = '[/HARNESSCLAW_LOCAL_ATTACHMENTS]'
 const PROJECT_CONTEXT_BLOCK_START = '[HARNESSCLAW_PROJECT_CONTEXT]'
 const PROJECT_CONTEXT_BLOCK_END = '[/HARNESSCLAW_PROJECT_CONTEXT]'
 const ERROR_ATTACH_WINDOW_MS = 30_000
+const CHAT_RAIL_CLASS = 'mx-auto w-full max-w-[72rem] min-w-0'
+const LEGACY_CODEX_APPROVAL_ADAPTER_ERROR = 'Codex requested an approval that is not implemented in this minimal adapter.'
 const noopUnsubscribe = () => {}
 
 interface ChatGreeting {
@@ -975,9 +990,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
     <div
       ref={messagesViewportRef}
       onScroll={onScroll}
-      className="flex-1 overflow-x-hidden overflow-y-auto pl-[70px] pr-[70px] py-5"
+      className="flex-1 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-[70px]"
     >
-      <div className="flex w-full min-w-0 flex-col gap-5">
+      <div className={cn(CHAT_RAIL_CLASS, 'flex flex-col gap-5')}>
         <CollaborationOverview collaboration={collaboration} />
 
         {displayMessages.map((message) => (
@@ -1021,7 +1036,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               area; the floating PlanStatusButton in the top-right
               continues to expose the final plan for review. */}
         {planDraft && !planDraft.confirmed && (
-          <div className="flex justify-start pl-[2.625rem]" data-plan-draft-id={planDraft.planId}>
+          <div className="flex min-w-0 justify-start sm:pl-[2.625rem]" data-plan-draft-id={planDraft.planId}>
             <PlanDraftCard
               plan={{
                 planId: planDraft.planId,
@@ -1047,7 +1062,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
             reasoning 内容更重要），但优先于通用 Thinking… 兜底。
             呼吸闪烁小点和鎏金字体放在同一行。 */}
         {isProcessing && !isPaused && !isStopping && !currentThinking && currentIntent?.text && (
-          <div className="-my-[17px] flex items-center gap-2 justify-start pl-[2.625rem]">
+          <div className="-my-[17px] flex min-w-0 items-center justify-start gap-2 sm:pl-[2.625rem]">
             <span className="streaming-breathing-dot shrink-0" aria-label={t('chat.status.serviceContinuing')} />
             <span
               className="chat-thinking-shimmer min-w-0 truncate"
@@ -1060,7 +1075,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         )}
 
         {isProcessing && !isPaused && !isStopping && !currentThinking && !currentIntent?.text && !pendingAssistantMessage?.content && !(pendingAssistantMessage?.tools && pendingAssistantMessage.tools.length > 0) && (
-          <div className="-my-[17px] flex items-center gap-2 justify-start pl-[2.625rem]">
+          <div className="-my-[17px] flex min-w-0 items-center justify-start gap-2 sm:pl-[2.625rem]">
             <span className="streaming-breathing-dot shrink-0" aria-label={t('chat.status.serviceContinuing')} />
             <span className="chat-thinking-shimmer" aria-live="polite">Thinking…</span>
           </div>
@@ -1772,6 +1787,18 @@ function getToolFilePath(source: Record<string, unknown>): string | undefined {
 
 function getToolMetadata(source: Record<string, unknown>): Record<string, unknown> | undefined {
   return isRecord(source.metadata) ? source.metadata : undefined
+}
+
+function isCodexCommandActivity(activity?: ToolActivity): boolean {
+  return activity?.metadata?.source === 'codex_command_execution'
+}
+
+function isCodexWebSearchActivity(activity?: ToolActivity): boolean {
+  return activity?.metadata?.source === 'codex_web_search'
+}
+
+function isCodexInlineActivity(activity?: ToolActivity): boolean {
+  return isCodexCommandActivity(activity) || isCodexWebSearchActivity(activity)
 }
 
 /**
@@ -2538,10 +2565,28 @@ function isVisualErrorOnlyAssistantMessage(message: Message): boolean {
     && !(message.contentSegments || []).some((segment) => segment.text.trim())
 }
 
+function isLegacyCodexApprovalAdapterNotice(notice?: SystemNoticeData, content = ''): boolean {
+  const text = `${notice?.message || ''}\n${notice?.hint || ''}\n${content}`.toLowerCase()
+  return text.includes(LEGACY_CODEX_APPROVAL_ADAPTER_ERROR.toLowerCase())
+}
+
+function isLegacyCodexApprovalAdapterMessage(message: Message): boolean {
+  return isLegacyCodexApprovalAdapterNotice(message.systemNotice, message.content)
+}
+
+function stripLegacyCodexApprovalAdapterNotice(message: Message): Message | null {
+  if (!isLegacyCodexApprovalAdapterMessage(message)) return message
+  if (isVisualErrorOnlyAssistantMessage(message)) return null
+  return { ...message, systemNotice: undefined }
+}
+
 function compactMessagesForDisplay(messages: Message[]): Message[] {
   const compacted: Message[] = []
 
-  for (const message of messages) {
+  for (const originalMessage of messages) {
+    const message = stripLegacyCodexApprovalAdapterNotice(originalMessage)
+    if (!message) continue
+
     if (isVisualErrorOnlyAssistantMessage(message) && compacted.length > 0) {
       const previous = compacted[compacted.length - 1]
       if (
@@ -2562,6 +2607,31 @@ function compactMessagesForDisplay(messages: Message[]): Message[] {
   }
 
   return compacted
+}
+
+function repairRecoveredTurnOrder(messages: Message[]): Message[] {
+  const firstTurnIndex = messages.findIndex((message) => message.role === 'user' || message.role === 'assistant')
+  if (firstTurnIndex < 0 || messages[firstTurnIndex]?.role !== 'assistant') return messages
+
+  const repaired: Message[] = []
+  for (let index = 0; index < messages.length; index += 1) {
+    const current = messages[index]
+    const next = messages[index + 1]
+    if (
+      current.role === 'assistant'
+      && next?.role === 'user'
+      && current.timestamp <= next.timestamp
+      && next.timestamp - current.timestamp <= 5_000
+    ) {
+      repaired.push(next, current)
+      index += 1
+      continue
+    }
+
+    repaired.push(current)
+  }
+
+  return repaired
 }
 
 function extractFilePreviewData(call: ToolActivity, result?: ToolActivity): FilePreviewData | null {
@@ -4109,6 +4179,20 @@ export function ChatPage() {
   // `plan.proposed` and lets the user edit the draft DAG before running.
   const initialPlanConfirmation: 'required' | undefined =
     location.state?.planConfirmation === 'required' ? 'required' : undefined
+  const initialApprovalPolicy: 'on-request' | 'never' | undefined =
+    location.state?.approvalPolicy === 'on-request' || location.state?.approvalPolicy === 'never'
+      ? location.state.approvalPolicy
+      : undefined
+  const initialApprovalsReviewer: 'user' | 'auto_review' | undefined =
+    location.state?.approvalsReviewer === 'user' || location.state?.approvalsReviewer === 'auto_review'
+      ? location.state.approvalsReviewer
+      : undefined
+  const initialSandbox: 'danger-full-access' | undefined =
+    location.state?.sandbox === 'danger-full-access' ? 'danger-full-access' : undefined
+  const initialCwd: string | undefined =
+    typeof location.state?.cwd === 'string' && location.state.cwd.trim()
+      ? location.state.cwd.trim()
+      : undefined
   const selectedSessionIdFromRoute = typeof location.state?.sessionId === 'string' ? location.state.sessionId : ''
   const createSessionOnOpen = location.state?.createSession === true
   const routeProjectContext = useMemo(() => normalizeProjectContext(location.state?.projectContext), [location.state])
@@ -4256,9 +4340,27 @@ export function ChatPage() {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const isNearBottomRef = useRef(true)
   const dropBurstTimerRef = useRef<number | null>(null)
-  const pendingInitialTurn = useRef<{ content: string; attachments: AttachmentItem[]; coordinatorMode?: 'react' | 'plan'; planConfirmation?: 'required' } | null>(
+  const pendingInitialTurn = useRef<{
+    content: string
+    attachments: AttachmentItem[]
+    coordinatorMode?: 'react' | 'plan'
+    planConfirmation?: 'required'
+    approvalPolicy?: 'on-request' | 'never'
+    approvalsReviewer?: 'user' | 'auto_review'
+    sandbox?: 'danger-full-access'
+    cwd?: string
+  } | null>(
     initialMessage || initialAttachments.length > 0
-      ? { content: initialMessage, attachments: initialAttachments, coordinatorMode: initialCoordinatorMode, planConfirmation: initialPlanConfirmation }
+      ? {
+          content: initialMessage,
+          attachments: initialAttachments,
+          coordinatorMode: initialCoordinatorMode,
+          planConfirmation: initialPlanConfirmation,
+          approvalPolicy: initialApprovalPolicy,
+          approvalsReviewer: initialApprovalsReviewer,
+          sandbox: initialSandbox,
+          cwd: initialCwd,
+        }
       : null
   )
   const initialTurnHandledKeyRef = useRef<string | null>(
@@ -4321,7 +4423,17 @@ export function ChatPage() {
     return resolvedSessionId
   }, [navigate, routeProjectContext])
 
-  const sendInitialMessage = useCallback(async (sid: string, text: string, initialFiles: AttachmentItem[] = [], coordinatorMode?: 'react' | 'plan', planConfirmation?: 'required') => {
+  const sendInitialMessage = useCallback(async (
+    sid: string,
+    text: string,
+    initialFiles: AttachmentItem[] = [],
+    coordinatorMode?: 'react' | 'plan',
+    planConfirmation?: 'required',
+    approvalPolicy?: 'on-request' | 'never',
+    approvalsReviewer?: 'user' | 'auto_review',
+    sandbox?: 'danger-full-access',
+    cwd?: string,
+  ) => {
     pendingInitialTurn.current = null
     const trimmedText = text.trim()
 
@@ -4395,11 +4507,23 @@ export function ChatPage() {
         timestamp: Date.now(),
       }],
     }))
-    const sendOptions: { coordinatorMode?: 'react' | 'plan'; planConfirmation?: 'required'; images?: typeof wireImages } | undefined =
-      (coordinatorMode || planConfirmation || wireImages.length > 0)
+    const sendOptions: {
+      coordinatorMode?: 'react' | 'plan'
+      planConfirmation?: 'required'
+      approvalPolicy?: 'on-request' | 'never'
+      approvalsReviewer?: 'user' | 'auto_review'
+      sandbox?: 'danger-full-access'
+      cwd?: string
+      images?: typeof wireImages
+    } | undefined =
+      (coordinatorMode || planConfirmation || approvalPolicy || approvalsReviewer || sandbox || cwd || wireImages.length > 0)
         ? {
             ...(coordinatorMode ? { coordinatorMode } : {}),
             ...(planConfirmation ? { planConfirmation } : {}),
+            ...(approvalPolicy ? { approvalPolicy } : {}),
+            ...(approvalsReviewer ? { approvalsReviewer } : {}),
+            ...(sandbox ? { sandbox } : {}),
+            ...(cwd ? { cwd } : {}),
             ...(wireImages.length > 0 ? { images: wireImages } : {}),
           }
         : undefined
@@ -5072,6 +5196,7 @@ export function ChatPage() {
   // v0.5.0 §11 — engine_note banner (retry-status from Scheduler etc.). Lives
   // on the session and is cleared on response_end.
   const engineNoteBanner = activeSession.engineNote
+  const sessionNotice = activeSession.sessionNotice
 
   // v0.5.0 §7.1 — find any unanswered step_decision prompt on the active
   // streaming message so we can surface it as a banner above the composer.
@@ -5205,7 +5330,7 @@ export function ChatPage() {
 
   // Helper: convert DB rows to Message[]
   const dbRowsToMessages = useCallback((rows: DbMessageRow[]): Message[] => {
-    return rows.map((r) => {
+    const messages = rows.map((r) => {
       const parsed = extractAttachments(r.content)
       const contentSegments = r.content_segments
         ? (JSON.parse(r.content_segments) as Array<{ text: string; ts: number; subagent?: unknown }>).map((seg) => ({
@@ -5260,6 +5385,10 @@ export function ChatPage() {
         contentSegments,
       }
     })
+    return repairRecoveredTurnOrder(messages.flatMap((message) => {
+      const normalized = stripLegacyCodexApprovalAdapterNotice(message)
+      return normalized ? [normalized] : []
+    }))
   }, [])
 
   const loadPersistedSessions = useCallback(async () => {
@@ -5287,14 +5416,15 @@ export function ChatPage() {
     const entries: Record<string, SessionState> = {}
     for (const row of rows) {
       const msgs = await window.db.getMessages(row.session_id)
+      const messages = msgs.length > 0 ? dbRowsToMessages(msgs) : []
       entries[row.session_id] = {
-        messages: msgs.length > 0 ? dbRowsToMessages(msgs) : [],
+        messages,
         pendingAssistantId: null,
         isProcessing: false,
         currentThinking: '',
         isPaused: false,
         isStopping: false,
-        collaboration: inferCollaborationFromMessages(msgs.length > 0 ? dbRowsToMessages(msgs) : []),
+        collaboration: inferCollaborationFromMessages(messages),
       }
     }
 
@@ -5337,10 +5467,24 @@ export function ChatPage() {
       attachments: initialAttachments,
       coordinatorMode: initialCoordinatorMode,
       planConfirmation: initialPlanConfirmation,
+      approvalPolicy: initialApprovalPolicy,
+      approvalsReviewer: initialApprovalsReviewer,
+      sandbox: initialSandbox,
+      cwd: initialCwd,
     }
     setInput(initialMessage)
     setAttachments(initialAttachments)
-  }, [initialAttachments, initialMessage, initialCoordinatorMode, initialPlanConfirmation, location.key])
+  }, [
+    initialAttachments,
+    initialMessage,
+    initialCoordinatorMode,
+    initialPlanConfirmation,
+    initialApprovalPolicy,
+    initialApprovalsReviewer,
+    initialSandbox,
+    initialCwd,
+    location.key,
+  ])
 
   const handleSwitchSession = useCallback((key: string) => {
     if (!key) return
@@ -5358,16 +5502,17 @@ export function ChatPage() {
         }
 
         if (rows.length > 0) {
+          const messages = dbRowsToMessages(rows)
           return {
             ...prev,
             [key]: {
-              messages: dbRowsToMessages(rows),
+              messages,
               pendingAssistantId: null,
               isProcessing: false,
               currentThinking: '',
               isPaused: false,
               isStopping: false,
-              collaboration: inferCollaborationFromMessages(dbRowsToMessages(rows)),
+              collaboration: inferCollaborationFromMessages(messages),
             },
           }
         }
@@ -5426,7 +5571,17 @@ export function ChatPage() {
     const sid = ensureLocalSession()
     const next = pendingInitialTurn.current
     if (!next) return
-    sendInitialMessage(sid, next.content, next.attachments, next.coordinatorMode, next.planConfirmation)
+    sendInitialMessage(
+      sid,
+      next.content,
+      next.attachments,
+      next.coordinatorMode,
+      next.planConfirmation,
+      next.approvalPolicy,
+      next.approvalsReviewer,
+      next.sandbox,
+      next.cwd,
+    )
   }, [ensureLocalSession, sendInitialMessage])
 
   // Handle Harnessclaw events — route by session_id
@@ -5845,6 +6000,7 @@ export function ChatPage() {
               name: getToolEventName(payload) || 'tool',
               content: getToolCallEventContent(payload),
               callId,
+              metadata: getToolMetadata(payload),
               intent: intentForActivity,
               ts: now,
               subagent: subagentInfo,
@@ -6523,6 +6679,29 @@ export function ChatPage() {
         break
       }
 
+      case 'warning': {
+        const sid = eventSessionId || activeSessionIdRef.current || ''
+        if (!sid) break
+        const message = typeof event.content === 'string'
+          ? event.content
+          : typeof event.message === 'string'
+            ? event.message
+            : ''
+        if (!message) break
+        const now = Date.now()
+        updateSession(sid, (prev) => ({
+          ...prev,
+          sessionNotice: {
+            id: `warning-${now}`,
+            title: t('chat.composer.noticeTitle'),
+            message,
+            tone: 'warning',
+            ts: now,
+          },
+        }))
+        break
+      }
+
       case 'tool_hint': {
         const sid = eventSessionId!
         const aid = ensureAssistantMessage(sid, Date.now())
@@ -6557,6 +6736,7 @@ export function ChatPage() {
           name: getToolEventName(event),
           content: getToolCallEventContent(event),
           callId: getToolEventCallId(event),
+          metadata: getToolMetadata(event),
           intent: callIntent,
           ts: Date.now(),
           subagent,
@@ -6749,7 +6929,8 @@ export function ChatPage() {
 
       case 'permission_result': {
         const sid = eventSessionId!
-        const aid = ensureAssistantMessage(sid, Date.now())
+        const requestId = typeof event.request_id === 'string' ? event.request_id : ''
+        const aid = ensureAssistantMessageForPrompt(sid, Date.now(), requestId, 'permission')
         const activity: ToolActivity = {
           type: 'permission_result',
           name: event.name as string,
@@ -6758,14 +6939,14 @@ export function ChatPage() {
             scope: event.scope === 'session' ? 'session' : 'once',
             message: (event.content as string) || '',
           }),
-          callId: event.request_id as string,
+          callId: requestId,
           isError: event.approved !== true,
           ts: Date.now(),
           subagent,
         }
         updateSession(sid, (prev) => ({
           ...prev,
-          messages: prev.messages.map((m) => m.id === aid ? { ...m, tools: [...(m.tools || []), activity] } : m),
+          messages: upsertSessionToolByCallId(prev.messages, aid, activity),
         }))
         break
       }
@@ -7421,6 +7602,17 @@ export function ChatPage() {
           const pendingAssistantId = pendingAssistantIds.current[sid]
           const systemNotice = buildSystemErrorNotice(t, event.error || event.payload || event.content || event)
           const errorAt = Date.now()
+          if (isLegacyCodexApprovalAdapterNotice(systemNotice, typeof event.content === 'string' ? event.content : '')) {
+            pendingAssistantIds.current[sid] = null
+            updateSession(sid, (prev) => ({
+              ...prev,
+              isProcessing: false,
+              isPaused: false,
+              isStopping: false,
+              pauseReason: undefined,
+            }))
+            break
+          }
           pendingAssistantIds.current[sid] = null
           updateSession(sid, (prev) => ({
             ...prev,
@@ -7463,7 +7655,7 @@ export function ChatPage() {
       default:
         break
     }
-  }, [updateCollaboration, updateSession])
+  }, [t, updateCollaboration, updateSession])
 
   // Keep a stable ref to the latest event handler so the mount-only listener
   // never captures a stale closure.
@@ -7789,8 +7981,8 @@ export function ChatPage() {
       {/* Main chat area */}
       <div className="relative flex-1 flex min-w-0 flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="titlebar-drag pl-[70px] pr-[70px] pt-6 pb-4">
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="titlebar-drag px-4 pb-4 pt-5 sm:px-6 sm:pt-6 lg:px-[70px]">
+          <div className={cn(CHAT_RAIL_CLASS, 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between')}>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 text-foreground">
                 {activeSessionId && isRenamingTitle ? (
@@ -7966,8 +8158,8 @@ export function ChatPage() {
             )}
 
             {/* Input area */}
-            <div className="bg-card/45 pl-[70px] pr-[70px] pt-2.5 backdrop-blur-sm">
-              <div className="w-full">
+            <div className="bg-card/45 px-4 pt-2.5 backdrop-blur-sm sm:px-6 lg:px-[70px]">
+              <div className={CHAT_RAIL_CLASS}>
                 {pendingStepDecision && (
                   <div className="mb-3 rounded-2xl border border-orange-300 bg-orange-50 px-3.5 py-3 dark:border-orange-700/50 dark:bg-orange-950/30">
                     <div className="flex items-start gap-2">
@@ -8051,6 +8243,32 @@ export function ChatPage() {
                         )}
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {sessionNotice && (
+                  <div className="mb-3 flex items-start gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/80 px-3.5 py-3 shadow-sm dark:border-sky-900/40 dark:bg-sky-950/20">
+                    <AlertCircle size={15} className="mt-0.5 flex-shrink-0 text-sky-600 dark:text-sky-300" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-sky-900 dark:text-sky-100">
+                        {sessionNotice.title}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-sky-800 dark:text-sky-200">
+                        {sessionNotice.message}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sid = activeSessionIdRef.current
+                        if (!sid) return
+                        updateSession(sid, (prev) => ({ ...prev, sessionNotice: undefined }))
+                      }}
+                      className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-sky-300 bg-card/60 px-3 py-1.5 text-xs font-medium text-sky-800 transition-colors hover:bg-card dark:border-sky-800 dark:text-sky-200"
+                    >
+                      <Check size={12} />
+                      {t('chat.composer.noticeDismiss')}
+                    </button>
                   </div>
                 )}
 
@@ -8800,7 +9018,12 @@ function MessageBubble({
       // segments.push({ kind: 'hint', data: t, ts: t.ts, subagent: t.subagent })
       continue // 砍掉 hint 卡片
     } else if (t.type === 'call') {
-      // const result = toolResults.find((r) => r.callId === t.callId)
+      const result = toolResults.find((r) => r.callId === t.callId)
+      if (isCodexInlineActivity(t) || isCodexInlineActivity(result)) {
+        const isRunning = !!message.isStreaming && !result
+        segments.push({ kind: 'tool', call: t, result, isRunning, ts: t.ts, subagent: t.subagent || result?.subagent })
+        continue
+      }
       // const isRunning = !!message.isStreaming && !result
       // segments.push({ kind: 'tool', call: t, result, isRunning, ts: t.ts, subagent: t.subagent || result?.subagent })
       continue // 砍掉工具调用卡片
@@ -9112,7 +9335,7 @@ function MessageBubble({
       <div
         className={cn(
           'relative min-w-0 max-w-full',
-          isUser ? 'max-w-[88%] sm:max-w-[80%] items-end' : 'w-full sm:w-[min(88%,52rem)] xl:w-[min(80%,52rem)] items-start'
+          isUser ? 'w-fit max-w-[min(100%,46rem)] items-end' : 'w-full max-w-[52rem] items-start'
         )}
       >
         <div className={cn(
@@ -9158,7 +9381,7 @@ function MessageBubble({
                   }
                   // Hide tools unless expanded
                   if (item.kind === 'tool') {
-                    if (!isUser && toolCount > 0 && !toolsExpanded) return null
+                    if (!isUser && toolCount > 0 && !toolsExpanded && !isCodexInlineActivity(item.call) && !isCodexInlineActivity(item.result)) return null
                     return (
                       <ToolCallCard
                         key={item.call.callId || `${i}-${itemIndex}`}
@@ -9233,19 +9456,19 @@ function MessageBubble({
                     if (depth > 4) break
                   }
                   const indentClass = depth === 0
-                    ? 'ml-2'
+                    ? 'ml-1 sm:ml-2'
                     : depth === 1
-                      ? 'ml-8'
+                      ? 'ml-3 sm:ml-8'
                       : depth === 2
-                        ? 'ml-14'
-                        : 'ml-20'
+                        ? 'ml-5 sm:ml-14'
+                        : 'ml-7 sm:ml-20'
                   const subagentTypeLabel = liveAgentState?.subagentType
                   const loadedSkills = liveAgentState?.loadedSkills || []
                   return (
-                    <div key={latestTask.taskId || `sub-${agentIdx}`} className={cn(indentClass, 'border-l-2 border-primary/20 pl-3')} data-agent-depth={depth}>
-                      <div className="mb-1.5 flex items-center gap-2">
+                    <div key={latestTask.taskId || `sub-${agentIdx}`} className={cn(indentClass, 'min-w-0 border-l-2 border-primary/20 pl-2 sm:pl-3')} data-agent-depth={depth}>
+                      <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-2">
                         <AgentAvatar agentId={latestTask.taskId || latestTask.label} agentName={latestTask.label} size="sm" />
-                        <span className="text-xs font-medium text-foreground/80">{latestTask.label}</span>
+                        <span className="min-w-0 max-w-full truncate text-xs font-medium text-foreground/80">{latestTask.label}</span>
                         {/* subagent_type: writer / freelancer / ... — the
                             LLM-facing dispatch label. Useful when the
                             agent's "label" is the codename/personality
@@ -9331,7 +9554,7 @@ function MessageBubble({
                           }
                           // Hide tools unless expanded
                           if (item.kind === 'tool') {
-                            if (toolCount > 0 && !toolsExpanded) return null
+                            if (toolCount > 0 && !toolsExpanded && !isCodexInlineActivity(item.call) && !isCodexInlineActivity(item.result)) return null
                             return (
                               <ToolCallCard
                                 key={item.call.callId || `sub-tool-${i}-${agentIdx}-${itemIndex}`}
@@ -11123,12 +11346,12 @@ export function FilePreviewDrawer({
               // `pointer-events-auto` re-enables interaction inside the
               // slide-in wrapper (which is pointer-events-none so the empty
               // area to the left of the drawer still closes on click).
-              'pointer-events-auto absolute top-4 z-[210] inline-flex h-9 items-center gap-1 rounded-l-lg border border-r-0 border-border bg-card px-2 text-[11px] font-medium text-foreground shadow-md transition-[right] duration-200 ease-out hover:bg-muted',
+              'pointer-events-auto absolute left-0 top-4 z-[210] inline-flex h-9 items-center gap-1 rounded-r-lg border border-l-0 border-border bg-card px-2 text-[11px] font-medium text-foreground shadow-md transition-[right,transform] duration-200 ease-out hover:bg-muted sm:left-auto sm:rounded-l-lg sm:rounded-r-none sm:border-l sm:border-r-0',
               // Open → handle sits on the panel's left edge.
               // Closed → handle sits on the drawer's left edge.
               artifactListOpen
-                ? 'right-[calc(min(48rem,100vw)+15rem)]'
-                : 'right-[min(48rem,100vw)]',
+                ? 'translate-x-60 sm:right-[calc(min(48rem,100vw)+15rem)] sm:translate-x-0'
+                : 'translate-x-0 sm:right-[min(48rem,100vw)]',
             )}
           >
             <FolderOpen size={13} className="text-primary" />
@@ -11153,10 +11376,10 @@ export function FilePreviewDrawer({
               // paints over any portion of the panel that overlaps it.
               // Without that we'd either block the preview (panel on top)
               // or have to slide out the wrong direction.
-              'absolute inset-y-0 flex w-60 flex-col border-l border-r border-border bg-card shadow-xl transition-transform duration-200 ease-out',
+              'absolute inset-y-0 left-0 z-[205] flex w-60 flex-col border-l border-r border-border bg-card shadow-xl transition-transform duration-200 ease-out sm:left-auto sm:z-auto',
               // 48rem === max-w-3xl === drawer width. Anchor the panel's
               // RIGHT edge to the drawer's left edge.
-              'right-[min(48rem,100vw)]',
+              'sm:right-[min(48rem,100vw)]',
               // Open → at natural position, fully visible to the LEFT of
               // the drawer. Closed → translate RIGHT by its own width so
               // it sits inside the drawer area, hidden behind the aside.
@@ -11165,7 +11388,7 @@ export function FilePreviewDrawer({
               // slide-in wrapper (parent is `pointer-events-none`).
               artifactListOpen
                 ? 'pointer-events-auto translate-x-0'
-                : 'pointer-events-none translate-x-full',
+                : 'pointer-events-none -translate-x-full sm:translate-x-full',
             )}
           >
             <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
@@ -11238,13 +11461,13 @@ export function FilePreviewDrawer({
         aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <div className="border-b border-border bg-card/95 px-5 py-4 backdrop-blur-sm">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-accent shadow-sm">
+        <div className="border-b border-border bg-card/95 px-3 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            <div className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-accent shadow-sm sm:flex">
               <FileText size={18} className="text-primary" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <h3 id={titleId} className="truncate text-sm font-semibold text-foreground">
                   {preview.fileName || t('chat.file.preview')}
                 </h3>
@@ -11265,7 +11488,7 @@ export function FilePreviewDrawer({
                 <p className="mt-1 text-[10px] text-muted-foreground">{t('chat.file.writeContent')}</p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center justify-end gap-2">
               <div className="group relative">
                 <button
                   type="button"
@@ -11327,7 +11550,7 @@ export function FilePreviewDrawer({
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-background/65 p-5">
+        <div className="min-h-0 flex-1 overflow-auto bg-background/65 p-3 sm:p-5">
           {/* 渲染优先级（按扩展名而非 content）：
                 1. 图片 / 音频 / 视频：原生 <img> / <audio> / <video> 直接拉
                    file:// URL，不依赖主进程把内容读到 `content` 里。
@@ -11360,7 +11583,7 @@ export function FilePreviewDrawer({
             </div>
           ) : isHtmlArtifact && preview.content ? (
             // .html/.htm 产物有内容时优先走双视图（渲染 / 源码），isHtml 兜底
-            <div className="h-full overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <div className="h-full overflow-hidden rounded-xl border border-border bg-card shadow-sm sm:rounded-2xl">
               <HtmlArtifactView content={preview.content} />
             </div>
           ) : isHtml ? (
@@ -11372,10 +11595,10 @@ export function FilePreviewDrawer({
               title={preview.fileName}
               sandbox="allow-scripts allow-same-origin"
               referrerPolicy="no-referrer"
-              className="h-full min-h-[60vh] w-full rounded-2xl border border-border bg-background shadow-sm"
+              className="h-full min-h-[60vh] w-full rounded-xl border border-border bg-background shadow-sm sm:rounded-2xl"
             />
           ) : !preview.content ? (
-            <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center">
+            <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border bg-card/50 p-5 text-center sm:rounded-2xl sm:p-8">
               <div>
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent">
                   <FileText size={18} className="text-primary" />
@@ -11399,7 +11622,7 @@ export function FilePreviewDrawer({
             // 包含段落、标题、列表、表格、加粗、斜体、链接、内联图等常规
             // 元素，不会注入脚本；用 prose 容器套一层让排版与 Markdown
             // 预览保持一致，并补上 table 边框样式。
-            <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="rounded-xl border border-border bg-card p-4 shadow-sm sm:rounded-2xl sm:p-6">
               <div
                 className="prose max-w-none break-words text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-hr:my-4 prose-hr:border-border/70 prose-table:border prose-table:border-border prose-th:border prose-th:border-border prose-th:bg-muted prose-th:px-2 prose-th:py-1 prose-td:border prose-td:border-border prose-td:px-2 prose-td:py-1 prose-img:rounded-lg dark:prose-invert"
                 dangerouslySetInnerHTML={{ __html: preview.content }}
@@ -11408,19 +11631,19 @@ export function FilePreviewDrawer({
           ) : preview.previewKind === 'text' ? (
             // pdf-parse 抽出来的纯文本：分页符已含在文本中，用 pre-wrap
             // 保留原始换行，prose 容器统一字号字色。
-            <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="rounded-xl border border-border bg-card p-4 shadow-sm sm:rounded-2xl sm:p-6">
               <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-7 text-foreground">
                 {preview.content}
               </pre>
             </div>
           ) : isMarkdown ? (
-            <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="rounded-xl border border-border bg-card p-4 shadow-sm sm:rounded-2xl sm:p-6">
               <div className="prose max-w-none break-words text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-hr:my-4 prose-hr:border-border/70 prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:break-all prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground prose-img:rounded-lg dark:prose-invert">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.content}</ReactMarkdown>
               </div>
             </div>
           ) : (
-            <div className="min-h-full overflow-auto rounded-2xl border border-border bg-card shadow-sm">
+            <div className="min-h-full overflow-auto rounded-xl border border-border bg-card shadow-sm sm:rounded-2xl">
               <div className="flex items-center justify-between border-b border-border px-4 py-2">
                 <span className="text-[11px] text-muted-foreground">{preview.fileName}</span>
                 {language && <span className="text-[10px] text-muted-foreground">{language}</span>}

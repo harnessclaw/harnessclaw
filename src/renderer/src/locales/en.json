@@ -886,6 +886,8 @@
       "reconnect": "Reconnect",
       "noConnection": "Not connected to HarnessClaw",
       "noConnectionDesc": "Will try to connect automatically when sending. You can also retry manually.",
+      "noticeTitle": "Runtime Notice",
+      "noticeDismiss": "Got it",
       "sendHint": "Enter to send, Shift + Enter for new line",
       "dropFiles": "Drag and drop files here",
       "permissionHint": "Sensitive actions require confirmation",
@@ -1021,7 +1023,14 @@
     },
     "connection": {
       "title": "Connection Settings",
-      "subtitle": "Gateway connection and heartbeat",
+      "subtitle": "Engine selection, Gateway connection, and heartbeat",
+      "agentFramework": {
+        "title": "Agent Engine",
+        "engine": "Current Engine",
+        "engineDesc": "Emma uses the existing HarnessClaw engine protocol; Codex uses the app-server stdio JSON-RPC protocol",
+        "emma": "Emma Engine",
+        "codex": "Codex Engine"
+      },
       "gateway": {
         "title": "Gateway Connection",
         "host": "Listen Address",
@@ -1745,9 +1754,41 @@
     "dropToFiles": "Drop to add files",
     "inputPlaceholder": "Enter a task and I'll get it done for you~",
     "addFiles": "Add Files",
-    "planMode": "Plan Mode",
-    "planModeEnabled": "Plan Mode enabled: this query will be executed in explicit steps",
-    "planModeDisabled": "Click to enable Plan Mode (recommended for multi-step, complex tasks)",
+    "permissions": {
+      "title": "How should Emma approvals work?",
+      "learnMore": "Learn more",
+      "request": {
+        "label": "Request Approval",
+        "description": "Always ask before editing external files or using the internet"
+      },
+      "auto": {
+        "label": "Auto-review",
+        "description": "Ask for approval only on detected risky operations"
+      },
+      "full": {
+        "label": "Full Access",
+        "description": "Access the internet and any file on your computer without restrictions"
+      }
+    },
+    "project": {
+      "choose": "Choose project",
+      "search": "Search projects",
+      "empty": "No matching projects",
+      "newProject": "New project",
+      "blankProject": "Create blank project",
+      "existingFolder": "Use existing folder",
+      "nameDialogTitle": "Name this project",
+      "nameDialogDesc": "Blank projects are created under ~/Documents/emma/.",
+      "namePlaceholder": "Project name",
+      "nameRequired": "Enter a project name",
+      "nameTooLong": "Project names must be 40 characters or fewer",
+      "nameConflict": "A project with this name already exists",
+      "createFailed": "Failed to create project",
+      "untitled": "Untitled Project",
+      "clear": "Remove current project",
+      "cancel": "Cancel",
+      "create": "Create"
+    },
     "shortcutHint": "Enter to send, Shift + Enter for new line",
     "send": "Send",
     "title": "Emma is super useful",

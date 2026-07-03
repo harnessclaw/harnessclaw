@@ -886,6 +886,8 @@
       "reconnect": "重新连接",
       "noConnection": "当前还没有连接到 HarnessClaw",
       "noConnectionDesc": "发送时会自动尝试连接。若想立即恢复，也可以手动重试。",
+      "noticeTitle": "运行提示",
+      "noticeDismiss": "了解",
       "sendHint": "Enter 发送，Shift + Enter 换行",
       "dropFiles": "支持直接拖入文件",
       "permissionHint": "敏感操作会先向你确认",
@@ -1027,7 +1029,14 @@
     },
     "connection": {
       "title": "连接设置",
-      "subtitle": "Gateway 连接与心跳",
+      "subtitle": "引擎选择、Gateway 连接与心跳",
+      "agentFramework": {
+        "title": "Agent 引擎",
+        "engine": "当前引擎",
+        "engineDesc": "Emma 使用原有 HarnessClaw 引擎协议；Codex 使用 app-server stdio JSON-RPC 协议",
+        "emma": "Emma 引擎",
+        "codex": "Codex 引擎"
+      },
       "gateway": {
         "title": "Gateway 连接",
         "host": "监听地址",
@@ -1751,9 +1760,41 @@
     "dropToFiles": "松开即可添加文件",
     "inputPlaceholder": "请输入任务，我来帮你完成~",
     "addFiles": "添加文件",
-    "planMode": "Plan 模式",
-    "planModeEnabled": "已开启 Plan 模式：本次提问将显式拆步执行",
-    "planModeDisabled": "点击开启 Plan 模式（多步骤、复杂任务推荐）",
+    "permissions": {
+      "title": "应如何批准 Emma 操作？",
+      "learnMore": "了解更多",
+      "request": {
+        "label": "请求批准",
+        "description": "编辑外部文件和使用互联网时始终询问"
+      },
+      "auto": {
+        "label": "替我审批",
+        "description": "仅对检测到的风险操作请求批准"
+      },
+      "full": {
+        "label": "完全访问权限",
+        "description": "可不受限制地访问互联网和您电脑上的任何文件"
+      }
+    },
+    "project": {
+      "choose": "选择项目",
+      "search": "搜索项目",
+      "empty": "暂无匹配项目",
+      "newProject": "新建项目",
+      "blankProject": "新建空白项目",
+      "existingFolder": "使用现有文件夹",
+      "nameDialogTitle": "为项目命名",
+      "nameDialogDesc": "空白项目会创建在 ~/Documents/emma/ 下。",
+      "namePlaceholder": "项目名称",
+      "nameRequired": "请输入项目名称",
+      "nameTooLong": "项目名称不能超过 40 个字符",
+      "nameConflict": "项目名称已存在",
+      "createFailed": "创建项目失败",
+      "untitled": "未命名项目",
+      "clear": "移除当前项目",
+      "cancel": "取消",
+      "create": "创建"
+    },
     "shortcutHint": "Enter 发送，Shift + Enter 换行",
     "send": "发送",
     "title": "Emma 超好用",

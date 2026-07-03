@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Paperclip, Send, ListChecks } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Folder, Hand, NotebookText, Plus, Search, Shield, ShieldCheck, X } from 'lucide-react'
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 import { cn } from '../../lib/utils'
 import {
@@ -17,11 +18,45 @@ import { PastedBlocksBar, usePastedBlocks } from '../common/PastedBlocksBar'
 import { FilePreviewModal } from '../attachments/FilePreviewModal'
 import type { FilePreviewData } from './ChatPage'
 import { HOME_CASES, HOME_CATEGORIES } from '../../data/homeCases'
+import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
 import iconAttachFile from '../../assets/icon-attach-file.svg'
-import iconPlanMode from '../../assets/icon-plan-mode.svg'
 import iconStatusConnected from '../../assets/status-connected.svg'
 
 type AttachmentItem = LocalAttachmentItem
+type PermissionMode = 'request' | 'auto' | 'full'
+const PERMISSION_MODE_STORAGE_KEY = 'home-permission-mode'
+
+interface HomeProject {
+  project_id: string
+  name: string
+  description: string
+  created_at: number
+  updated_at: number
+  deleted_at: number | null
+}
+
+const PERMISSION_MODES: Array<{
+  id: PermissionMode
+  icon: typeof Hand
+  approvalsReviewer?: 'user' | 'auto_review'
+  approvalPolicy?: 'on-request' | 'never'
+  sandbox?: 'danger-full-access'
+}> = [
+  { id: 'request', icon: Hand, approvalsReviewer: 'user', approvalPolicy: 'on-request' },
+  { id: 'auto', icon: Shield, approvalsReviewer: 'auto_review', approvalPolicy: 'on-request' },
+  { id: 'full', icon: ShieldCheck, approvalsReviewer: 'user', approvalPolicy: 'never', sandbox: 'danger-full-access' },
+]
+
+function isPermissionMode(value: unknown): value is PermissionMode {
+  return value === 'request' || value === 'auto' || value === 'full'
+}
+
+function getProjectCwd(project: HomeProject | null): string | undefined {
+  const value = project?.description?.trim()
+  if (!value) return undefined
+  if (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value)) return value
+  return undefined
+}
 
 // 推荐分类（id 同时是 HOME_CASES 的数据键，label 渲染时走 i18n）
 const categories = [
@@ -57,20 +92,142 @@ export function HomePage() {
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('recommend')
-  // v1.14: opt-in Plan mode pin for the upcoming turn. When false the engine
-  // picks ReAct/Plan automatically via its ModeSelector heuristic.
-  const [planMode, setPlanMode] = useState(false)
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => {
+    if (typeof window === 'undefined') return 'request'
+    const saved = window.localStorage.getItem(PERMISSION_MODE_STORAGE_KEY)
+    return isPermissionMode(saved) ? saved : 'request'
+  })
+  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
+  const [permissionMenuPosition, setPermissionMenuPosition] = useState<{ left: number; bottom: number } | null>(null)
+  const [projects, setProjects] = useState<HomeProject[]>([])
+  const [selectedProject, setSelectedProject] = useState<HomeProject | null>(null)
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false)
+  const [projectMenuPosition, setProjectMenuPosition] = useState<{ left: number; bottom: number } | null>(null)
+  const [projectSearch, setProjectSearch] = useState('')
+  const [newProjectOptionsOpen, setNewProjectOptionsOpen] = useState(false)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [projectNameDraft, setProjectNameDraft] = useState('')
+  const [projectFolderDraft, setProjectFolderDraft] = useState<string | null>(null)
+  const [projectError, setProjectError] = useState('')
+  const [isSending, setIsSending] = useState(false)
   // 附件预览抽屉的 state。点击 AttachmentPreviewPanel 里的卡片会先调
   // window.files.read 把内容/二进制标记拿回来，然后塞进 filePreview，
   // FilePreviewDrawer 接到非 null 值即显示。
   const [filePreview, setFilePreview] = useState<FilePreviewData | null>(null)
   const pasted = usePastedBlocks()
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const permissionButtonRef = useRef<HTMLButtonElement | null>(null)
+  const permissionMenuRef = useRef<HTMLDivElement | null>(null)
+  const projectButtonRef = useRef<HTMLButtonElement | null>(null)
+  const projectMenuRef = useRef<HTMLDivElement | null>(null)
+  const projectNameInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
   const maxLength = 2000
   const harnessclawStatus = useHarnessclawStatus()
   const shortcutHint = t('home.shortcutHint')
   const currentStatus = statusMeta[harnessclawStatus]
+  const currentPermission = PERMISSION_MODES.find((mode) => mode.id === permissionMode) || PERMISSION_MODES[0]
+  const CurrentPermissionIcon = currentPermission.icon
+  const filteredProjects = projects.filter((project) => {
+    const query = projectSearch.trim().toLowerCase()
+    if (!query) return true
+    return project.name.toLowerCase().includes(query) || project.description.toLowerCase().includes(query)
+  })
+
+  const updatePermissionMenuPosition = () => {
+    const button = permissionButtonRef.current
+    if (!button) return
+    const rect = button.getBoundingClientRect()
+    const menuWidth = 330
+    const margin = 12
+    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - menuWidth - margin)
+    setPermissionMenuPosition({
+      left,
+      bottom: Math.max(margin, window.innerHeight - rect.top + 8),
+    })
+  }
+
+  const updateProjectMenuPosition = () => {
+    const button = projectButtonRef.current
+    if (!button) return
+    const rect = button.getBoundingClientRect()
+    const menuWidth = 340
+    const margin = 12
+    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - menuWidth - margin)
+    setProjectMenuPosition({
+      left,
+      bottom: Math.max(margin, window.innerHeight - rect.top + 8),
+    })
+  }
+
+  useEffect(() => {
+    void window.db.listProjects().then((rows) => setProjects(rows as HomeProject[])).catch(() => setProjects([]))
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem(PERMISSION_MODE_STORAGE_KEY, permissionMode)
+  }, [permissionMode])
+
+  useEffect(() => {
+    if (!permissionMenuOpen) return
+    updatePermissionMenuPosition()
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (permissionButtonRef.current?.contains(target)) return
+      if (permissionMenuRef.current?.contains(target)) return
+      setPermissionMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPermissionMenuOpen(false)
+    }
+
+    window.addEventListener('resize', updatePermissionMenuPosition)
+    window.addEventListener('scroll', updatePermissionMenuPosition, true)
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('resize', updatePermissionMenuPosition)
+      window.removeEventListener('scroll', updatePermissionMenuPosition, true)
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [permissionMenuOpen])
+
+  useEffect(() => {
+    if (!projectMenuOpen) return
+    updateProjectMenuPosition()
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (projectButtonRef.current?.contains(target)) return
+      if (projectMenuRef.current?.contains(target)) return
+      setProjectMenuOpen(false)
+      setNewProjectOptionsOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setProjectMenuOpen(false)
+        setNewProjectOptionsOpen(false)
+      }
+    }
+
+    window.addEventListener('resize', updateProjectMenuPosition)
+    window.addEventListener('scroll', updateProjectMenuPosition, true)
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('resize', updateProjectMenuPosition)
+      window.removeEventListener('scroll', updateProjectMenuPosition, true)
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [projectMenuOpen])
+
+  useEffect(() => {
+    if (!createProjectOpen) return
+    requestAnimationFrame(() => projectNameInputRef.current?.focus())
+  }, [createProjectOpen])
 
   useEffect(() => {
     const preventWindowDrop = (event: DragEvent) => {
@@ -107,43 +264,145 @@ export function HomePage() {
     })
   }
 
-  const handleSend = () => {
+  const selectProject = (project: HomeProject | null) => {
+    setSelectedProject(project)
+    setProjectMenuOpen(false)
+    setNewProjectOptionsOpen(false)
+    setProjectSearch('')
+  }
+
+  const validateProjectName = (name: string): string => {
+    const trimmed = name.trim()
+    if (!trimmed) return t('home.project.nameRequired')
+    if (trimmed.length > 40) return t('home.project.nameTooLong')
+    if (projects.some((project) => project.name === trimmed)) return t('home.project.nameConflict')
+    return ''
+  }
+
+  const handleCreateProject = async () => {
+    const nextError = validateProjectName(projectNameDraft)
+    if (nextError) {
+      setProjectError(nextError)
+      return
+    }
+
+    const name = projectNameDraft.trim()
+    const result = projectFolderDraft
+      ? await window.db.createProject({
+          projectId: `project-${globalThis.crypto.randomUUID()}`,
+          name,
+          description: projectFolderDraft,
+        })
+      : await window.db.createBlankProject({ name })
+    if (!result.ok || !result.project) {
+      setProjectError(result.error || t('home.project.createFailed'))
+      return
+    }
+
+    const project = result.project as HomeProject
+    setProjects((current) => [project, ...current])
+    selectProject(project)
+    setCreateProjectOpen(false)
+    setProjectNameDraft('')
+    setProjectFolderDraft(null)
+    setProjectError('')
+  }
+
+  const handleUseExistingFolder = async () => {
+    setProjectMenuOpen(false)
+    setNewProjectOptionsOpen(false)
+    const picked = await window.files.pickDirectory()
+    if (!picked.ok || picked.cancelled || !picked.path) return
+    const name = picked.name || picked.path.split(/[\\/]/).pop() || t('home.project.untitled')
+    const nextError = validateProjectName(name)
+    if (nextError) {
+      setProjectError(nextError)
+      setCreateProjectOpen(true)
+      setProjectNameDraft(name)
+      setProjectFolderDraft(picked.path)
+      return
+    }
+    const result = await window.db.createProject({
+      projectId: `project-${globalThis.crypto.randomUUID()}`,
+      name,
+      description: picked.path,
+    })
+    if (!result.ok || !result.project) {
+      setProjectError(result.error || t('home.project.createFailed'))
+      setCreateProjectOpen(true)
+      setProjectNameDraft(name)
+      setProjectFolderDraft(picked.path)
+      return
+    }
+    const project = result.project as HomeProject
+    setProjects((current) => [project, ...current])
+    selectProject(project)
+  }
+
+  const handleSend = async () => {
+    if (isSending) return
     const payload = buildSkillComposerPayload(input, selectedSkills)
     if (!payload && attachments.length === 0 && pasted.blocks.length === 0) return
     const pastedSuffix = pasted.buildPastedSuffix()
     const fullMessage = [payload, pastedSuffix].filter(Boolean).join('\n\n')
+    const selectedPermission = PERMISSION_MODES.find((mode) => mode.id === permissionMode) || PERMISSION_MODES[0]
 
-    // DEBUG: 检查 planMode 状态
-    console.log('[HomePage] handleSend - planMode:', planMode)
-    console.log('[HomePage] navigate state:', {
-      coordinatorMode: planMode ? 'plan' : undefined,
-      planConfirmation: planMode ? 'required' : undefined,
-    })
+    setIsSending(true)
+    try {
+      let resolvedCwd = getProjectCwd(selectedProject)
+      if (!resolvedCwd) {
+        const result = await window.workspace.createDefaultCwd()
+        if (!result.ok) {
+          console.error('[HomePage] failed to create default cwd:', result.error)
+          setIsSending(false)
+          return
+        }
+        resolvedCwd = result.path
+      }
 
-    navigate('/chat', {
-      state: {
-        initialMessage: fullMessage,
-        initialAttachments: attachments,
-        // v1.14: only forward when explicitly enabled, so the engine keeps
-        // its automatic ModeSelector heuristic in the default case.
-        coordinatorMode: planMode ? 'plan' : undefined,
-        // v1.15: opting into Plan mode also implies the user wants to
-        // review the draft step DAG before execution. This couples the two
-        // toggles so the user only has to flip one switch.
-        planConfirmation: planMode ? 'required' : undefined,
-      },
-    })
-    setInput('')
-    setSelectedSkills([])
-    setAttachments([])
-    pasted.clearBlocks()
+      console.log('[HomePage] navigate state:', {
+        permissionMode,
+        approvalsReviewer: selectedPermission.approvalsReviewer,
+        sandbox: selectedPermission.sandbox,
+        cwd: resolvedCwd,
+      })
+
+      navigate('/chat', {
+        state: {
+          initialMessage: fullMessage,
+          initialAttachments: attachments,
+          permissionMode,
+          approvalPolicy: selectedPermission.approvalPolicy,
+          approvalsReviewer: selectedPermission.approvalsReviewer,
+          sandbox: selectedPermission.sandbox,
+          projectContext: selectedProject
+            ? {
+                projectId: selectedProject.project_id,
+                name: selectedProject.name,
+                description: selectedProject.description,
+                createdAt: selectedProject.created_at,
+              }
+            : undefined,
+          cwd: resolvedCwd,
+        },
+      })
+      setInput('')
+      setSelectedSkills([])
+      setAttachments([])
+      pasted.clearBlocks()
+      setPermissionMenuOpen(false)
+      setIsSending(false)
+    } catch (error) {
+      console.error('[HomePage] failed to prepare message cwd:', error)
+      setIsSending(false)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -389,21 +648,85 @@ export function HomePage() {
                       <img src={iconAttachFile} alt="" className="h-3 w-3" aria-hidden="true" />
                       <span>{t('home.addFiles')}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setPlanMode((v) => !v)}
-                      aria-pressed={planMode}
-                      title={planMode ? t('home.planModeEnabled') : t('home.planModeDisabled')}
-                      className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs transition-colors',
-                        planMode
-                          ? 'border-primary bg-primary/10 text-primary hover:bg-primary/15'
-                          : 'border-border text-muted-foreground hover:border-primary hover:text-foreground'
+                    <div className="relative">
+                      <button
+                        ref={permissionButtonRef}
+                        type="button"
+                        onClick={() => {
+                          if (permissionMenuOpen) {
+                            setPermissionMenuOpen(false)
+                            return
+                          }
+                          updatePermissionMenuPosition()
+                          setPermissionMenuOpen(true)
+                        }}
+                        aria-haspopup="menu"
+                        aria-expanded={permissionMenuOpen}
+                        title={t(`home.permissions.${permissionMode}.description`)}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+                      >
+                        <CurrentPermissionIcon size={14} strokeWidth={2.1} />
+                        <span>{t(`home.permissions.${permissionMode}.label`)}</span>
+                        <ChevronDown
+                          size={13}
+                          className={cn('transition-transform', permissionMenuOpen && 'rotate-180')}
+                        />
+                      </button>
+
+                      {permissionMenuOpen && permissionMenuPosition && typeof document !== 'undefined' && createPortal(
+                        <div
+                          ref={permissionMenuRef}
+                          role="menu"
+                          style={{
+                            left: permissionMenuPosition.left,
+                            bottom: permissionMenuPosition.bottom,
+                          }}
+                          className="fixed z-[120] w-[330px] overflow-hidden rounded-[1.35rem] border border-border bg-card py-2 shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+                        >
+                          <div className="flex items-center justify-between px-4 pb-2 pt-1 text-sm font-medium text-muted-foreground">
+                            <span>{t('home.permissions.title')}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void window.appRuntime.openExternal('https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it')
+                              }}
+                              className="text-xs underline underline-offset-4 transition-colors hover:text-foreground"
+                            >
+                              {t('home.permissions.learnMore')}
+                            </button>
+                          </div>
+                          {PERMISSION_MODES.map((mode) => {
+                            const Icon = mode.icon
+                            const selected = mode.id === permissionMode
+                            return (
+                              <button
+                                key={mode.id}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={selected}
+                                onClick={() => {
+                                  setPermissionMode(mode.id)
+                                  setPermissionMenuOpen(false)
+                                }}
+                                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60"
+                              >
+                                <Icon size={19} className="shrink-0 text-muted-foreground" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-semibold text-foreground">
+                                    {t(`home.permissions.${mode.id}.label`)}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                                    {t(`home.permissions.${mode.id}.description`)}
+                                  </span>
+                                </span>
+                                {selected && <Check size={17} className="shrink-0 text-primary" />}
+                              </button>
+                            )
+                          })}
+                        </div>,
+                        document.body
                       )}
-                    >
-                      <img src={iconPlanMode} alt="" className="h-3 w-3" aria-hidden="true" />
-                      <span>{t('home.planMode')}</span>
-                    </button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2.5">
@@ -411,8 +734,8 @@ export function HomePage() {
                       <span className="text-xs text-muted-foreground">{input.length}/{maxLength}</span>
                     )}
                     <button
-                      onClick={handleSend}
-                      disabled={!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0 && pasted.blocks.length === 0}
+                      onClick={() => void handleSend()}
+                      disabled={isSending || (!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0 && pasted.blocks.length === 0)}
                       className={cn(
                         "inline-flex items-center justify-center w-7 h-7 rounded-full transition-all active:scale-95 disabled:opacity-50",
                         (input.length > 0 || attachments.length > 0 || pasted.blocks.length > 0)
@@ -432,6 +755,40 @@ export function HomePage() {
                       />
                     </button>
                   </div>
+                </div>
+              </div>
+              <div className="flex w-full items-center border-t border-border/70 bg-[#F5F5F5] px-5 py-3">
+                <div className="group inline-flex max-w-[min(100%,360px)] items-center gap-1 rounded-lg transition-colors hover:bg-[#E8E8E8] focus-within:bg-[#E8E8E8]">
+                  <button
+                    ref={projectButtonRef}
+                    type="button"
+                    onClick={() => {
+                      if (projectMenuOpen) {
+                        setProjectMenuOpen(false)
+                        setNewProjectOptionsOpen(false)
+                        return
+                      }
+                      updateProjectMenuPosition()
+                      setProjectMenuOpen(true)
+                    }}
+                    className="inline-flex min-w-0 items-center gap-2 px-2 py-1.5 text-left text-sm text-foreground"
+                  >
+                    <NotebookText size={17} className="shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">
+                      {selectedProject ? getProjectDisplayName(selectedProject, t) : t('home.project.choose')}
+                    </span>
+                  </button>
+                  {selectedProject && (
+                    <button
+                      type="button"
+                      aria-label={t('home.project.clear')}
+                      title={t('home.project.clear')}
+                      onClick={() => selectProject(null)}
+                      className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-all hover:bg-[#DCDCDC] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100"
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -479,6 +836,164 @@ export function HomePage() {
           </div>
         </div>
       </div>
+
+      {projectMenuOpen && projectMenuPosition && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={projectMenuRef}
+          role="menu"
+          style={{
+            left: projectMenuPosition.left,
+            bottom: projectMenuPosition.bottom,
+          }}
+          className="fixed z-[120] w-[340px] overflow-visible rounded-[1.25rem] border border-border bg-card py-2 shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        >
+          <div className="px-3 pb-2">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
+              <Search size={15} className="shrink-0 text-muted-foreground" />
+              <input
+                value={projectSearch}
+                onChange={(event) => setProjectSearch(event.target.value)}
+                placeholder={t('home.project.search')}
+                className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+
+          <div className="max-h-[220px] overflow-y-auto px-1">
+            {filteredProjects.length > 0 ? (
+              filteredProjects.map((project) => {
+                const selected = selectedProject?.project_id === project.project_id
+                return (
+                  <button
+                    key={project.project_id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    onClick={() => selectProject(project)}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted/70"
+                  >
+                    <NotebookText size={17} className="shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {getProjectDisplayName(project, t)}
+                      </span>
+                      {project.description && (
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {getProjectDisplayDescription(project, t)}
+                        </span>
+                      )}
+                    </span>
+                    {selected && <Check size={16} className="shrink-0 text-primary" />}
+                  </button>
+                )
+              })
+            ) : (
+              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                {t('home.project.empty')}
+              </div>
+            )}
+          </div>
+
+          <div className="relative mt-1 border-t border-border px-1 pt-1">
+            <button
+              type="button"
+              onClick={() => setNewProjectOptionsOpen((open) => !open)}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70"
+            >
+              <Plus size={17} className="shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">{t('home.project.newProject')}</span>
+              <ChevronRight size={15} className="shrink-0 text-muted-foreground" />
+            </button>
+
+            {newProjectOptionsOpen && (
+              <div className="absolute bottom-0 left-[calc(100%+8px)] z-[121] w-[230px] rounded-2xl border border-border bg-card p-1.5 shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateProjectOpen(true)
+                    setProjectNameDraft('')
+                    setProjectFolderDraft(null)
+                    setProjectError('')
+                    setProjectMenuOpen(false)
+                    setNewProjectOptionsOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70"
+                >
+                  <Plus size={15} className="shrink-0 text-muted-foreground" />
+                  {t('home.project.blankProject')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleUseExistingFolder()}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70"
+                >
+                  <Folder size={15} className="shrink-0 text-muted-foreground" />
+                  {t('home.project.existingFolder')}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {createProjectOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/35 px-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setCreateProjectOpen(false)
+              setProjectError('')
+              setProjectFolderDraft(null)
+            }
+          }}
+        >
+          <form
+            className="w-full max-w-[380px] rounded-2xl border border-border bg-card p-5 shadow-[0_24px_70px_rgba(15,23,42,0.24)]"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handleCreateProject()
+            }}
+          >
+            <h2 className="text-base font-semibold text-foreground">{t('home.project.nameDialogTitle')}</h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('home.project.nameDialogDesc')}</p>
+            <input
+              ref={projectNameInputRef}
+              value={projectNameDraft}
+              onChange={(event) => {
+                setProjectNameDraft(event.target.value)
+                setProjectError('')
+              }}
+              placeholder={t('home.project.namePlaceholder')}
+              className={cn(
+                'mt-4 w-full rounded-xl border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring',
+                projectError ? 'border-destructive' : 'border-border'
+              )}
+            />
+            {projectError && <p className="mt-2 text-xs text-destructive">{projectError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateProjectOpen(false)
+                  setProjectFolderDraft(null)
+                  setProjectError('')
+                }}
+                className="rounded-xl border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                {t('home.project.cancel')}
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90"
+              >
+                {t('home.project.create')}
+              </button>
+            </div>
+          </form>
+        </div>,
+        document.body
+      )}
 
       {/* 附件预览弹窗。首页是轻量入口，不再使用与对话页相同的右侧抽屉，
           改用 FilePreviewModal —— 居中 modal、点击遮罩或 Esc 关闭。
