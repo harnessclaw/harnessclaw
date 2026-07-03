@@ -42,6 +42,7 @@ yarn-error.log*
 resources/bin/harnessclaw-engine
 resources/bin/harnessclaw-engine-*
 resources/bin/agent-browser-*
+resources/bin/codex-*
 resources/bin/harnessclaw-runtime-manifest.json
 
 # Test artifacts

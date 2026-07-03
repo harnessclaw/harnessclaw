@@ -1897,7 +1897,18 @@ html:not(.launcher-window) body {
   }
 
   .team-stack-card {
+    width: min(100%, 18.5rem);
     height: 14.5rem;
+    border-radius: 1.25rem;
+  }
+
+  .team-stack-card-active {
+    padding: 0.95rem;
+  }
+
+  .team-stack-card-top,
+  .team-stack-card-foot {
+    gap: 0.5rem;
   }
 
   .team-stack-card-left {
@@ -1910,6 +1921,16 @@ html:not(.launcher-window) body {
 
   .team-stack-card-summary {
     font-size: 1rem;
+  }
+
+  .team-stack-dialog-backdrop {
+    padding: 0.75rem;
+  }
+
+  .team-stack-dialog {
+    max-height: calc(100vh - 1.5rem);
+    border-radius: 1.25rem;
+    padding: 0.95rem;
   }
 }
 

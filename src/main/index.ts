@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, screen, globalShortcut, protocol, net, Notification } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, resolve, resolve as resolvePath, sep, sep as pathSep } from 'path'
 import { homedir } from 'os'
+import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync } from 'fs'
 import { spawn, execFileSync, ChildProcess } from 'child_process'
 import { pathToFileURL } from 'url'
@@ -164,6 +165,39 @@ function stripProjectContextBlock(content: string): string {
   if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return content
 
   return `${content.slice(0, startIndex)}${content.slice(endIndex + PROJECT_CONTEXT_BLOCK_END.length)}`.trim()
+}
+
+function sanitizeProjectFolderName(name: string): string {
+  return name.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').slice(0, 80) || 'Untitled Project'
+}
+
+function createProjectId(): string {
+  return `project-${randomUUID()}`
+}
+
+function formatLocalDateFolder(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function createDefaultSessionCwd(): string {
+  const now = new Date()
+  const root = join(homedir(), 'Documents', 'emma', formatLocalDateFolder(now))
+  const timestamp = Math.floor(now.getTime() / 1000)
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const suffix = randomUUID().replace(/-/g, '').slice(0, 4)
+    const cwd = join(root, `${timestamp}${suffix}`)
+    if (existsSync(cwd)) continue
+    mkdirSync(cwd, { recursive: true })
+    return cwd
+  }
+
+  const fallback = join(root, `${timestamp}${randomUUID().replace(/-/g, '').slice(0, 8)}`)
+  mkdirSync(fallback, { recursive: true })
+  return fallback
 }
 
 function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
@@ -1763,6 +1797,7 @@ app.whenReady().then(() => {
     if (result.ok) {
       reportAppConfigDiff(previousAppConfig, data)
       setLogThreshold(normalizeLogThreshold(asRecord(asRecord(data).logging).level))
+      harnessclawClient.applyRuntimeConfig()
       broadcastAppRuntimeStatus()
       // Re-apply launcher hotkey / enabled state so changes from the
       // settings page take effect without an app restart.
@@ -2079,6 +2114,25 @@ app.whenReady().then(() => {
     try {
       const project = createProject(input)
       return { ok: true, project }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:createBlankProject', (_, input: { name: string }) => {
+    try {
+      const name = typeof input?.name === 'string' ? input.name.trim() : ''
+      if (!name) return { ok: false, error: 'Project name is required' }
+      const root = join(homedir(), 'Documents', 'emma')
+      const folderName = sanitizeProjectFolderName(name)
+      const projectPath = join(root, folderName)
+      mkdirSync(projectPath, { recursive: true })
+      const project = createProject({
+        projectId: createProjectId(),
+        name,
+        description: projectPath,
+      })
+      return { ok: true, project, path: projectPath }
     } catch (err) {
       return { ok: false, error: String(err) }
     }
@@ -2589,6 +2643,27 @@ app.whenReady().then(() => {
     return buildPickedLocalFiles(result.filePaths)
   })
 
+  ipcMain.handle('files:pickDirectory', async (event) => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender)
+    const dialogOptions = {
+      properties: ['openDirectory'],
+    } as const
+    const result = parentWindow
+      ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: true, cancelled: true }
+    }
+
+    const path = result.filePaths[0]
+    return {
+      ok: true,
+      path,
+      name: basename(path),
+    }
+  })
+
   ipcMain.handle('files:resolve', (_, filePaths: string[]) => {
     return buildPickedLocalFiles(Array.isArray(filePaths) ? filePaths : [])
   })
@@ -2798,6 +2873,15 @@ app.whenReady().then(() => {
       }
     } catch (error) {
       return { ok: false, error: 'read_failed', message: String((error as Error)?.message || error) }
+    }
+  })
+
+  ipcMain.handle('workspace:createDefaultCwd', async () => {
+    try {
+      const path = createDefaultSessionCwd()
+      return { ok: true, path }
+    } catch (error) {
+      return { ok: false, error: String((error as Error)?.message || error) }
     }
   })
 
@@ -3246,6 +3330,7 @@ app.whenReady().then(() => {
               name: getToolEventName(payload) || 'tool',
               content: getToolCallEventContent(payload),
               callId,
+              metadataJson: getToolMetadataJson(payload),
               subagent: persistedSubagent,
             })
             const state = pendingDbSegments[sid]
@@ -3337,6 +3422,7 @@ app.whenReady().then(() => {
                 name: getToolEventName(event),
                 content: getToolCallEventContent(event),
                 callId: getToolEventCallId(event),
+                metadataJson: getToolMetadataJson(event),
                 subagent,
               })
               const state = pendingDbSegments[sid]
@@ -3619,9 +3705,14 @@ app.whenReady().then(() => {
     options?: {
       coordinatorMode?: 'react' | 'plan'
       planConfirmation?: 'auto' | 'required'
+      approvalPolicy?: 'on-request' | 'never'
+      approvalsReviewer?: 'user' | 'auto_review'
+      sandbox?: 'danger-full-access'
+      cwd?: string
       images?: Array<{ mime: string; base64: string }>
     },
   ) => {
+    const sendStartedAt = Date.now()
     const ok = await harnessclawClient.send(content, sessionId, options)
     if (!ok) {
       return { ok: false, error: 'Failed to send message to Harnessclaw' }
@@ -3630,9 +3721,9 @@ app.whenReady().then(() => {
     if (sessionId) {
       try {
         upsertSession(sessionId)
-        const msgId = `usr-${Date.now()}`
+        const msgId = `usr-${sendStartedAt}`
         const displayContent = stripProjectContextBlock(content)
-        insertMessage({ id: msgId, sessionId, role: 'user', content: displayContent, createdAt: Date.now() })
+        insertMessage({ id: msgId, sessionId, role: 'user', content: displayContent, createdAt: sendStartedAt })
         broadcastDbSessionsChanged()
         // Use first user message as session title
         const msgs = getMessages(sessionId)
