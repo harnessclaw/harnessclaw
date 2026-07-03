@@ -6599,7 +6599,7 @@ function UpdateSection() {
               {status === 'not-available' && t('updates.notAvailable')}
               {status === 'downloading' && t('updates.downloading')}
               {status === 'downloaded' && t('updates.downloaded')}
-              {status === 'error' && t('updates.error')}
+              {status === 'error' && t('updates.error', { message })}
             </p>
             {version && <p className="mt-0.5 text-xs text-muted-foreground">{t('updates.version', { version })}</p>}
           </div>

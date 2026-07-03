@@ -143,9 +143,13 @@ try {
   tryRun('git', ['config', '--unset', 'user.email'])
 }
 
+// 统计 release 必须标记为 prerelease：否则它会成为 GitHub 的 `releases/latest`
+// （非 prerelease 且日期最新），把 electron-updater 的更新源顶包 —— 客户端拉
+// `.../releases/latest/download/latest.yml` 会 302 到统计 release 而 404，导致
+// 每次启动弹“更新失败”。加 --prerelease 让 releases/latest 只认真正的 App 版本。
 const existingRelease = tryRun('gh', ['release', 'view', statisticsTag])
 if (existingRelease) {
-  run('gh', ['release', 'edit', statisticsTag, '--title', statisticsTag, '--notes', releaseNotes])
+  run('gh', ['release', 'edit', statisticsTag, '--title', statisticsTag, '--notes', releaseNotes, '--prerelease'])
 } else {
-  run('gh', ['release', 'create', statisticsTag, '--title', statisticsTag, '--notes', releaseNotes])
+  run('gh', ['release', 'create', statisticsTag, '--title', statisticsTag, '--notes', releaseNotes, '--prerelease'])
 }
