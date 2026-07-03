@@ -46,6 +46,7 @@ import iconAttachFile from '../../assets/icon-attach-file.svg'
 import iconTitleMenu from '../../assets/icon-title-menu.svg'
 import sendIconActive from '../../assets/send-icon-active.svg'
 import sendIcon from '../../assets/send-icon.svg'
+import permissionIcon from '../../assets/permission-icon.svg'
 import analystAvatar from '../../assets/team/analyst.png'
 import developerAvatar from '../../assets/team/developer.png'
 import lifestyleAvatar from '../../assets/team/lifestyle.png'
@@ -66,7 +67,7 @@ import type {
 export type { ArtifactRef, FilePreviewData, LinkOpenBehavior } from './chat/types'
 import {
   createEmptyCollaborationState, createSyncAgentState, createEmptySessionState, createPersistentSessionId,
-  normalizeProjectContext, parseProjectContextJson, buildMessagePayload,
+  normalizeProjectContext, parseProjectContextJson, buildMessagePayload, stripProjectContextBlock,
   extractAttachments, normalizeSubagent, isSameSubagent, getModuleKey, parseJsonObject, isRecord,
   asStringArray, normalizeEventType, getToolEventName, getToolEventCallId,
   getToolCallEventContent, getToolResultEventContent, getToolDurationMs, getToolRenderHint,
@@ -81,7 +82,7 @@ import {
   findAttachableAssistantMessageIndex, compactMessagesForDisplay,
   extractFilePreviewData, parsePermissionRequestData, parsePermissionResultData, parseAskQuestionRequestData,
   parseAskQuestionResultData, parseStepDecisionRequestData, parseStepDecisionResultData, getConversationLabel,
-  getToolDisplayName, getPermissionOptionLabel, formatDurationMs, getToolRenderHintLabel, getToolResultSummary,
+  getToolDisplayName, formatDurationMs, getToolRenderHintLabel, getToolResultSummary,
   normalizeBrowserSession, extractBrowserSessionIDs,
   closeBrowserSessionIDs, upsertBrowserSession, selectBrowserSession,
   getToolErrorPresentation, getToolErrorColorClasses, extractErrorInfoFromMetadata, getTaskStatusLabel,
@@ -2999,7 +3000,13 @@ export function ChatPage() {
     })
   }, [sessionMap, sessions, dbSessions])
   const activeSessionMeta = displayedSessions.find((session) => session.key === activeSessionId)
-  const activeSessionPromptRaw = activeSessionMeta?.title || activeSessionMeta?.firstMsg || t('chat.newChat')
+  // 标题优先用首条用户消息「全文」（剥离附件/项目上下文块标记），这样横向拉宽能持续
+  // 显示更多内容，放不下的再单行省略；数据库 title 常被引擎截成第一句，故仅在没有本地
+  // 消息时才回退到它。
+  const activeFirstMsgClean = activeSessionMeta?.firstMsg
+    ? stripProjectContextBlock(extractAttachments(activeSessionMeta.firstMsg).content).trim()
+    : ''
+  const activeSessionPromptRaw = activeFirstMsgClean || activeSessionMeta?.title || t('chat.newChat')
   const activeSessionPrompt = activeSessionPromptRaw.replace(/\n/g, ' ').trim()
   const activeProjectContext = activeSessionId ? sessionProjectContexts[activeSessionId] : routeProjectContext
   const [isRenamingTitle, setIsRenamingTitle] = useState(false)
@@ -3137,6 +3144,20 @@ export function ChatPage() {
         attempts: typeof body.attempts === 'number' ? body.attempts : 0,
         allowRetry: body.allow_retry === true,
       }
+    }
+    return null
+  }, [pendingAssistantMessage])
+
+  // 授权(permission)与 step_decision 同属"必须用户回应的交互"，改为在输入框
+  // 上方以 banner 形式展示（而非对话流内），这里挑出当前回合尚未回应的授权请求。
+  const pendingPermission = useMemo(() => {
+    const tools = pendingAssistantMessage?.tools
+    if (!tools || tools.length === 0) return null
+    for (const tool of tools) {
+      if (tool.type !== 'permission') continue
+      const answered = tools.some((r) => r.type === 'permission_result' && r.callId === tool.callId)
+      if (answered) continue
+      return tool
     }
     return null
   }, [pendingAssistantMessage])
@@ -6134,6 +6155,18 @@ export function ChatPage() {
                   </div>
                 )}
 
+                {/* 授权卡：设计稿是卡片最底部藏到输入框后面（故上圆角、平底）。
+                    用负 margin 让下方输入框上移、盖住卡片下沿；输入框是 relative +
+                    不透明 bg-card，会自然覆盖非定位的卡片。18px 可按需微调。 */}
+                {pendingPermission && (
+                  <div className="-mb-[26px]">
+                    <PermissionRequestCard
+                      request={pendingPermission}
+                      onRespondPermission={respondPermission}
+                    />
+                  </div>
+                )}
+
                 <div
                   className={cn(
                     'chat-composer-shell relative overflow-hidden rounded-[28px] border bg-card shadow-[0_12px_36px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow]',
@@ -7193,14 +7226,8 @@ function MessageBubble({
                   }
                   // Permission, question, step_decision always show (user interaction needed)
                   if (item.kind === 'permission') {
-                    return (
-                      <PermissionRequestCard
-                        key={item.request.callId || `${i}-${itemIndex}`}
-                        request={item.request}
-                        result={item.result}
-                        onRespondPermission={onRespondPermission}
-                      />
-                    )
+                    // 授权改到输入框上方的 banner 展示，对话流内不再渲染。
+                    return null
                   }
                   if (item.kind === 'question') {
                     return (
@@ -7366,14 +7393,8 @@ function MessageBubble({
                           }
                           // Permission, question, step_decision always show
                           if (item.kind === 'permission') {
-                            return (
-                              <PermissionRequestCard
-                                key={item.request.callId || `sub-perm-${i}-${agentIdx}-${itemIndex}`}
-                                request={item.request}
-                                result={item.result}
-                                onRespondPermission={onRespondPermission}
-                              />
-                            )
+                            // 授权改到输入框上方的 banner 展示，对话流内不再渲染。
+                            return null
                           }
                           if (item.kind === 'question') {
                             return (
@@ -7841,15 +7862,8 @@ function AgentTeamPanel({
                     }
 
                     if (item.kind === 'permission') {
-                      return (
-                        <div key={itemKey} className="subagent-stream-item" data-live={itemIsLive ? 'true' : undefined}>
-                          <PermissionRequestCard
-                            request={item.request}
-                            result={item.result}
-                            onRespondPermission={onRespondPermission}
-                          />
-                        </div>
-                      )
+                      // 授权改到输入框上方的 banner 展示，对话流内不再渲染。
+                      return null
                     }
 
                     if (item.kind === 'question') {
@@ -8395,7 +8409,9 @@ function PermissionRequestCard({
   const contentId = useId()
   const requestData = parsePermissionRequestData(request.content)
   const resultData = result ? parsePermissionResultData(result.content) : null
-  const isResolved = !!resultData
+
+  // 授权完成后（用户已选择），对话中不再展示授权过程 —— 卡片直接消失。
+  if (resultData) return null
 
   const handleRespond = async (approved: boolean, scope: 'once' | 'session', label: string) => {
     if (!request.callId || submitting) return
@@ -8415,116 +8431,93 @@ function PermissionRequestCard({
         { label: t('chat.permissions.deny'), scope: 'once' as const, allow: false },
       ]
 
-  const resultLabel = resultData
-    ? resultData.approved
-      ? resultData.scope === 'session' ? t('chat.permissions.sessionAllowed') : t('chat.permissions.onceAllowed')
-      : t('chat.permissions.denied')
-    : t('chat.permissions.waiting')
+  const hasDetails = !!(requestData?.command || requestData?.toolInput)
+
+  // 详情文案：引擎消息若不含中文（多为英文样板），回退到本地化说明，保证中英各自成句。
+  const rawDetail = (requestData?.message || requestData?.description || '').trim()
+  const permissionDetail = /[一-鿿]/.test(rawDetail)
+    ? rawDetail
+    : requestData?.isReadOnly
+      ? t('chat.permissions.readOnlyDetail')
+      : t('chat.permissions.writeDetail')
 
   return (
-    <div className="mb-1.5">
-      <div className="overflow-hidden rounded-xl border border-amber-200/80 bg-amber-50/80 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
-        <div className="flex items-start gap-2 px-3 py-2">
-          {isResolved ? (
-            resultData?.approved ? (
-              <Check size={12} className="mt-0.5 flex-shrink-0 text-green-600" />
-            ) : (
-              <AlertCircle size={12} className="mt-0.5 flex-shrink-0 text-red-500" />
-            )
-          ) : (
-            <AlertCircle size={12} className="mt-0.5 flex-shrink-0 text-amber-600" />
+    <div>
+      {/* 容器规格参考设计稿：暖橙浅底 + 上圆角 + 12px 竖向间距，紧贴输入框顶部 */}
+      <div
+        className="flex flex-col gap-3 rounded-t-[18px] border border-[#DA9F67]/50 bg-[#DA9F67]/[0.08] px-3 pt-4 pb-[38px]"
+        style={{ fontFamily: 'Source Han Sans CN' }}
+      >
+        {/* 标题 + 详情为一组：组内 6px（详情 top:26 = 标题底 20 + 6px），与按钮组保持卡片的 12px 间距 */}
+        <div className="flex flex-col gap-1.5">
+        {/* 标题行 */}
+        <div className="flex items-center gap-1">
+          <img src={permissionIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className="flex-1 truncate text-[12px] font-medium leading-5 text-black/88">
+            {t('chat.permissions.needsConfirmation')}
+          </span>
+          {hasDetails && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-black/30 transition-colors hover:bg-black/5"
+              aria-label={expanded ? t('chat.permissions.collapseDetails') : t('chat.permissions.expandDetails')}
+              aria-expanded={expanded}
+              aria-controls={contentId}
+            >
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
           )}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="flex-1 truncate text-xs font-medium text-foreground">
-                {t('chat.permissions.needsConfirmation')}
-              </span>
-              <span className={cn(
-                'flex-shrink-0 text-[10px]',
-                isResolved
-                  ? resultData?.approved ? 'text-green-600' : 'text-red-500'
-                  : 'text-amber-700 dark:text-amber-300'
-              )}>
-                {resultLabel}
-              </span>
-            </div>
-            <div className="mt-1 rounded-lg border border-amber-200/70 bg-white/70 px-2.5 py-2 dark:border-amber-900/30 dark:bg-background/80">
-              {requestData?.command ? (
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-black/[0.04] px-2 py-1.5 text-[11px] font-mono text-foreground/90 dark:bg-white/[0.05]">
-                  {requestData.command}
-                </pre>
-              ) : (
-                <p className="line-clamp-3 break-all text-[11px] text-foreground/90">
-                  {requestData?.message || t('chat.permissions.defaultMessage')}
-                </p>
-              )}
-              {!requestData?.command && requestData?.description && (
-                <p className="mt-1 line-clamp-2 break-all text-[10px] text-muted-foreground">
-                  {requestData.description}
-                </p>
-              )}
-            </div>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span>{requestData?.isReadOnly ? t('chat.permissions.readOnly') : t('chat.permissions.modifiesEnv')}</span>
-              {request.name && <span>{getToolDisplayName(t, request.name)}</span>}
-            </div>
-            {!requestData?.command && requestData?.message && requestData.description && (
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {requestData.message}
-              </p>
-            )}
-
-            {!isResolved && (
-              <div className="mt-2 flex items-center gap-2">
-                {options.map((option) => (
-                  <button
-                    key={`${option.label}-${option.scope}-${String(option.allow)}`}
-                    onClick={() => void handleRespond(option.allow, option.scope, option.label)}
-                    disabled={!!submitting}
-                    className={cn(
-                      'min-h-11 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-                      option.allow
-                        ? option.scope === 'session'
-                          ? 'bg-blue-600 text-white hover:bg-blue-700'
-                          : 'bg-green-600 text-white hover:bg-green-700'
-                        : 'border border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:bg-[#191f2c] dark:text-red-300 dark:hover:bg-red-950/30'
-                    )}
-                  >
-                    {submitting === option.label ? t('chat.permissions.submitting') : getPermissionOptionLabel(t, option.label)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
-            aria-label={expanded ? t('chat.permissions.collapseDetails') : t('chat.permissions.expandDetails')}
-            aria-expanded={expanded}
-            aria-controls={contentId}
-          >
-            {expanded ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
-          </button>
         </div>
 
-        <div id={contentId} hidden={!expanded} className="space-y-2 border-t border-amber-200/70 px-3 py-2 dark:border-amber-900/30">
-          {requestData?.toolInput && (
-            <div>
-              <p className="mb-1 text-[10px] text-muted-foreground">{t('chat.permissions.detailsLabel')}</p>
-              <pre className="max-h-40 overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80">
+        {/* 授权详情 */}
+        <p className="whitespace-pre-wrap break-words text-[12px] font-normal leading-5 text-black/45">
+          {t('chat.permissions.detailPrefix')}
+          {permissionDetail}
+        </p>
+        </div>
+
+        {/* 展开：完整命令 / 参数 */}
+        {hasDetails && (
+          <div id={contentId} hidden={!expanded} className="space-y-2">
+            {requestData?.command && (
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-black/[0.04] px-2.5 py-2 text-[11px] font-mono text-black/70">
+                {requestData.command}
+              </pre>
+            )}
+            {requestData?.toolInput && (
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/[0.04] px-2.5 py-2 text-[11px] font-mono text-black/70">
                 {requestData.toolInput}
               </pre>
-            </div>
-          )}
-          {resultData?.message && (
-            <div>
-              <p className="mb-1 text-[10px] text-muted-foreground">{t('chat.permissions.resultLabel')}</p>
-              <pre className="overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80">
-                {resultData.message}
-              </pre>
-            </div>
-          )}
+            )}
+          </div>
+        )}
+
+        {/* 按钮：右下角对齐（严格按设计图）。文案按语义固定，忽略服务端原始标签
+            （如 "Always allow browser_agent in this session"）。允许=#21496B 文字按钮，
+            拒绝=#21496B 深色胶囊。 */}
+        <div className="flex items-center justify-end gap-3">
+          {options.map((option) => {
+            const optionLabel = !option.allow
+              ? t('chat.permissions.deny')
+              : option.scope === 'session'
+                ? t('chat.permissions.alwaysAllow')
+                : t('chat.permissions.allowOnce')
+            return (
+              <button
+                key={`${option.label}-${option.scope}-${String(option.allow)}`}
+                onClick={() => void handleRespond(option.allow, option.scope, option.label)}
+                disabled={!!submitting}
+                className={cn(
+                  'text-[12px] font-normal leading-5 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                  option.allow
+                    ? 'rounded-full bg-white px-1.5 py-px text-[#21496B] hover:bg-gray-50'
+                    : 'rounded-full bg-[#21496B] px-1.5 py-px text-white hover:bg-[#21496B]/90'
+                )}
+              >
+                {submitting === option.label ? t('chat.permissions.submitting') : optionLabel}
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>
@@ -8646,10 +8639,10 @@ function AskUserQuestionCard({
         {/* 浅灰面板 */}
         <div className="m-2 rounded-lg bg-[#F7F7F7] px-4 py-3">
           {/* 标题 + 问题文本 */}
-          <p className="text-[13px] font-medium text-black/88">
+          <p className="text-sm font-medium text-black/88">
             {t('chat.ask.choosePrompt')}
           </p>
-          <p className="mt-1.5 whitespace-pre-wrap break-words text-[12px] leading-5 text-black/45">
+          <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-black/45">
             {requestData?.question || t('chat.ask.defaultQuestion')}
           </p>
 
@@ -8672,7 +8665,7 @@ function AskUserQuestionCard({
                           disabled={optionDisabled}
                           className="flex w-full items-center justify-between py-2.5 text-left transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <span className="text-[12px] text-black/45">
+                          <span className="text-sm text-black/45">
                             {option.label}
                           </span>
                           {/* 右侧选中标记 */}
@@ -8707,7 +8700,7 @@ function AskUserQuestionCard({
                     onKeyDown={handleKeyDown}
                     disabled={submitting || selected.size > 0}
                     placeholder={t('chat.ask.otherPlaceholder')}
-                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] text-black/88 placeholder:text-black/15 focus:outline-none focus:ring-2 focus:ring-[#FF8F1F]/40 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-black/88 placeholder:text-black/15 focus:outline-none focus:ring-2 focus:ring-[#FF8F1F]/40 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                 </div>
               )}

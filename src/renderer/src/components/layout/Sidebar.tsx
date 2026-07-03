@@ -623,7 +623,9 @@ export function Sidebar() {
         aria-label={t('sidebar.mainNavigationAria')}
         style={expanded ? { width: `${sidebarWidth}px` } : undefined}
         className={cn(
-          'relative flex-shrink-0 bg-card border-r border-border flex flex-col pt-8 pb-3 select-none overflow-hidden',
+          'relative flex-shrink-0 bg-card flex flex-col pt-8 pb-3 select-none overflow-hidden',
+          // 主页侧边栏与右侧暖色背景直接相接，不要灰色竖分割线（设计稿）；其余页面保留。
+          location.pathname !== '/' && 'border-r border-border',
           !isResizing && 'transition-[width] duration-200',
           expanded ? 'items-start px-2' : 'w-[78px] items-center'
         )}

@@ -9,8 +9,9 @@ import { useTranslation } from 'react-i18next'
  * 暴露的 IPC 控制窗口。组件挂在 <AppLayout> 顶部右侧,所有页面共用。
  *
  * 图标取自设计稿(`前端设计图/首页/{最小化,放大,关闭}.svg`,14×14),
- * fill/stroke 改为 currentColor 以支持 hover 变色与深色模式自适应。最大化/
- * 全屏时中间按钮切换为「还原」图标(`前端设计图/UI走查/最大化框.svg`)。
+ * fill/stroke 改为 currentColor 以支持 hover 变色与深色模式自适应。中间按钮:
+ * 窗口态显示「最大化」图标(`前端设计图/UI走查/最大化框.svg`,单窗口框),
+ * 最大化/全屏态切换为「还原」图标(两个叠放窗口框)。
  */
 export function WindowControls() {
   const { t } = useTranslation()
@@ -29,7 +30,9 @@ export function WindowControls() {
 
   return (
     <div
-      className="titlebar-no-drag fixed right-4 top-4 z-50 flex items-center gap-3"
+      className={`titlebar-no-drag fixed z-50 flex items-center gap-3 ${
+        maximized ? 'right-4 top-4' : 'right-7 top-7'
+      }`}
     >
       <button
         type="button"
@@ -76,7 +79,8 @@ function MinimizeIcon() {
   )
 }
 
-function MaximizeIcon() {
+// 最大化/全屏态的「还原」图标:两个叠放的窗口方框。
+function RestoreIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <path
@@ -88,9 +92,9 @@ function MaximizeIcon() {
   )
 }
 
-// 最大化/全屏态的「还原」图标(设计稿 前端设计图/UI走查/最大化框.svg)。
+// 非最大化(窗口)态的「最大化」图标(设计稿 前端设计图/UI走查/最大化框.svg)。
 // 圆角窗口框 + 填充顶栏;stroke/fill 均用 currentColor,随按钮颜色/hover 变化。
-function RestoreIcon() {
+function MaximizeIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <rect
