@@ -94,11 +94,22 @@
     "fallbackEnabledDesc": "Automatic fallback chain when primary model is unavailable",
     "searchPlaceholder": "Search providers...",
     "noMatch": "No matching providers",
+    "add": "Add",
+    "addSupplier": "Add supplier",
+    "addSupplierTitle": "Add supplier",
+    "saveSupplier": "Save supplier",
+    "supplierSaved": "Supplier saved",
+    "supplierNameLabel": "Model provider",
+    "supplierNamePlaceholder": "e.g. openai, deepseek, xunfei",
+    "supplierNameRequired": "Enter an English provider",
+    "supplierNameInvalid": "Provider must start with an English letter and contain only letters, numbers, underscores, or hyphens",
+    "supplierSaveFailed": "Supplier save failed: {{detail}}",
     "select": "Please select...",
     "unrecognized": "Unrecognized node: {{name}}",
     "visitOfficialSite": "Visit Official Site",
     "protocols": {
       "openai": "OpenAI Protocol",
+      "openaiResponses": "OpenAI Responses API",
       "anthropic": "Anthropic Protocol",
       "gemini": "Gemini Protocol"
     },
@@ -117,7 +128,6 @@
     "apiBaseLabel": "API Base URL",
     "apiBaseInvalid": "Enter a valid URL, e.g. https://api.example.com",
     "protocolType": "Protocol Type",
-    "previewLabel": "Preview: ",
     "modelsLabel": "Models",
     "searchModels": "Search models...",
     "noModels": "No models yet. Refresh or add below.",
@@ -145,7 +155,6 @@
     "modelGroupHint": "Logical grouping name, optional",
     "modelGroupPlaceholder": "e.g. ChatGPT",
     "modelTagsLabel": "Capabilities (Tags)",
-    "goToAgents": "Configure Agent LLM Nodes",
     "hotReloadError": "{{label}} failed ({{detail}})",
     "hotReloadLabels": {
       "apiKey": "Credential Update",
@@ -1008,7 +1017,6 @@
     "back": "Back",
     "nav": {
       "settings": "Settings",
-      "connection": "Connection",
       "models": "Models",
       "agents": "Agents",
       "search": "Search",
@@ -1020,44 +1028,6 @@
       "ui": "UI Settings",
       "storage": "Storage",
       "updates": "Updates"
-    },
-    "connection": {
-      "title": "Connection Settings",
-      "subtitle": "Engine selection, Gateway connection, and heartbeat",
-      "agentFramework": {
-        "title": "Agent Engine",
-        "engine": "Current Engine",
-        "engineDesc": "Emma uses the existing HarnessClaw engine protocol; Codex uses the app-server stdio JSON-RPC protocol",
-        "emma": "Emma Engine",
-        "codex": "Codex Engine"
-      },
-      "gateway": {
-        "title": "Gateway Connection",
-        "host": "Listen Address",
-        "hostDesc": "The host address that the Gateway server binds to",
-        "port": "Port",
-        "portDesc": "Console API port, default is 8090",
-        "probe": "Test",
-        "probing": "Testing",
-        "connected": "Connected",
-        "failed": "Failed",
-        "probeFailed": "Unable to connect",
-        "requestFailed": "Test request failed",
-        "autoReconnect": "Auto Reconnect",
-        "autoReconnectDesc": "Automatically try to reconnect after connection is lost",
-        "reconnectInterval": "Reconnect Interval",
-        "reconnectIntervalDesc": "Wait time between each reconnection attempt",
-        "timeout": "Connection Timeout",
-        "timeoutDesc": "Maximum wait time to establish a connection"
-      },
-      "heartbeat": {
-        "title": "Heartbeat",
-        "enabled": "Heartbeat Check",
-        "enabledDesc": "Periodically send ping to keep connection active",
-        "interval": "Heartbeat Interval",
-        "intervalDesc": "Time interval between heartbeat packets"
-      },
-      "seconds": "s"
     },
     "auth": {
       "title": "Authentication Settings",
@@ -1131,6 +1101,10 @@
       "fallbackEnabledDesc": "Automatic fallback chain when primary model is unavailable",
       "searchPlaceholder": "Search providers...",
       "noMatch": "No matching providers",
+      "addSupplier": "Add supplier",
+      "addSupplierTitle": "Add supplier",
+      "saveSupplier": "Save supplier",
+      "supplierSaved": "Supplier saved",
       "visitOfficialSite": "Visit Official Site",
       "protocols": {
         "openai": "OpenAI Protocol",
@@ -1151,7 +1125,6 @@
       },
       "apiBaseLabel": "API Base URL",
       "protocolType": "Protocol Type",
-      "previewLabel": "Preview: ",
       "modelsLabel": "Models",
       "searchModels": "Search models...",
       "noModels": "No models yet. Refresh or add below.",
@@ -1179,7 +1152,6 @@
       "modelGroupHint": "Logical grouping name, optional",
       "modelGroupPlaceholder": "e.g. ChatGPT",
       "modelTagsLabel": "Capabilities (Tags)",
-      "goToAgents": "Configure Agent LLM Nodes",
       "hotReloadError": "{{label}} failed ({{detail}})",
       "hotReloadLabels": {
         "apiKey": "Credential Update",
@@ -1785,6 +1757,16 @@
       "clear": "Remove current project",
       "cancel": "Cancel",
       "create": "Create"
+    },
+    "modelSelector": {
+      "empty": "Select model",
+      "emptyState": "No saved models",
+      "manage": "Manage models"
+    },
+    "thinking": {
+      "title": "Thinking mode",
+      "on": "On",
+      "off": "Off"
     },
     "shortcutHint": "Enter to send, Shift + Enter for new line",
     "send": "Send",

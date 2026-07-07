@@ -23,6 +23,7 @@ export interface ProviderModelEntry {
 }
 
 export interface ProviderConfig {
+  displayName?: string
   apiKey: string
   apiBase: string | null
   model: string | null
@@ -254,8 +255,10 @@ export function buildAppProviderRaw(next: ProviderConfig): Record<string, unknow
   const apiKey = next.apiKey.trim()
   const apiBase = next.apiBase?.trim() || ''
   const model = next.model?.trim() || ''
+  const displayName = next.displayName?.trim() || ''
 
   return {
+    ...(displayName ? { displayName } : {}),
     apiKey,
     apiBase,
     model,

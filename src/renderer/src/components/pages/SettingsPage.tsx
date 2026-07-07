@@ -4,15 +4,15 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ProviderLogo } from '../common/ProviderLogo'
 import {
-  Wifi, Shield, Palette, HardDrive,
+  Shield, Palette, HardDrive,
   Eye, EyeOff, Loader2, Check, X,
   FolderOpen, Download, Trash2,
   Search, Cpu,
-  Bot, Radio, Wrench, FileText,
+  Bot, Wrench, FileText,
   Pause, Play, RotateCcw, AlertTriangle,
   ChevronDown, ChevronRight, ExternalLink,
   SlidersHorizontal, RefreshCw, Settings2,
-  Globe, Image, Film, Sun, GripVertical, Plus,
+  Globe, Image, Sun, GripVertical, Plus,
   ArrowLeft,
   // Keyboard = typing hint icon shown inside the hotkey-capture input
   // while we're waiting for the user to press a combination.
@@ -291,137 +291,6 @@ function SliderInput({
         className="w-24 h-1.5 accent-foreground cursor-pointer"
       />
       <span className="text-xs font-mono text-muted-foreground w-8 text-right">{value}</span>
-    </div>
-  )
-}
-
-// ─── Connection Section ─────────────────────────────────────────────────────
-
-function ConnectionSection() {
-  const { t } = useTranslation()
-  const { config, loading, updateConfig } = useEngineConfig()
-  const { config: appConfig, loading: appLoading, updateConfig: updateAppConfig } = useAppConfig()
-
-  const gw = (config?.gateway || {}) as { host?: string; port?: number; heartbeat?: { enabled?: boolean; intervalS?: number } }
-  const agentFramework = (appConfig?.agentFramework || {}) as { engine?: string }
-  const activeEngine = agentFramework.engine === 'codex' ? 'codex' : 'emma'
-  const host = gw.host ?? '0.0.0.0'
-  const port = gw.port ?? 8090
-  const hbEnabled = gw.heartbeat?.enabled ?? true
-  const hbInterval = gw.heartbeat?.intervalS ?? 1800
-
-  const [autoReconnect, setAutoReconnect] = useState(true)
-  const [reconnectInterval, setReconnectInterval] = useState(5)
-  const [connTimeout, setConnTimeout] = useState(10)
-  const [probeState, setProbeState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
-  const [probeError, setProbeError] = useState('')
-
-  const updateGateway = (patch: Record<string, unknown>) => {
-    const next = { ...gw, ...patch }
-    updateConfig({ gateway: next })
-    if (patch.port != null) {
-      void window.agentApi.setPort(patch.port as number)
-    }
-  }
-  const updateAgentFramework = (engine: string) => {
-    const nextAgentFramework = { ...agentFramework, engine }
-    updateAppConfig({ agentFramework: nextAgentFramework })
-    void window.appConfig.save({ ...(appConfig || {}), agentFramework: nextAgentFramework })
-  }
-
-  useEffect(() => {
-    void window.agentApi.setPort(port)
-  }, [])
-
-  const handleProbe = async () => {
-    setProbeState('testing')
-    setProbeError('')
-    try {
-      const result = await window.agentApi.probe(port)
-      if (result.ok) {
-        setProbeState('ok')
-      } else {
-        setProbeState('fail')
-        setProbeError(result.error || t('settings.connection.gateway.probeFailed'))
-      }
-    } catch {
-      setProbeState('fail')
-      setProbeError(t('settings.connection.gateway.requestFailed'))
-    }
-    setTimeout(() => setProbeState('idle'), 4000)
-  }
-
-  if (loading || appLoading) {
-    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
-  }
-
-  return (
-    <div>
-      <SectionHeader icon={Wifi} title={t('settings.connection.title')} subtitle={t('settings.connection.subtitle')} />
-      <GroupCard title={t('settings.connection.agentFramework.title')}>
-        <SettingRow label={t('settings.connection.agentFramework.engine')} description={t('settings.connection.agentFramework.engineDesc')}>
-          <Segment
-            value={activeEngine}
-            onChange={updateAgentFramework}
-            options={[
-              { label: t('settings.connection.agentFramework.emma'), value: 'emma' },
-              { label: t('settings.connection.agentFramework.codex'), value: 'codex' },
-            ]}
-          />
-        </SettingRow>
-      </GroupCard>
-
-      <GroupCard title={t('settings.connection.gateway.title')}>
-        <SettingRow label={t('settings.connection.gateway.host')} description={t('settings.connection.gateway.hostDesc')}>
-          <TextInput value={host} onChange={(v) => updateGateway({ host: v })} placeholder="0.0.0.0" className="w-40" mono />
-        </SettingRow>
-        <SettingRow label={t('settings.connection.gateway.port')} description={t('settings.connection.gateway.portDesc')}>
-          <div className="flex items-center gap-2">
-            <NumberInput value={port} onChange={(v) => updateGateway({ port: v })} min={1} max={65535} className="w-20" />
-            <button
-              onClick={() => void handleProbe()}
-              disabled={probeState === 'testing'}
-              className={cn(
-                'inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
-                probeState === 'ok'
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400'
-                  : probeState === 'fail'
-                    ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400'
-                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
-                probeState === 'testing' && 'cursor-not-allowed opacity-70',
-              )}
-            >
-              {probeState === 'testing' ? (
-                <><Loader2 size={12} className="animate-spin" /> {t('settings.connection.gateway.probing')}</>
-              ) : probeState === 'ok' ? (
-                <><Check size={12} /> {t('settings.connection.gateway.connected')}</>
-              ) : probeState === 'fail' ? (
-                <><X size={12} /> {probeError || t('settings.connection.gateway.failed')}</>
-              ) : (
-                <><Radio size={12} /> {t('settings.connection.gateway.probe')}</>
-              )}
-            </button>
-          </div>
-        </SettingRow>
-        <SettingRow label={t('settings.connection.gateway.autoReconnect')} description={t('settings.connection.gateway.autoReconnectDesc')}>
-          <Toggle checked={autoReconnect} onChange={setAutoReconnect} />
-        </SettingRow>
-        <SettingRow label={t('settings.connection.gateway.reconnectInterval')} description={t('settings.connection.gateway.reconnectIntervalDesc')}>
-          <NumberInput value={reconnectInterval} onChange={setReconnectInterval} suffix={t('settings.connection.seconds')} min={1} max={60} disabled={!autoReconnect} />
-        </SettingRow>
-        <SettingRow label={t('settings.connection.gateway.timeout')} description={t('settings.connection.gateway.timeoutDesc')}>
-          <NumberInput value={connTimeout} onChange={setConnTimeout} suffix={t('settings.connection.seconds')} min={3} max={60} />
-        </SettingRow>
-      </GroupCard>
-
-      <GroupCard title={t('settings.connection.heartbeat.title')}>
-        <SettingRow label={t('settings.connection.heartbeat.enabled')} description={t('settings.connection.heartbeat.enabledDesc')}>
-          <Toggle checked={hbEnabled} onChange={(v) => updateGateway({ heartbeat: { ...gw.heartbeat, enabled: v } })} />
-        </SettingRow>
-        <SettingRow label={t('settings.connection.heartbeat.interval')} description={t('settings.connection.heartbeat.intervalDesc')}>
-          <NumberInput value={hbInterval} onChange={(v) => updateGateway({ heartbeat: { ...gw.heartbeat, intervalS: v } })} suffix={t('settings.connection.seconds')} min={10} max={7200} disabled={!hbEnabled} />
-        </SettingRow>
-      </GroupCard>
     </div>
   )
 }
@@ -1955,6 +1824,33 @@ function getDisplayName(key: ManagedProviderKey): string {
   return PROVIDER_DISPLAY_NAMES[key]
 }
 
+function sanitizeProviderKeyInput(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, '')
+}
+
+function isValidProviderKey(value: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9_-]*$/.test(value)
+}
+
+function getProviderDisplayName(key: ManagedProviderKey, config?: ProviderConfig): string {
+  if (key === 'custom') {
+    const displayName = config?.displayName?.trim()
+    if (displayName) return displayName
+  }
+  return getDisplayName(key)
+}
+
+function hasSavedCustomProvider(config: ProviderConfig): boolean {
+  return Boolean(
+    config.displayName?.trim()
+    || config.apiKey.trim()
+    || config.apiBase?.trim()
+    || config.model?.trim()
+    || config.models.length > 0
+    || config.enabled
+  )
+}
+
 // Friendly labels for image/video provider keys (cfg.ImageGen / cfg.VideoGen).
 // Unknown keys fall back to the raw key so user-added providers still render.
 const MEDIA_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
@@ -2032,16 +1928,6 @@ const PROVIDER_MODELS_PAGES: Record<ManagedProviderKey, string> = {
   deepseek: 'https://api-docs.deepseek.com/quick_start/pricing',
   doubao: 'https://www.volcengine.com/docs/82379/1824692',
   custom: '',
-}
-
-function getApiPathSuffix(protocol: 'openai' | 'anthropic' | 'gemini'): string {
-  if (protocol === 'anthropic') return '/v1/messages'
-  if (protocol === 'gemini') return '/v1beta/models'
-  return '/v1/chat/completions'
-}
-
-function buildApiTargetUrl(baseUrl: string, suffix: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}${suffix}`
 }
 
 // Validate an API base URL. Empty is allowed (renderer falls back to
@@ -2710,6 +2596,11 @@ function normalizeProviderConfig(rawValue: unknown): ProviderConfig {
       : undefined
 
   return {
+    displayName: typeof raw.displayName === 'string'
+      ? raw.displayName
+      : typeof raw.display_name === 'string'
+        ? raw.display_name
+        : undefined,
     apiKey: typeof raw.apiKey === 'string'
       ? raw.apiKey
       : typeof raw.api_key === 'string'
@@ -2866,14 +2757,7 @@ function hasPersistedModelProviders(appConfig: Record<string, unknown>): boolean
 
 // ─── Model Section ──────────────────────────────────────────────────────────
 
-function ModelSection({
-  onNavigateToAgents,
-}: {
-  // Settings-page navigation callback. Switches to the Agent settings
-  // section and pulses the 主 Provider dropdown so the user lands on
-  // the next decision: which enabled provider drives the agent.
-  onNavigateToAgents?: () => void
-}) {
+function ModelSection() {
   const { t } = useTranslation()
   const [appConfig, setAppConfig] = useState<Record<string, unknown> | null>(null)
   const [providers, setProviders] = useState<Record<ManagedProviderKey, ProviderConfig>>(() =>
@@ -2882,21 +2766,9 @@ function ModelSection({
       return acc
     }, {} as Record<ManagedProviderKey, ProviderConfig>)
   )
-  const [defaultProvider, setDefaultProvider] = useState<ManagedProviderKey>('anthropic')
-  const [selectedProvider, setSelectedProvider] = useState<ManagedProviderKey>('anthropic')
-  // Minimal-risk polymorphic selection: the existing text-provider logic
-  // keeps using the string `selectedProvider` untouched. A separate
-  // `selectedKind` + `selectedExtraKey` overlays the image/video segments:
-  // when kind !== 'text', the right pane renders the corresponding
-  // per-provider section instead of the text-provider card. Clicking any
-  // text provider resets kind back to 'text'.
-  const [selectedKind, setSelectedKind] = useState<'text' | 'image' | 'video'>('text')
-  const [selectedExtraKey, setSelectedExtraKey] = useState<string>('')
-  // Provider keys for the image/video config trees, hydrated on mount from
-  // the imagegen/videogen management listings (default config ships
-  // `openai` image + `doubao` video, so these are normally non-empty).
-  const [imageProviderKeys, setImageProviderKeys] = useState<string[]>([])
-  const [videoProviderKeys, setVideoProviderKeys] = useState<string[]>([])
+  const [defaultProvider, setDefaultProvider] = useState<ManagedProviderKey>('xunfei')
+  const [selectedProvider, setSelectedProvider] = useState<ManagedProviderKey>('xunfei')
+  const [isAddingSupplier, setIsAddingSupplier] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -3029,7 +2901,7 @@ function ModelSection({
           window.appConfig.read(),
         ])
         const nextProviders = getManagedProviders(engineData, appData)
-        const nextDefaultProvider = getManagedDefaultProvider(engineData, appData)
+        const nextDefaultProvider: ManagedProviderKey = 'xunfei'
 
         // Multi-enable bootstrap: if no provider is marked enabled (e.g.,
         // a config saved before multi-select existed), seed the
@@ -3055,44 +2927,12 @@ function ModelSection({
         setAppConfig(normalizedAppConfig)
         setProviders(nextProviders)
         setDefaultProvider(nextDefaultProvider)
-        // Keep the current default provider selected, including `custom`.
-        // This matters for first-run onboarding: when the user configures a
-        // custom endpoint there, Models should open on that same provider so
-        // the just-saved model is immediately visible.
-        setSelectedProvider(nextDefaultProvider)
+        setSelectedProvider('xunfei')
       } catch {
         setPersistState('error')
         setPersistMessage(t('models.persist.readFailed'))
       } finally {
         setLoading(false)
-      }
-    })()
-  }, [])
-
-  // Load the image/video provider key lists for the left-rail segments.
-  // Independent of the text-provider load above — failures just leave the
-  // segment empty (a muted hint is shown). The default config ships an
-  // `openai` image provider + a `doubao` video provider, so these are
-  // normally populated.
-  useEffect(() => {
-    void (async () => {
-      const [imgRes, vidRes] = await Promise.all([
-        window.agentApi.listImageProviders(),
-        window.agentApi.listVideoProviders(),
-      ])
-      if (imgRes.ok) {
-        setImageProviderKeys(
-          Array.from(new Set([...IMAGE_BUILTIN_PROVIDERS, ...Object.keys(imgRes.data?.providers ?? {})])),
-        )
-      } else {
-        setImageProviderKeys([...IMAGE_BUILTIN_PROVIDERS])
-      }
-      if (vidRes.ok) {
-        setVideoProviderKeys(
-          Array.from(new Set([...VIDEO_BUILTIN_PROVIDERS, ...Object.keys(vidRes.data?.providers ?? {})])),
-        )
-      } else {
-        setVideoProviderKeys([...VIDEO_BUILTIN_PROVIDERS])
       }
     })()
   }, [])
@@ -3247,11 +3087,48 @@ function ModelSection({
     })()
   }, [loading, appConfig, defaultProvider])
 
+  const syncCodexModelProvider = useCallback(
+    async (
+      key: ManagedProviderKey,
+      config: ProviderConfig,
+    ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> => {
+      const provider = key === 'custom' ? config.displayName?.trim() || '' : key
+      if (!provider) return { ok: true, skipped: true }
+      if (!isValidProviderKey(provider)) return { ok: true, skipped: true }
+
+      const modelId = config.model?.trim()
+        || config.models.find((model) => model.enabled)?.id.trim()
+        || config.models[0]?.id.trim()
+        || ''
+      const baseUrl = config.apiBase?.trim() || PROVIDER_DEFAULT_BASES[key] || ''
+      const token = config.apiKey.trim()
+      if (!modelId || !baseUrl || !token) return { ok: true, skipped: true }
+
+      const dbResult = await window.db.saveModelProviderSelection({ provider, modelId })
+      if (!dbResult.ok) {
+        return { ok: false, error: dbResult.error || 'database' }
+      }
+
+      const codexConfigResult = await window.appConfig.saveCodexModelProvider({
+        provider,
+        baseUrl,
+        token,
+      })
+      if (!codexConfigResult.ok) {
+        return { ok: false, error: codexConfigResult.error || 'config.toml' }
+      }
+
+      return { ok: true }
+    },
+    [],
+  )
+
   // Persist only the renderer-side UI state (appConfig). The engine YAML
   // is owned by the Providers Management API — every mutation goes
   // through the HTTP endpoints (PATCH /providers, POST/PATCH/DELETE
   // /endpoints, PUT /fallback-chain), and the engine writes its own
-  // yaml on success. We no longer call `engineConfig.save` here.
+  // yaml on success. Codex config is synced after the local app config
+  // save succeeds so the home-page model picker sees the same selection.
   const queuePersist = useCallback(
     (
       nextProviders: Record<ManagedProviderKey, ProviderConfig>,
@@ -3272,11 +3149,20 @@ function ModelSection({
           return
         }
 
+        for (const key of ['xunfei', 'custom'] as ManagedProviderKey[]) {
+          const syncResult = await syncCodexModelProvider(key, nextProviders[key])
+          if (!syncResult.ok) {
+            setPersistState('error')
+            setPersistMessage(t('models.supplierSaveFailed', { detail: syncResult.error || 'config.toml' }))
+            return
+          }
+        }
+
         setAppConfig(nextAppConfig)
         setPersistState('saved')
       }, 500)
     },
-    [appConfig]
+    [appConfig, syncCodexModelProvider, t]
   )
 
   // ─── Providers Management API helpers ───────────────────────────────
@@ -3655,6 +3541,7 @@ function ModelSection({
 
   useEffect(() => {
     if (loading) return
+    if (isAddingSupplier) return
     if (modelFetchState === 'loading') return
     if (autoRefreshedRef.current.has(selectedProvider)) return
     const currentModels = providers[selectedProvider]?.models
@@ -3665,7 +3552,7 @@ function ModelSection({
     // when navigating Models tab away & back triggers a fresh mount).
     void handleFetchModels({ autoRefresh: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, selectedProvider, providers])
+  }, [isAddingSupplier, loading, selectedProvider, providers])
 
   const updateProvider = (key: ManagedProviderKey, patch: Partial<ProviderConfig>) => {
     setProviders((prev) => {
@@ -3683,6 +3570,25 @@ function ModelSection({
     })
   }
 
+  const updateSelectedProvider = (patch: Partial<ProviderConfig>) => {
+    if (!isAddingSupplier) {
+      updateProvider(selectedProvider, patch)
+      return
+    }
+
+    setProviders((prev) => {
+      const current = prev.custom
+      const next = { ...current, ...patch }
+      return {
+        ...prev,
+        custom: {
+          ...next,
+          raw: buildAppProviderRaw(next),
+        },
+      }
+    })
+  }
+
   // Validate a provider before enabling it. Returns the missing-field
   // diagnostic (or null when ready). Fields are checked in priority
   // order: API 密钥 > API 地址 > 模型. The `field` is used by the UI to
@@ -3691,7 +3597,7 @@ function ModelSection({
     key: ManagedProviderKey,
   ): { message: string; field: 'apiKey' | 'apiBase' | 'models' } | null => {
     const provider = providers[key]
-    const display = getDisplayName(key)
+    const display = getProviderDisplayName(key, provider)
     if (!provider.apiKey.trim()) {
       return { message: t('models.validation.missingKey', { name: display }), field: 'apiKey' }
     }
@@ -4028,7 +3934,7 @@ function ModelSection({
     }
 
     const currentProvider = providers[targetProvider]
-    const displayName = getDisplayName(targetProvider)
+    const displayName = getProviderDisplayName(targetProvider, currentProvider)
     if (!currentProvider.apiKey.trim()) {
       setToastNotice({ tone: 'error', message: t('models.validation.missingKey', { name: displayName }) })
       return
@@ -4170,7 +4076,9 @@ function ModelSection({
             raw: buildAppProviderRaw({ ...current, models: merged }),
           },
         }
-        queuePersist(updated, defaultProvider)
+        if (!isAddingSupplier) {
+          queuePersist(updated, defaultProvider)
+        }
         return updated
       })
 
@@ -4228,7 +4136,7 @@ function ModelSection({
       // was never enabled. model_type combines visible chip selections
       // with any hidden tokens (pdf/audio/video) hydrated from the
       // endpoint snapshot so a yaml-only token survives.
-      if (previousEntry?.enabled) {
+      if (!isAddingSupplier && previousEntry?.enabled) {
         const visible = addModelTags.filter((t) => VISIBLE_MODEL_TYPE_TOKENS.has(t))
         const modelType = [...visible, ...hiddenModelTypeTokens]
         const groupValue = addModelGroup.trim()
@@ -4255,7 +4163,7 @@ function ModelSection({
       inputPrice: addModelInputPrice,
       outputPrice: addModelOutputPrice,
     })
-    updateProvider(selectedProvider, { models: [...current, entry] })
+    updateSelectedProvider({ models: [...current, entry] })
     // New models default to disabled — no endpoint hot-create until the
     // user clicks the checkmark toggle (see handleToggleModelEnabled).
     closeAddModal()
@@ -4305,14 +4213,14 @@ function ModelSection({
     if (providers[selectedProvider].model === id) {
       patch.model = next[0]?.id ?? null
     }
-    updateProvider(selectedProvider, patch)
+    updateSelectedProvider(patch)
     // Tombstone so an in-flight handleFetchModels (auto-refresh on
     // tab entry) doesn't revive this id from the registry.
     rememberDeletion(selectedProvider, id)
     // 🗑 真删：DELETE engine-side endpoint. The engine auto-removes
     // the entry from the fallback chain. Only call when the model
     // was previously enabled (engine actually has it).
-    if (previousEntry?.enabled) {
+    if (!isAddingSupplier && previousEntry?.enabled) {
       void hotDeleteEndpoint(selectedProvider, id)
     }
   }
@@ -4322,7 +4230,7 @@ function ModelSection({
   }
 
   const handleSelectModel = (id: string) => {
-    updateProvider(selectedProvider, { model: id || null })
+    updateSelectedProvider({ model: id || null })
   }
 
   // Multi-select: each model entry has its own `enabled` flag. Toggling
@@ -4358,6 +4266,11 @@ function ModelSection({
       patch.model = nextActive ? nextActive.id : null
     }
 
+    if (isAddingSupplier) {
+      updateSelectedProvider(patch)
+      return
+    }
+
     updateProvider(selectedProvider, patch)
 
     // Skip engine sync when the provider itself isn't enabled yet.
@@ -4378,7 +4291,7 @@ function ModelSection({
         setToastNotice({
           tone: 'success',
           message: t('models.validation.providerDisabledModelSaved', {
-            name: getDisplayName(selectedProvider),
+            name: getProviderDisplayName(selectedProvider, current),
           }),
         })
       }
@@ -4420,35 +4333,81 @@ function ModelSection({
     setAdvancedOpen(false)
   }
 
-  const selected = providers[selectedProvider]
-  const selectedApiPathSuffix = getApiPathSuffix(getEffectiveEngineType(selectedProvider, selected))
-  const selectedBaseUrl = selected.apiBase?.trim() || PROVIDER_DEFAULT_BASES[selectedProvider] || ''
-  const selectedApiTargetUrl = buildApiTargetUrl(selectedBaseUrl, selectedApiPathSuffix)
-  const showCustomProvider = selectedProvider === 'custom'
-    || defaultProvider === 'custom'
-    || Boolean(
-      providers.custom.apiKey.trim()
-      || providers.custom.apiBase?.trim()
-      || providers.custom.model?.trim()
-      || providers.custom.models.length > 0
-    )
-  const providerKeys = MANAGED_PROVIDER_KEYS.filter((key) => {
-    // Image-generation providers (doubao/Doubao Seedream, gpt-image) are not
-    // chat models — they belong to the 图片生成 segment, not 对话模型.
-    if (!isAgentProviderKey(key)) return false
-    if (key === selectedProvider) return true
-    if (key === 'custom' && !showCustomProvider) return false
-    if (!searchQuery) return true
-    const q = searchQuery.toLowerCase()
-    return key.toLowerCase().includes(q) || getDisplayName(key).toLowerCase().includes(q)
-  })
+  const handleSaveSupplier = async () => {
+    const current = providers.custom
+    const providerName = current.displayName?.trim() || ''
+    if (!providerName) {
+      setToastNotice({ tone: 'error', message: t('models.supplierNameRequired') })
+      return
+    }
+    if (!isValidProviderKey(providerName)) {
+      setToastNotice({ tone: 'error', message: t('models.supplierNameInvalid') })
+      return
+    }
+    if (!current.apiKey.trim()) {
+      setToastNotice({ tone: 'error', message: t('models.validation.missingKey', { name: t('models.addSupplierTitle') }) })
+      setFlashField('apiKey')
+      return
+    }
+    if (!current.apiBase?.trim()) {
+      setToastNotice({ tone: 'error', message: t('models.validation.missingBase', { name: t('models.addSupplierTitle') }) })
+      setFlashField('apiBase')
+      return
+    }
+    if (current.models.length === 0) {
+      setToastNotice({ tone: 'error', message: t('models.validation.noModels', { name: t('models.addSupplierTitle') }) })
+      setFlashField('models')
+      return
+    }
 
-  // Show the "去配置 Agent LLM 节点" affordance only when the
-  // currently-viewed provider is enabled — the prompt is contextual
-  // to the row the user is editing, not the global enabled set.
-  const selectedProviderEnabled = Boolean(
-    providers[selectedProvider]?.enabled && isAgentProviderKey(selectedProvider)
-  )
+    const hasEnabledModel = current.models.some((model) => model.enabled)
+    const models = hasEnabledModel
+      ? current.models
+      : current.models.map((model, index) => index === 0 ? { ...model, enabled: true } : model)
+    const activeModel = current.model || models.find((model) => model.enabled)?.id || models[0]?.id || null
+    if (!activeModel?.trim()) {
+      setToastNotice({ tone: 'error', message: t('models.validation.noModels', { name: t('models.addSupplierTitle') }) })
+      setFlashField('models')
+      return
+    }
+    const nextCustom: ProviderConfig = {
+      ...current,
+      displayName: providerName,
+      enabled: true,
+      protocol: 'openai',
+      engineType: 'openai',
+      model: activeModel,
+      models,
+    }
+    const syncResult = await syncCodexModelProvider('custom', nextCustom)
+    if (!syncResult.ok) {
+      setToastNotice({ tone: 'error', message: t('models.supplierSaveFailed', { detail: syncResult.error || 'config.toml' }) })
+      return
+    }
+
+    const updated: Record<ManagedProviderKey, ProviderConfig> = {
+      ...providers,
+      custom: {
+        ...nextCustom,
+        raw: buildAppProviderRaw(nextCustom),
+      },
+    }
+    setProviders(updated)
+    queuePersist(updated, defaultProvider)
+    setIsAddingSupplier(false)
+    setSelectedProvider('custom')
+    setToastNotice({ tone: 'success', message: t('models.supplierSaved') })
+  }
+
+  const selected = providers[selectedProvider]
+  const query = searchQuery.trim().toLowerCase()
+  const showCustomProvider = selectedProvider === 'custom' || hasSavedCustomProvider(providers.custom)
+  const availableProviderKeys: ManagedProviderKey[] = showCustomProvider ? ['xunfei', 'custom'] : ['xunfei']
+  const providerKeys: ManagedProviderKey[] = availableProviderKeys.filter((key) => {
+    if (!query) return true
+    const displayName = getProviderDisplayName(key, providers[key]).toLowerCase()
+    return key.toLowerCase().includes(query) || displayName.includes(query)
+  })
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
@@ -4474,15 +4433,15 @@ function ModelSection({
           {/* ── 对话模型 (text / LLM providers) ── */}
           <SectionDivider label="对话模型" />
           {providerKeys.map((key) => {
-            const isActive = selectedKind === 'text' && key === selectedProvider
+            const isActive = key === selectedProvider
             const isEnabled = Boolean(providers[key]?.enabled)
 
             return (
               <button
                 key={key}
                 onClick={() => {
-                  setSelectedKind('text')
                   setSelectedProvider(key)
+                  setIsAddingSupplier(false)
                   setShowApiKey(false)
                   setTestState('idle')
                   setModelSearchVisible(false)
@@ -4497,7 +4456,7 @@ function ModelSection({
                 <ProviderLogo provider={key} size={28} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{getDisplayName(key)}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{getProviderDisplayName(key, providers[key])}</span>
                     {isEnabled && (
                       <span className="text-[10px] font-semibold text-status-connected bg-status-connected/15 px-1.5 py-0.5 rounded-full flex-shrink-0">
                         ON
@@ -4517,67 +4476,40 @@ function ModelSection({
             </div>
           )}
 
-          {/* ── 图片生成 (image providers) ── */}
-          <SectionDivider label="图片生成" />
-          {imageProviderKeys.map((key) => {
-            const isActive = selectedKind === 'image' && key === selectedExtraKey
-            return (
-              <button
-                key={`image:${key}`}
-                onClick={() => {
-                  setSelectedKind('image')
-                  setSelectedExtraKey(key)
-                }}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
-                  isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
-                )}
-              >
-                <MediaProviderIcon
-                  providerKey={key}
-                  size={28}
-                  fallback={<Image size={28} className="text-muted-foreground" />}
-                />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
-              </button>
-            )
-          })}
-          {imageProviderKeys.length === 0 && (
-            <p className="px-2.5 py-2 text-xs text-muted-foreground">
-              在 config 里添加 imagegen provider 后显示
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              const blank: ProviderConfig = {
+                ...createEmptyProviderConfig('custom'),
+                protocol: 'openai',
+                engineType: 'openai',
+              }
+              setProviders((prev) => ({
+                ...prev,
+                custom: {
+                  ...blank,
+                  raw: buildAppProviderRaw(blank),
+                },
+              }))
+              setSelectedProvider('custom')
+              setIsAddingSupplier(true)
+              setShowApiKey(false)
+              setTestState('idle')
+              setModelSearchVisible(false)
+              setModelSearchQuery('')
+              setAddModelOpen(false)
+            }}
+            className={cn(
+              'mt-1 w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors',
+              isAddingSupplier ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            )}
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-md border border-dashed border-border bg-background">
+              <Plus size={15} />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{t('models.addSupplier')}</span>
+          </button>
 
-          {/* ── 视频生成 (video providers) ── */}
-          <SectionDivider label="视频生成" />
-          {videoProviderKeys.map((key) => {
-            const isActive = selectedKind === 'video' && key === selectedExtraKey
-            return (
-              <button
-                key={`video:${key}`}
-                onClick={() => {
-                  setSelectedKind('video')
-                  setSelectedExtraKey(key)
-                }}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors mb-0.5',
-                  isActive ? 'bg-accent text-foreground' : 'text-foreground hover:bg-accent/50'
-                )}
-              >
-                <MediaProviderIcon
-                  providerKey={key}
-                  size={28}
-                  fallback={<Film size={28} className="text-muted-foreground" />}
-                />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{mediaProviderDisplayName(key)}</span>
-              </button>
-            )
-          })}
-          {videoProviderKeys.length === 0 && (
-            <p className="px-2.5 py-2 text-xs text-muted-foreground">
-              在 config 里添加 videogen provider 后显示
-            </p>
-          )}
         </div>
       </div>
 
@@ -4594,22 +4526,15 @@ function ModelSection({
             </div>
           )}
 
-          {selectedKind === 'image' && (
-            <ImageModelSection providerName={selectedExtraKey} />
-          )}
-
-          {selectedKind === 'video' && (
-            <VideoModelSection providerName={selectedExtraKey} />
-          )}
-
-          {selectedKind === 'text' && (
           <div className="rounded-2xl border border-border bg-card shadow-sm">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-border">
               <div className="flex items-center gap-2.5">
                 <ProviderLogo provider={selectedProvider} size={28} />
-                <h2 className="text-lg font-semibold text-foreground">{getDisplayName(selectedProvider)}</h2>
-                {PROVIDER_DOCS_PAGES[selectedProvider] && (
+                <h2 className="text-lg font-semibold text-foreground">
+                  {isAddingSupplier ? t('models.addSupplierTitle') : getProviderDisplayName(selectedProvider, selected)}
+                </h2>
+                {!isAddingSupplier && PROVIDER_DOCS_PAGES[selectedProvider] && (
                   <button
                     type="button"
                     onClick={() => window.appRuntime?.openExternal?.(PROVIDER_DOCS_PAGES[selectedProvider])}
@@ -4620,10 +4545,6 @@ function ModelSection({
                   </button>
                 )}
               </div>
-              <Toggle
-                checked={Boolean(selected.enabled)}
-                onChange={(checked) => handleToggleProviderEnabled(selectedProvider, checked)}
-              />
             </div>
 
             <div className="px-6 py-5 space-y-6">
@@ -4633,13 +4554,27 @@ function ModelSection({
                     <p className="text-sm font-medium text-foreground">{t('models.protocolLabel')}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{t('models.protocolDesc')}</p>
                   </div>
-                  <Segment
-                    value={selected.protocol}
-                    onChange={(value) => updateProvider(selectedProvider, { protocol: value as ProviderConfig['protocol'] })}
-                    options={[
-                      { label: t('models.protocols.openai'), value: 'openai' },
-                      { label: t('models.protocols.anthropic'), value: 'anthropic' },
-                    ]}
+                  <span className="inline-flex h-8 items-center rounded-md border border-border bg-muted px-3 text-sm font-medium text-foreground">
+                    {t('models.protocols.openaiResponses')}
+                  </span>
+                </div>
+              )}
+
+              {isAddingSupplier && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-foreground">{t('models.supplierNameLabel')}</p>
+                  </div>
+                  <input
+                    type="text"
+                    value={selected.displayName || ''}
+                    onChange={(e) => updateSelectedProvider({ displayName: sanitizeProviderKeyInput(e.target.value) })}
+                    placeholder={t('models.supplierNamePlaceholder')}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    pattern="[A-Za-z][A-Za-z0-9_-]*"
+                    className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                   />
                 </div>
               )}
@@ -4655,8 +4590,10 @@ function ModelSection({
                     type={showApiKey ? 'text' : 'password'}
                     value={selected.apiKey}
                     onChange={(e) => {
-                      updateProvider(selectedProvider, { apiKey: e.target.value })
-                      schedulePatchProviderCredentials(selectedProvider)
+                      updateSelectedProvider({ apiKey: e.target.value })
+                      if (!isAddingSupplier) {
+                        schedulePatchProviderCredentials(selectedProvider)
+                      }
                     }}
                     placeholder={t('models.apiKeyPlaceholder')}
                     className={cn(
@@ -4712,23 +4649,26 @@ function ModelSection({
                       the three protocol options (openai / anthropic /
                       gemini). Selecting one PATCHes /providers/{p}.
                     */}
-                    <button
-                      type="button"
-                      onClick={() => setEngineTypePopupOpen((v) => !v)}
-                      title={t('models.protocolType')}
-                      className={cn(
-                        'inline-flex h-5 items-center rounded-full border px-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors',
-                        getEffectiveEngineType(selectedProvider, selected) === 'openai'
-                          && 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600',
-                        getEffectiveEngineType(selectedProvider, selected) === 'anthropic'
-                          && 'border-amber-500/40 bg-amber-500/10 text-amber-600',
-                        getEffectiveEngineType(selectedProvider, selected) === 'gemini'
-                          && 'border-sky-500/40 bg-sky-500/10 text-sky-600',
-                      )}
-                    >
-                      {getEffectiveEngineType(selectedProvider, selected)}
-                    </button>
+                    {!isAddingSupplier && (
+                      <button
+                        type="button"
+                        onClick={() => setEngineTypePopupOpen((v) => !v)}
+                        title={t('models.protocolType')}
+                        className={cn(
+                          'inline-flex h-5 items-center rounded-full border px-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors',
+                          getEffectiveEngineType(selectedProvider, selected) === 'openai'
+                            && 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600',
+                          getEffectiveEngineType(selectedProvider, selected) === 'anthropic'
+                            && 'border-amber-500/40 bg-amber-500/10 text-amber-600',
+                          getEffectiveEngineType(selectedProvider, selected) === 'gemini'
+                            && 'border-sky-500/40 bg-sky-500/10 text-sky-600',
+                        )}
+                      >
+                        {getEffectiveEngineType(selectedProvider, selected)}
+                      </button>
+                    )}
                   </div>
+                  {!isAddingSupplier && (
                   <div className="relative" ref={engineTypePopupRef}>
                     <button
                       type="button"
@@ -4751,7 +4691,14 @@ function ModelSection({
                               type="button"
                               onClick={() => {
                                 setEngineTypePopupOpen(false)
-                                void applyEngineType(selectedProvider, t)
+                                if (isAddingSupplier) {
+                                  updateSelectedProvider({
+                                    engineType: t,
+                                    ...(t === 'openai' || t === 'anthropic' ? { protocol: t } : {}),
+                                  })
+                                } else {
+                                  void applyEngineType(selectedProvider, t)
+                                }
                               }}
                               className={cn(
                                 'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent',
@@ -4766,6 +4713,7 @@ function ModelSection({
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
                 {(() => {
                   const apiBaseValid = isValidApiBase(selected.apiBase || '')
@@ -4777,10 +4725,10 @@ function ModelSection({
                         value={selected.apiBase || ''}
                         onChange={(e) => {
                           const next = e.target.value
-                          updateProvider(selectedProvider, { apiBase: next || null })
+                          updateSelectedProvider({ apiBase: next || null })
                           // Skip engine PATCH when the URL is malformed —
                           // wait until the user finishes typing a valid one.
-                          if (isValidApiBase(next)) {
+                          if (!isAddingSupplier && isValidApiBase(next)) {
                             schedulePatchProviderCredentials(selectedProvider)
                           }
                         }}
@@ -4792,12 +4740,7 @@ function ModelSection({
                           !apiBaseValid && 'border-red-500 focus:ring-red-500'
                         )}
                       />
-                      {apiBaseValid ? (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          {t('models.previewLabel')}
-                          {selectedApiTargetUrl}
-                        </p>
-                      ) : (
+                      {!apiBaseValid && (
                         <p className="mt-2 text-xs text-red-500">
                           {t('models.apiBaseInvalid')}
                         </p>
@@ -4990,7 +4933,7 @@ function ModelSection({
                       onClick={() => window.appRuntime?.openExternal?.(PROVIDER_DOCS_PAGES[selectedProvider])}
                       className="text-sky-500 hover:underline"
                     >
-                      {getDisplayName(selectedProvider)} {t('common.docs')}
+                      {getProviderDisplayName(selectedProvider, selected)} {t('common.docs')}
                     </button>{' '}
                     {t('common.and')}{' '}
                     <button
@@ -5021,18 +4964,16 @@ function ModelSection({
               </div>
             </div>
           </div>
-          )}
 
-          {selectedKind === 'text' && selectedProviderEnabled && onNavigateToAgents && (
+          {isAddingSupplier && (
             <div className="sticky bottom-0 left-0 right-0 z-20 mt-6 -mx-8 px-8 pb-6 pt-3 bg-gradient-to-t from-background via-background/95 to-background/0 pointer-events-none">
               <div className="flex justify-center pointer-events-auto">
                 <button
                   type="button"
-                  onClick={onNavigateToAgents}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-violet-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-violet-700"
+                  onClick={handleSaveSupplier}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-foreground px-4 text-sm font-medium text-background shadow-sm transition-colors hover:bg-foreground/90"
                 >
-                  {t('models.goToAgents')}
-                  <ExternalLink size={14} />
+                  {t('models.saveSupplier')}
                 </button>
               </div>
             </div>
@@ -7906,7 +7847,7 @@ function VideoModelSection({ providerName }: { providerName: string }) {
 
 // ─── Nav ───────────────────────────────────────────────────────────────────
 
-type SectionKey = 'connection' | 'auth' | 'models' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher'
+type SectionKey = 'auth' | 'models' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher'
 
 const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'search', 'logs'])
 
@@ -7915,19 +7856,16 @@ export function SettingsPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const initialSection = location.state?.initialSection as SectionKey | undefined
-  const [active, setActive] = useState<SectionKey>(
-    initialSection === 'channels' || initialSection === 'auth' ? 'connection' : (initialSection || 'connection')
+  const normalizeSection = (section?: SectionKey): SectionKey => (
+    section === 'channels' || section === 'auth' ? 'models' : (section || 'models')
   )
-  // Counter incremented when the user clicks "去配置 Agent LLM 节点"
-  // on the 模型配置 page. Forwarded into AgentSection → ProviderStrategyRow
-  // so the 主 Provider dropdown briefly pulses after navigation.
-  const [agentBlinkSignal, setAgentBlinkSignal] = useState(0)
-
+  const [active, setActive] = useState<SectionKey>(
+    normalizeSection(initialSection)
+  )
   const navGroups: { title: string; items: { key: SectionKey; icon: React.ElementType; label: string }[] }[] = useMemo(() => [
     {
       title: '',
       items: [
-        { key: 'connection', icon: Wifi, label: t('settings.nav.connection') },
         { key: 'models', icon: Cpu, label: t('settings.nav.models') },
         { key: 'agents', icon: Bot, label: t('settings.nav.agents') },
         { key: 'search', icon: Search, label: t('settings.nav.search') },
@@ -7949,14 +7887,9 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (initialSection) {
-      setActive(initialSection === 'channels' || initialSection === 'auth' ? 'connection' : initialSection)
+      setActive(normalizeSection(initialSection))
     }
   }, [initialSection])
-
-  const handleNavigateToAgents = () => {
-    setActive('agents')
-    setAgentBlinkSignal((n) => n + 1)
-  }
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -8002,17 +7935,15 @@ export function SettingsPage() {
       <div className={cn('flex-1', FULL_WIDTH_SECTIONS.has(active) ? 'overflow-hidden' : 'overflow-y-auto')}>
         {FULL_WIDTH_SECTIONS.has(active) ? (
           <>
-            {active === 'models' && <ModelSection onNavigateToAgents={handleNavigateToAgents} />}
+            {active === 'models' && <ModelSection />}
             {active === 'search' && <SearchSection />}
             {active === 'logs' && <LogsSection />}
           </>
         ) : (
           <div className="max-w-2xl mx-auto px-8 py-8">
-            {active === 'connection' && <ConnectionSection />}
             {active === 'agents' && (
               <AgentSection
                 onNavigateToModels={() => setActive('models')}
-                blinkPrimarySignal={agentBlinkSignal}
               />
             )}
             {active === 'tools' && <ToolsSection />}

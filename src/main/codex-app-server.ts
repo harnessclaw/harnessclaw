@@ -14,6 +14,9 @@ interface SendOptions {
   approvalsReviewer?: ApprovalsReviewerOption
   sandbox?: SandboxOption
   cwd?: string
+  model?: string
+  modelProvider?: string
+  effort?: string
 }
 
 interface JsonRpcRequest {
@@ -81,9 +84,13 @@ function buildPermissionParams(options?: SendOptions): Record<string, unknown> {
   }
 }
 
-function normalizeCwd(cwd?: string): string | undefined {
-  const trimmed = typeof cwd === 'string' ? cwd.trim() : ''
+function normalizeOptionText(value?: string): string | undefined {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
   return trimmed || undefined
+}
+
+function normalizeCwd(cwd?: string): string | undefined {
+  return normalizeOptionText(cwd)
 }
 
 function extractCommandExecution(params: Record<string, unknown>): {
@@ -570,8 +577,14 @@ export class CodexAppServerClient extends EventEmitter {
     if (existing) return existing
 
     const resolvedCwd = normalizeCwd(options?.cwd) || process.cwd()
+    const model = normalizeOptionText(options?.model)
+    const modelProvider = normalizeOptionText(options?.modelProvider)
+    const effort = normalizeOptionText(options?.effort)
     const result = await this.request('thread/start', {
       cwd: resolvedCwd,
+      ...(model ? { model } : {}),
+      ...(modelProvider ? { modelProvider } : {}),
+      ...(effort ? { config: { model_reasoning_effort: effort } } : {}),
       ...buildPermissionParams(options),
     })
     const threadId = extractThreadId(result)
@@ -587,6 +600,9 @@ export class CodexAppServerClient extends EventEmitter {
       sessionId,
       threadId,
       cwd: resolvedCwd,
+      model,
+      modelProvider,
+      effort,
     })
     this.emitCompatEvent({
       type: 'session_created',
@@ -707,9 +723,13 @@ export class CodexAppServerClient extends EventEmitter {
     try {
       await this.ensureConnected()
       const threadId = await this.ensureThread(resolvedSessionId, options)
+      const model = normalizeOptionText(options?.model)
+      const effort = normalizeOptionText(options?.effort)
       const result = await this.request('turn/start', {
         threadId,
         input: [{ type: 'text', text: content }],
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
         ...buildPermissionParams(options),
       })
       const turnId = extractTurnId(result)

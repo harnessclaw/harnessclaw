@@ -35,6 +35,14 @@ interface ConfigAPI {
   save: (data: unknown) => Promise<{ ok: boolean; error?: string }>
 }
 
+interface AppConfigAPI extends ConfigAPI {
+  saveCodexModelProvider: (input: {
+    provider: string
+    baseUrl: string
+    token: string
+  }) => Promise<{ ok: boolean; path?: string; error?: string }>
+}
+
 interface AppRuntimeStatus {
   localService: 'starting' | 'ready' | 'degraded'
   transport: 'disconnected' | 'connecting' | 'connected'
@@ -128,6 +136,9 @@ interface HarnessclawAPI {
       approvalsReviewer?: 'user' | 'auto_review'
       sandbox?: 'danger-full-access'
       cwd?: string
+      model?: string
+      modelProvider?: string
+      effort?: string
       // images are forwarded into user.message.content as
       // {type:'image',source:{type:'base64',media_type,data}} blocks.
       // Use window.files.readBase64() to obtain the {mime,base64} pair.
@@ -144,7 +155,7 @@ interface HarnessclawAPI {
   respondAskQuestion: (toolUseId: string, status: 'success' | 'cancelled', output?: string, errorMessage?: string) => Promise<{ ok: boolean; error?: string }>
   respondPlan: (planId: string, approved: boolean, sessionId?: string, options?: { steps?: Array<Record<string, unknown>>; reason?: string }) => Promise<{ ok: boolean; error?: string }>
   respondStepDecision: (requestId: string, decision: 'continue' | 'retry' | 'cancel', sessionId?: string, note?: string) => Promise<{ ok: boolean; error?: string }>
-  getStatus: () => Promise<{ status: string; clientId: string; sessionId: string; subscriptions: string[]; engine?: 'emma' | 'codex' }>
+  getStatus: () => Promise<{ status: string; clientId: string; sessionId: string; subscriptions: string[]; engine?: 'codex' }>
   onStatus: (callback: (status: string) => void) => () => void
   onEvent: (callback: (event: Record<string, unknown>) => void) => () => void
 }
@@ -274,6 +285,7 @@ interface DbSessionRow {
   title: string
   project_id: string | null
   project_context_json: string | null
+  cwd: string | null
   created_at: number
   updated_at: number
 }
@@ -332,6 +344,12 @@ interface DbAPI {
   getProject: (projectId: string) => Promise<DbProjectRow | null>
   createProject: (input: { projectId: string; name: string; description?: string }) => Promise<{ ok: boolean; project?: DbProjectRow; error?: string }>
   createBlankProject: (input: { name: string }) => Promise<{ ok: boolean; project?: DbProjectRow; path?: string; error?: string }>
+  saveModelProviderSelection: (input: { provider: string; modelId: string }) => Promise<{
+    ok: boolean
+    row?: { provider: string; model_id: string; created_at: number; updated_at: number }
+    error?: string
+  }>
+  listModelProviderSelections: () => Promise<Array<{ provider: string; model_id: string; created_at: number; updated_at: number }>>
   deleteProject: (projectId: string) => Promise<{ ok: boolean; deletedSessions?: number; error?: string }>
   listProjectSessions: (projectId: string) => Promise<DbSessionRow[]>
   onSessionsChanged: (callback: () => void) => () => void
@@ -865,7 +883,7 @@ declare global {
     engineConfig: ConfigAPI
     config: ConfigAPI
     nanobotConfig: ConfigAPI
-    appConfig: ConfigAPI
+    appConfig: AppConfigAPI
     appRuntime: AppRuntimeAPI
     harnessclaw: HarnessclawAPI
     chatApi: ChatAPI
@@ -881,8 +899,7 @@ declare global {
   }
 }
 
-// WorkspaceAPI lists the on-disk per-session working directory
-// (`~/.harnessclaw/workspace/session/<sid>`) as a recursive tree.
+// WorkspaceAPI lists the on-disk per-session cwd as a recursive tree.
 // The renderer feeds returned file paths back into window.files.read
 // to render previews in FilePreviewDrawer.
 interface WorkspaceFileNode {
@@ -917,12 +934,12 @@ interface WorkspaceAPI {
 }
 
 // ArtifactsAPI bridges the renderer to artifacts:fetch (main process
-// downloads bytes via Console HTTP and writes them to a per-session
-// cache dir under ~/.harnessclaw/artifact-cache/<session>/<id>/<name>
-// so the existing files:read pipeline can rich-preview them).
+// downloads bytes via Console HTTP and writes them to the session cwd
+// when available, falling back to artifact-cache so the existing
+// files:read pipeline can rich-preview them).
 //
 // sessionId is optional — omit it for direct-link / cross-session
-// opens; the file lands under the "_orphan" bucket in that case.
+// opens; the file lands under the "_orphan" cache bucket in that case.
 interface ArtifactsAPI {
   fetch: (
     artifactId: string,

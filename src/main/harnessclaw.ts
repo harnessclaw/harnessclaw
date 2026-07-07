@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { readEngineConfig, readHarnessclawConfig } from './config'
+import { readEngineConfig } from './config'
 import { sanitizeForLogging, writeAppLog } from './logging'
 import { reportTelemetry } from './telemetry-helper'
 import type { BrowserAgentSessionManagerLike } from './browser-agent-session'
@@ -2238,6 +2238,9 @@ export class HarnessclawClient extends EventEmitter {
       approvalsReviewer?: 'user' | 'auto_review'
       sandbox?: 'danger-full-access'
       cwd?: string
+      model?: string
+      modelProvider?: string
+      effort?: string
       // images carries multimodal user input. Each entry becomes one
       // `{type:'image',source:{type:'base64',media_type,data}}` block
       // in the wire content[] array. Read via `window.files.readBase64`.
@@ -3488,70 +3491,29 @@ export class HarnessclawClient extends EventEmitter {
   }
 }
 
-type AgentFrameworkEngine = 'emma' | 'codex'
-
-function readActiveAgentFrameworkEngine(): AgentFrameworkEngine {
-  const raw = readHarnessclawConfig({})
-  const agentFramework = isPlainObject(raw.agentFramework) ? raw.agentFramework : {}
-  const engine = typeof agentFramework.engine === 'string' ? agentFramework.engine : 'emma'
-  return engine === 'codex' ? 'codex' : 'emma'
-}
-
-class AgentFrameworkClient extends EventEmitter {
-  private emma = new HarnessclawClient()
+class CodexRuntimeClient extends EventEmitter {
   private codex = new CodexAppServerClient()
-  private activeEngine: AgentFrameworkEngine = readActiveAgentFrameworkEngine()
 
   constructor() {
     super()
-    this.emma.on('event', (event) => {
-      if (this.activeEngine === 'emma') this.emit('event', event)
-    })
     this.codex.on('event', (event) => {
-      if (this.activeEngine === 'codex') this.emit('event', event)
-    })
-    this.emma.on('statusChange', (status) => {
-      if (this.activeEngine === 'emma') this.emit('statusChange', status)
+      this.emit('event', event)
     })
     this.codex.on('statusChange', (status) => {
-      if (this.activeEngine === 'codex') this.emit('statusChange', status)
+      this.emit('statusChange', status)
     })
   }
 
   applyRuntimeConfig(): void {
-    const next = readActiveAgentFrameworkEngine()
-    if (next === this.activeEngine) {
-      this.emit('statusChange', this.getStatus().status)
-      return
-    }
-
-    const previous = this.activeEngine
-    this.activeEngine = next
-    writeAppLog('info', 'agent-framework', 'Switching active agent framework engine', {
-      from: previous,
-      to: next,
-    })
-
-    if (previous === 'emma') {
-      this.emma.disconnect()
-    } else {
-      this.codex.disconnect()
-    }
-
-    this.activeClient().connect()
     this.emit('statusChange', this.getStatus().status)
   }
 
-  private activeClient(): HarnessclawClient | CodexAppServerClient {
-    return this.activeEngine === 'codex' ? this.codex : this.emma
-  }
-
   connect(): void {
-    this.activeClient().connect()
+    this.codex.connect()
   }
 
   disconnect(): void {
-    this.activeClient().disconnect()
+    this.codex.disconnect()
   }
 
   async send(
@@ -3564,41 +3526,44 @@ class AgentFrameworkClient extends EventEmitter {
       approvalsReviewer?: 'user' | 'auto_review'
       sandbox?: 'danger-full-access'
       cwd?: string
+      model?: string
+      modelProvider?: string
+      effort?: string
       images?: Array<{ mime: string; base64: string }>
     },
   ): Promise<boolean> {
-    return this.activeClient().send(content, sessionId, options)
+    return this.codex.send(content, sessionId, options)
   }
 
   command(cmd: string, sessionId?: string): void {
-    this.activeClient().command(cmd, sessionId)
+    this.codex.command(cmd, sessionId)
   }
 
   async stop(sessionId?: string): Promise<boolean> {
-    return this.activeClient().stop(sessionId)
+    return this.codex.stop(sessionId)
   }
 
   subscribe(sessionId: string): void {
-    this.activeClient().subscribe(sessionId)
+    this.codex.subscribe(sessionId)
   }
 
   unsubscribe(sessionId: string): void {
-    this.activeClient().unsubscribe(sessionId)
+    this.codex.unsubscribe(sessionId)
   }
 
   listSessions(): void {
-    this.activeClient().listSessions()
+    this.codex.listSessions()
   }
 
   async probe(timeoutMs = 3000): Promise<boolean> {
-    return this.activeClient().probe(timeoutMs)
+    return this.codex.probe(timeoutMs)
   }
 
-  getStatus(): { status: HarnessclawStatus; clientId: string; sessionId: string; subscriptions: string[]; engine: AgentFrameworkEngine } {
-    const status = this.activeClient().getStatus()
+  getStatus(): { status: HarnessclawStatus; clientId: string; sessionId: string; subscriptions: string[]; engine: 'codex' } {
+    const status = this.codex.getStatus()
     return {
       ...status,
-      engine: this.activeEngine,
+      engine: 'codex',
     }
   }
 
@@ -3608,7 +3573,7 @@ class AgentFrameworkClient extends EventEmitter {
     scope: 'once' | 'session' = 'once',
     message?: string,
   ): boolean {
-    return this.activeClient().respondPermission(requestId, approved, scope, message)
+    return this.codex.respondPermission(requestId, approved, scope, message)
   }
 
   respondAskQuestion(
@@ -3617,7 +3582,7 @@ class AgentFrameworkClient extends EventEmitter {
     output?: string,
     errorMessage?: string,
   ): boolean {
-    return this.activeClient().respondAskQuestion(toolUseId, status, output, errorMessage)
+    return this.codex.respondAskQuestion(toolUseId, status, output, errorMessage)
   }
 
   async respondPlan(
@@ -3626,7 +3591,7 @@ class AgentFrameworkClient extends EventEmitter {
     sessionId?: string,
     options?: { steps?: Array<Record<string, unknown>>; reason?: string },
   ): Promise<boolean> {
-    return this.activeClient().respondPlan(planId, approved, sessionId, options)
+    return this.codex.respondPlan(planId, approved, sessionId, options)
   }
 
   respondStepDecision(
@@ -3635,12 +3600,12 @@ class AgentFrameworkClient extends EventEmitter {
     sessionId?: string,
     note?: string,
   ): boolean {
-    return this.activeClient().respondStepDecision(requestId, decision, sessionId, note)
+    return this.codex.respondStepDecision(requestId, decision, sessionId, note)
   }
 
   setBrowserAgentSessionManager(manager: BrowserAgentSessionManagerLike | null): void {
-    this.emma.setBrowserAgentSessionManager(manager)
+    void manager
   }
 }
 
-export const harnessclawClient = new AgentFrameworkClient()
+export const harnessclawClient = new CodexRuntimeClient()

@@ -34,6 +34,8 @@ const configAPI = {
 const appConfigAPI = {
   read: () => ipcRenderer.invoke('app-config:read'),
   save: (data: unknown) => ipcRenderer.invoke('app-config:save', data),
+  saveCodexModelProvider: (input: { provider: string; baseUrl: string; token: string }) =>
+    ipcRenderer.invoke('app-config:saveCodexModelProvider', input),
 }
 
 const appRuntimeAPI = {
@@ -89,6 +91,9 @@ const harnessclawAPI = {
       approvalsReviewer?: 'user' | 'auto_review'
       sandbox?: 'danger-full-access'
       cwd?: string
+      model?: string
+      modelProvider?: string
+      effort?: string
       images?: Array<{ mime: string; base64: string }>
     },
   ) => ipcRenderer.invoke('harnessclaw:send', content, sessionId, options),
@@ -194,6 +199,9 @@ const dbAPI = {
     ipcRenderer.invoke('db:createProject', input),
   createBlankProject: (input: { name: string }) =>
     ipcRenderer.invoke('db:createBlankProject', input),
+  saveModelProviderSelection: (input: { provider: string; modelId: string }) =>
+    ipcRenderer.invoke('db:saveModelProviderSelection', input),
+  listModelProviderSelections: () => ipcRenderer.invoke('db:listModelProviderSelections'),
   deleteProject: (projectId: string) => ipcRenderer.invoke('db:deleteProject', projectId),
   listProjectSessions: (projectId: string) => ipcRenderer.invoke('db:listProjectSessions', projectId),
   onSessionsChanged: (callback: () => void) => {
@@ -224,7 +232,7 @@ const filesAPI = {
 
 // artifactsAPI bridges the renderer to artifacts:fetch, which downloads
 // the bytes of a stored artifact from the engine over HTTP and writes
-// them to a per-session cache dir under ~/.harnessclaw/artifact-cache/.
+// them into the session cwd when available, falling back to artifact-cache.
 // The renderer feeds the returned path into the existing files:read
 // pipeline so docx / pdf rich previews work the same as for local files.
 //
@@ -240,8 +248,7 @@ const artifactsAPI = {
     >,
 }
 
-// workspaceAPI lists the on-disk per-session working directory
-// (`~/.harnessclaw/workspace/session/<sid>`) as a tree. Used by the
+// workspaceAPI lists the on-disk per-session cwd as a tree. Used by the
 // chat top-bar "files" button so users can browse and preview every
 // file the agent produced, not just declared artifacts. The renderer
 // keeps using files.read for the actual preview.

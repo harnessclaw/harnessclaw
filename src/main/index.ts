@@ -3,7 +3,6 @@ import { basename, dirname, extname, isAbsolute, join, resolve, resolve as resol
 import { homedir } from 'os'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync } from 'fs'
-import { spawn, execFileSync, ChildProcess } from 'child_process'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { harnessclawClient } from './harnessclaw'
@@ -14,8 +13,6 @@ import { manuallyCheckForUpdates, setupAutoUpdater, downloadUpdate, quitAndInsta
 import {
   HARNESSCLAW_DIR,
   ENGINE_CONFIG_PATH,
-  resolveBundledAgentBrowserPath,
-  resolveBundledBinaryPath,
   ensureDir,
   ensureHarnessclawConfigInitialized,
   ensureEngineConfigInitialized,
@@ -27,9 +24,10 @@ import {
 import {
   getDb, closeDb, upsertSession, updateSessionTitle, updateSessionProject, listSessions as dbListSessions,
   deleteSession as dbDeleteSession, insertMessage, updateMessageContent, updateMessageSystemNotice,
-  getMessages, insertToolActivity, insertUsageEvent, listUsageEvents, createProject, getProject,
+  getMessages, getSession, insertToolActivity, insertUsageEvent, listUsageEvents, createProject, getProject,
   listProjects as dbListProjects, softDeleteProjectWithSessions, listProjectSessions,
   listSessionsWithUnansweredPrompts, sessionHasUnansweredPrompt,
+  upsertModelProviderSelection, listModelProviderSelections,
 } from './db'
 import {
   DB_PATH,
@@ -138,6 +136,7 @@ const ERROR_ATTACH_WINDOW_MS = 30_000
 const PROJECT_CONTEXT_BLOCK_START = '[HARNESSCLAW_PROJECT_CONTEXT]'
 const PROJECT_CONTEXT_BLOCK_END = '[/HARNESSCLAW_PROJECT_CONTEXT]'
 const WINDOW_STATE_PATH = join(HARNESSCLAW_DIR, 'window-state.json')
+const CODEX_CONFIG_PATH = join(HARNESSCLAW_DIR, 'config.toml')
 const DEFAULT_WINDOW_WIDTH = 960
 const DEFAULT_WINDOW_HEIGHT = 650
 const MIN_WINDOW_WIDTH = 960
@@ -171,6 +170,75 @@ function sanitizeProjectFolderName(name: string): string {
   return name.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').slice(0, 80) || 'Untitled Project'
 }
 
+function isValidModelProviderName(value: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9_-]*$/.test(value)
+}
+
+function escapeTomlString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+}
+
+function upsertCodexModelProviderConfig(input: {
+  provider: string
+  baseUrl: string
+  token: string
+}): { ok: boolean; path?: string; error?: string } {
+  try {
+    const provider = input.provider.trim()
+    if (!isValidModelProviderName(provider)) {
+      return { ok: false, error: 'Provider must start with an English letter and contain only letters, numbers, underscores, or hyphens' }
+    }
+
+    ensureDir(HARNESSCLAW_DIR)
+    const previous = existsSync(CODEX_CONFIG_PATH)
+      ? readFileSync(CODEX_CONFIG_PATH, 'utf-8')
+      : ''
+    const lines = previous.split(/\r?\n/)
+    const sectionPattern = new RegExp(`^\\s*\\[model_providers\\.${provider.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\]\\s*$`)
+    const anyModelProviderPattern = /^\s*\[model_providers\.[A-Za-z][A-Za-z0-9_-]*\]\s*$/
+    const kept: string[] = []
+    let skipping = false
+
+    for (const line of lines) {
+      if (sectionPattern.test(line)) {
+        skipping = true
+        continue
+      }
+      if (skipping && /^\s*\[.+\]\s*$/.test(line)) {
+        skipping = false
+      }
+      if (!skipping) kept.push(line)
+    }
+
+    while (kept.length > 0 && kept[kept.length - 1].trim() === '') {
+      kept.pop()
+    }
+
+    const block = [
+      `[model_providers.${provider}]`,
+      `name = "${escapeTomlString(provider)}"`,
+      `base_url = "${escapeTomlString(input.baseUrl.trim())}"`,
+      `experimental_bearer_token = "${escapeTomlString(input.token.trim())}"`,
+      `wire_api = "responses"`,
+    ]
+
+    const content = [...kept, ...(kept.length > 0 ? [''] : []), ...block, ''].join('\n')
+    writeFileSync(CODEX_CONFIG_PATH, content, 'utf-8')
+    writeAppLog('info', 'setting.codex', 'Codex model provider config saved', {
+      provider,
+      path: CODEX_CONFIG_PATH,
+      replacedExisting: anyModelProviderPattern.test(previous),
+    })
+    return { ok: true, path: CODEX_CONFIG_PATH }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
+
 function createProjectId(): string {
   return `project-${randomUUID()}`
 }
@@ -198,6 +266,44 @@ function createDefaultSessionCwd(): string {
   const fallback = join(root, `${timestamp}${randomUUID().replace(/-/g, '').slice(0, 8)}`)
   mkdirSync(fallback, { recursive: true })
   return fallback
+}
+
+function expandHomePath(inputPath: string): string {
+  const trimmed = inputPath.trim()
+  if (!trimmed.startsWith('~')) return trimmed
+  return join(homedir(), trimmed.replace(/^~(?=\/|\\|$)/, '').replace(/^~/, ''))
+}
+
+function normalizeSessionWorkspaceId(rawSessionId: unknown): string | null {
+  if (typeof rawSessionId !== 'string' || !rawSessionId.trim()) return null
+  const sid = rawSessionId.trim().replace(/^(?:harnessclaw[:_])?session[:_]?/i, '')
+  const safeSid = sid.replace(/[\\/:*?"<>|]/g, '_')
+  return safeSid || null
+}
+
+function normalizePersistedCwd(rawCwd: unknown): string | null {
+  if (typeof rawCwd !== 'string' || !rawCwd.trim()) return null
+  const expanded = expandHomePath(rawCwd)
+  return isAbsolute(expanded) ? resolvePath(expanded) : null
+}
+
+function resolveSessionWorkspaceRoot(rawSessionId: unknown): { ok: true; root: string; persisted: boolean } | { ok: false; error: string } {
+  if (typeof rawSessionId !== 'string' || !rawSessionId.trim()) {
+    return { ok: false, error: 'invalid_session_id' }
+  }
+  const rawSid = rawSessionId.trim()
+  const safeSid = normalizeSessionWorkspaceId(rawSid)
+  if (!safeSid) {
+    return { ok: false, error: 'invalid_session_id' }
+  }
+
+  const session = getSession(rawSid) || (rawSid === safeSid ? null : getSession(safeSid))
+  const persistedRoot = normalizePersistedCwd(session?.cwd)
+  if (persistedRoot) {
+    return { ok: true, root: persistedRoot, persisted: true }
+  }
+
+  return { ok: true, root: join(homedir(), '.harnessclaw', 'workspace', 'session', safeSid), persisted: false }
 }
 
 function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
@@ -466,9 +572,6 @@ function getToolFilePath(source: Record<string, unknown>): string | undefined {
 }
 
 const HARNESSCLAW_LAUNCHED_FLAG = join(HARNESSCLAW_DIR, '.launched')
-const HARNESSCLAW_ENGINE_BIN = resolveBundledBinaryPath('harnessclaw-engine')
-const HARNESSCLAW_AGENT_BROWSER_BIN = resolveBundledAgentBrowserPath()
-let harnessclawEngineProcess: ChildProcess | null = null
 
 let telemetryReporter: TelemetryReporter | null = null
 let telemetryConfigManager: TelemetryConfigManager | null = null
@@ -514,18 +617,10 @@ interface AppRuntimeStatus {
   lastError?: string
 }
 
-type AgentFrameworkEngine = 'emma' | 'codex'
-
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
-}
-
-function readActiveAgentFrameworkEngine(): AgentFrameworkEngine {
-  const raw = readHarnessclawConfig({})
-  const agentFramework = asRecord(raw.agentFramework)
-  return agentFramework.engine === 'codex' ? 'codex' : 'emma'
 }
 
 // Returns true when the only differences between `previous` and `next`
@@ -966,191 +1061,7 @@ function buildExportPayload(type: string): { name: string; content: string } {
   }
 }
 
-function logProcessStream(level: LogLevel, source: string, payload: Buffer | string): void {
-  const text = typeof payload === 'string' ? payload : payload.toString('utf-8')
-  text
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .forEach((line) => {
-      writeAppLog(level, source, line)
-    })
-}
-
-function asPort(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 65535
-    ? value
-    : fallback
-}
-
-function resolveEnginePortsToClear(): number[] {
-  const cfg = asRecord(readEngineConfig({}))
-  const channels = asRecord(cfg.channels)
-  const websocket = asRecord(channels.websocket)
-  const consoleConfig = asRecord(cfg.console)
-  return [...new Set([
-    asPort(websocket.port, 8081),
-    asPort(consoleConfig.port, 8090),
-  ])]
-}
-
-function clearPortListeners(ports: number[]): void {
-  if (process.platform === 'win32') return
-
-  const killed = new Set<string>()
-  for (const port of ports) {
-    let output = ''
-    try {
-      output = execFileSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], {
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim()
-    } catch {
-      continue
-    }
-
-    const pids = output
-      .split(/\s+/)
-      .map((pid) => pid.trim())
-      .filter((pid) => pid && pid !== String(process.pid) && !killed.has(pid))
-
-    if (pids.length === 0) continue
-    writeAppLog('warn', 'harnessclaw-engine.process', 'Killing stale engine port listeners', {
-      port,
-      pids,
-    })
-    try {
-      execFileSync('kill', pids, { stdio: 'ignore' })
-      pids.forEach((pid) => killed.add(pid))
-    } catch (err) {
-      writeAppLog('warn', 'harnessclaw-engine.process', 'Failed to kill stale engine port listeners', {
-        port,
-        pids,
-        error: String(err),
-      })
-    }
-  }
-
-  if (killed.size > 0) {
-    try {
-      execFileSync('sleep', ['0.3'], { stdio: 'ignore' })
-    } catch {
-      // Ignore; the next bind attempt will report any remaining conflict.
-    }
-  }
-}
-
-function startHarnessclawEngine(): void {
-  if (harnessclawEngineProcess) return
-  if (!HARNESSCLAW_ENGINE_BIN || !existsSync(HARNESSCLAW_ENGINE_BIN)) {
-    writeAppLog('warn', 'harnessclaw-engine.process', 'Binary not found', {
-      path: HARNESSCLAW_ENGINE_BIN || '<missing>',
-    })
-    return
-  }
-  if (!HARNESSCLAW_AGENT_BROWSER_BIN || !existsSync(HARNESSCLAW_AGENT_BROWSER_BIN)) {
-    writeAppLog('warn', 'harnessclaw-engine.process', 'Agent Browser binary not found', {
-      path: HARNESSCLAW_AGENT_BROWSER_BIN || '<missing>',
-    })
-    return
-  }
-  clearPortListeners(resolveEnginePortsToClear())
-  writeAppLog('info', 'harnessclaw-engine.process', 'Starting engine', {
-    binary: HARNESSCLAW_ENGINE_BIN,
-    agentBrowserBinary: HARNESSCLAW_AGENT_BROWSER_BIN,
-    configPath: ENGINE_CONFIG_PATH,
-  })
-  harnessclawEngineProcess = spawn(HARNESSCLAW_ENGINE_BIN, ['-config', ENGINE_CONFIG_PATH], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: false,
-    env: {
-      ...process.env,
-      CLAUDE_TOOLS_BROWSER_AGENT_BINARY_PATH: HARNESSCLAW_AGENT_BROWSER_BIN,
-    },
-  })
-  harnessclawEngineProcess.stdout?.on('data', (data) => {
-    logProcessStream('debug', 'harnessclaw-engine.stdout', data)
-  })
-  harnessclawEngineProcess.stderr?.on('data', (data) => {
-    logProcessStream('warn', 'harnessclaw-engine.stderr', data)
-  })
-  harnessclawEngineProcess.on('error', (err) => {
-    writeAppLog('error', 'harnessclaw-engine.process', 'Failed to start engine', {
-      error: String(err),
-    })
-    harnessclawEngineProcess = null
-  })
-  harnessclawEngineProcess.on('exit', (code) => {
-    writeAppLog(code === 0 ? 'info' : 'error', 'harnessclaw-engine.process', 'Engine exited', {
-      code,
-    })
-    harnessclawEngineProcess = null
-  })
-}
-
-async function stopHarnessclawEngine(): Promise<void> {
-  if (!harnessclawEngineProcess) return
-  writeAppLog('info', 'harnessclaw-engine.process', 'Stopping engine')
-  const processToStop = harnessclawEngineProcess
-
-  await new Promise<void>((resolve) => {
-    let settled = false
-
-    const finish = () => {
-      if (settled) return
-      settled = true
-      resolve()
-    }
-
-    const timeout = setTimeout(() => {
-      processToStop.removeListener('exit', handleExit)
-      try {
-        processToStop.kill('SIGKILL')
-      } catch {
-        // Ignore kill errors during shutdown.
-      }
-      finish()
-    }, 3000)
-
-    const handleExit = () => {
-      clearTimeout(timeout)
-      finish()
-    }
-
-    processToStop.once('exit', handleExit)
-
-    try {
-      processToStop.kill('SIGTERM')
-    } catch {
-      clearTimeout(timeout)
-      processToStop.removeListener('exit', handleExit)
-      finish()
-    }
-  })
-
-  if (harnessclawEngineProcess === processToStop) {
-    harnessclawEngineProcess = null
-  }
-}
-
-async function syncBundledEngineForActiveAgentFramework(): Promise<void> {
-  const activeEngine = readActiveAgentFrameworkEngine()
-  if (activeEngine === 'codex') {
-    await stopHarnessclawEngine()
-    writeAppLog('info', 'agent-framework', 'Bundled HarnessClaw engine stopped for Codex engine')
-    return
-  }
-
-  if (process.env.HARNESSCLAW_SKIP_ENGINE_START === '1') {
-    writeAppLog('info', 'harnessclaw-engine.process', 'Skipping bundled engine start')
-    return
-  }
-
-  startHarnessclawEngine()
-}
-
 async function startHarnessclawRuntimeAsync(): Promise<void> {
-  await syncBundledEngineForActiveAgentFramework()
   harnessclawClient.connect()
   broadcastAppRuntimeStatus()
 }
@@ -1162,7 +1073,6 @@ function startHarnessclawRuntime(): void {
 async function restartHarnessclawRuntime(): Promise<void> {
   harnessclawClient.disconnect()
   broadcastAppRuntimeStatus()
-  await stopHarnessclawEngine()
   await startHarnessclawRuntimeAsync()
 }
 
@@ -1817,10 +1727,8 @@ app.whenReady().then(() => {
     if (result.ok) {
       reportAppConfigDiff(previousAppConfig, data)
       setLogThreshold(normalizeLogThreshold(asRecord(asRecord(data).logging).level))
-      void syncBundledEngineForActiveAgentFramework().finally(() => {
-        harnessclawClient.applyRuntimeConfig()
-        broadcastAppRuntimeStatus()
-      })
+      harnessclawClient.applyRuntimeConfig()
+      broadcastAppRuntimeStatus()
       // Re-apply launcher hotkey / enabled state so changes from the
       // settings page take effect without an app restart.
       applyLauncherConfig()
@@ -1833,6 +1741,17 @@ app.whenReady().then(() => {
       })
     }
     return result
+  })
+
+  ipcMain.handle('app-config:saveCodexModelProvider', (_, input: {
+    provider?: unknown
+    baseUrl?: unknown
+    token?: unknown
+  }) => {
+    const provider = typeof input?.provider === 'string' ? input.provider.trim() : ''
+    const baseUrl = typeof input?.baseUrl === 'string' ? input.baseUrl.trim() : ''
+    const token = typeof input?.token === 'string' ? input.token.trim() : ''
+    return upsertCodexModelProviderConfig({ provider, baseUrl, token })
   })
 
   ipcMain.handle('app-runtime:getStatus', () => {
@@ -2138,6 +2057,33 @@ app.whenReady().then(() => {
       return { ok: true, project }
     } catch (err) {
       return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:saveModelProviderSelection', (_, input: {
+    provider?: unknown
+    modelId?: unknown
+  }) => {
+    try {
+      const provider = typeof input?.provider === 'string' ? input.provider.trim() : ''
+      const modelId = typeof input?.modelId === 'string' ? input.modelId.trim() : ''
+      if (!isValidModelProviderName(provider)) {
+        return { ok: false, error: 'Provider must start with an English letter and contain only letters, numbers, underscores, or hyphens' }
+      }
+      if (!modelId) return { ok: false, error: 'model_id is required' }
+      const row = upsertModelProviderSelection({ provider, modelId })
+      return { ok: true, row }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:listModelProviderSelections', () => {
+    try {
+      return listModelProviderSelections()
+    } catch (err) {
+      console.error('[DB] listModelProviderSelections error:', err)
+      return []
     }
   })
 
@@ -2908,7 +2854,7 @@ app.whenReady().then(() => {
   })
 
   // workspace:listSession — list files in the per-session workspace dir
-  // `~/.harnessclaw/workspace/session/<sessionId>` as a recursive tree.
+  // recorded on the session as a recursive tree.
   // Used by the chat top-bar "files" button so users can browse and
   // preview anything the agent wrote into its working directory, not
   // just declared artifacts.
@@ -2918,18 +2864,9 @@ app.whenReady().then(() => {
   // this handler only returns metadata, not contents.
   ipcMain.handle('workspace:listSession', async (_, rawSessionId: unknown) => {
     try {
-      if (typeof rawSessionId !== 'string' || !rawSessionId.trim()) {
-        return { ok: false, error: 'invalid_session_id' }
-      }
-      // Be tolerant of the legacy "harnessclaw:session:<uuid>" form even
-      // though current sessions are bare UUIDs — older persisted ids may
-      // still flow through.
-      const sid = rawSessionId.trim().replace(/^(?:harnessclaw[:_])?session[:_]?/i, '')
-      const safeSid = sid.replace(/[\\/:*?"<>|]/g, '_')
-      if (!safeSid) {
-        return { ok: false, error: 'invalid_session_id' }
-      }
-      const root = join(homedir(), '.harnessclaw', 'workspace', 'session', safeSid)
+      const workspace = resolveSessionWorkspaceRoot(rawSessionId)
+      if (!workspace.ok) return workspace
+      const root = workspace.root
       if (!existsSync(root)) {
         return { ok: true, root, exists: false, tree: [], fileCount: 0 }
       }
@@ -3016,15 +2953,9 @@ app.whenReady().then(() => {
   // created on the fly so the user lands somewhere sensible.
   ipcMain.handle('workspace:openFolder', async (_, rawSessionId: unknown) => {
     try {
-      if (typeof rawSessionId !== 'string' || !rawSessionId.trim()) {
-        return { ok: false, error: 'invalid_session_id' }
-      }
-      const sid = rawSessionId.trim().replace(/^(?:harnessclaw[:_])?session[:_]?/i, '')
-      const safeSid = sid.replace(/[\\/:*?"<>|]/g, '_')
-      if (!safeSid) {
-        return { ok: false, error: 'invalid_session_id' }
-      }
-      const root = join(homedir(), '.harnessclaw', 'workspace', 'session', safeSid)
+      const workspace = resolveSessionWorkspaceRoot(rawSessionId)
+      if (!workspace.ok) return workspace
+      const root = workspace.root
       if (!existsSync(root)) {
         mkdirSync(root, { recursive: true })
       }
@@ -3048,8 +2979,7 @@ app.whenReady().then(() => {
   // `pathInput` may be:
   //   - absolute: `/Users/...`, `~/...`, `C:\...` → used as-is after
   //     tilde-expansion
-  //   - relative: anything else, resolved against the per-session
-  //     workspace root `~/.harnessclaw/workspace/session/<sid>`. Any
+  //   - relative: anything else, resolved against the session cwd. Any
   //     `..` segments that would escape the root are rejected.
   //
   // Returns `{ ok: false }` for missing files / directories / traversal
@@ -3065,20 +2995,14 @@ app.whenReady().then(() => {
       // Resolve to an absolute disk path.
       let abs: string
       if (inputPath.startsWith('~')) {
-        abs = join(homedir(), inputPath.replace(/^~(?=\/|\\|$)/, '').replace(/^~/, ''))
+        abs = expandHomePath(inputPath)
       } else if (isAbsolute(inputPath)) {
         abs = inputPath
       } else {
         // Relative path → needs a session bucket.
-        if (typeof rawSessionId !== 'string' || !rawSessionId.trim()) {
-          return { ok: false, error: 'invalid_session_id' }
-        }
-        const sid = rawSessionId.trim().replace(/^(?:harnessclaw[:_])?session[:_]?/i, '')
-        const safeSid = sid.replace(/[\\/:*?"<>|]/g, '_')
-        if (!safeSid) {
-          return { ok: false, error: 'invalid_session_id' }
-        }
-        const root = join(homedir(), '.harnessclaw', 'workspace', 'session', safeSid)
+        const workspace = resolveSessionWorkspaceRoot(rawSessionId)
+        if (!workspace.ok) return workspace
+        const root = workspace.root
         const joined = resolvePath(root, inputPath)
         // Anti-traversal: the resolved path must sit inside the session
         // workspace root. `path.resolve` collapses `..`, so checking
@@ -3150,24 +3074,12 @@ app.whenReady().then(() => {
   })
 
   // artifacts:fetch — pull raw binary content for an artifact from the
-  // engine over Console HTTP, write it to a per-session cache dir under
-  // ~/.harnessclaw/, and return the on-disk path so the renderer can
-  // reuse files:read (which already handles docx/pdf/xlsx rich preview
-  // via mammoth / pdf-parse).
+  // engine over Console HTTP, write it into the session cwd, and return
+  // the on-disk path so the renderer can reuse files:read (which already
+  // handles docx/pdf/xlsx rich preview via mammoth / pdf-parse).
   //
-  // Layout: ~/.harnessclaw/artifact-cache/<session_id>/<artifact_id>/<fileName>
-  //
-  //   - session_id bucket: artifacts from different conversations are
-  //     physically isolated; clearing a session is a single rm -rf of
-  //     that bucket. Falls back to "_orphan" when the renderer didn't
-  //     thread session_id through (legacy / direct-link cases).
-  //   - artifact_id sub-bucket: same artifact opened twice reuses the
-  //     same path; the fileName preserves the .docx / .pdf extension so
-  //     extension-based dispatch in files:read still works.
-  //   - Co-located with the server's blob store under ~/.harnessclaw/
-  //     because the client and the engine ARE on the same machine (the
-  //     engine is an Electron-spawned sidecar). No need for a separate
-  //     "client-cache" prefix.
+  // Layout with session cwd: <session cwd>/<fileName>
+  // Legacy/direct-link fallback: ~/.harnessclaw/artifact-cache/<session>/<fileName>
   //
   // Why a fetch+temp-file path instead of streaming bytes to the renderer
   // directly: the existing preview pipeline keys on file paths
@@ -3206,17 +3118,18 @@ app.whenReady().then(() => {
           error: res.message || res.error || `HTTP ${res.status}`,
         }
       }
-      // Flat layout: <cacheRoot>/<sessionUuid>/<fileName>
-      // Skipping the per-artifact sub-bucket keeps the path browsable.
+      // Flat layout: <session cwd>/<fileName>
       // Same-name collisions across artifacts in the same session
       // overwrite each other; we accept that — fetch is on-demand so
       // the next click re-pulls the correct bytes.
-      const cacheRoot = join(homedir(), '.harnessclaw', 'artifact-cache')
-      const sidDir = join(cacheRoot, sessionBucket)
-      mkdirSync(sidDir, { recursive: true })
+      const workspace = rawSid ? resolveSessionWorkspaceRoot(rawSid) : null
+      const outputDir = workspace?.ok && workspace.persisted
+        ? workspace.root
+        : join(homedir(), '.harnessclaw', 'artifact-cache', sessionBucket)
+      mkdirSync(outputDir, { recursive: true })
       const fileName = res.fileName && res.fileName.trim() ? res.fileName : `${id}.bin`
       const safeName = fileName.replace(/[\\/:*?"<>|]/g, '_')
-      const outPath = join(sidDir, safeName)
+      const outPath = join(outputDir, safeName)
       writeFileSync(outPath, res.buffer)
       return {
         ok: true,
@@ -3731,6 +3644,9 @@ app.whenReady().then(() => {
       approvalsReviewer?: 'user' | 'auto_review'
       sandbox?: 'danger-full-access'
       cwd?: string
+      model?: string
+      modelProvider?: string
+      effort?: string
       images?: Array<{ mime: string; base64: string }>
     },
   ) => {
@@ -3742,7 +3658,9 @@ app.whenReady().then(() => {
     // Write user message to DB
     if (sessionId) {
       try {
-        upsertSession(sessionId)
+        upsertSession(sessionId, undefined, {
+          cwd: typeof options?.cwd === 'string' && options.cwd.trim() ? options.cwd.trim() : null,
+        })
         const msgId = `usr-${sendStartedAt}`
         const displayContent = stripProjectContextBlock(content)
         insertMessage({ id: msgId, sessionId, role: 'user', content: displayContent, createdAt: sendStartedAt })
@@ -3945,7 +3863,6 @@ app.on('will-quit', () => {
   browserAgentSessions?.closeAll()
   harnessclawClient.setBrowserAgentSessionManager(null)
   harnessclawClient.disconnect()
-  stopHarnessclawEngine()
   closeDb()
 })
 }

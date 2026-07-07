@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Check, ChevronDown, ChevronRight, Folder, Hand, NotebookText, Plus, Search, Shield, ShieldCheck, X } from 'lucide-react'
+import { Brain, Check, ChevronDown, ChevronRight, Folder, Hand, NotebookText, Plus, Search, Shield, ShieldCheck, X } from 'lucide-react'
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 import { cn } from '../../lib/utils'
 import {
@@ -30,7 +30,10 @@ import sendIcon from '../../assets/send-icon.svg'
 
 type AttachmentItem = LocalAttachmentItem
 type PermissionMode = 'request' | 'auto' | 'full'
+type ThinkingMode = 'on' | 'off'
 const PERMISSION_MODE_STORAGE_KEY = 'home-permission-mode'
+const MODEL_SELECTION_STORAGE_KEY = 'home-model-selection'
+const THINKING_MODE_STORAGE_KEY = 'home-thinking-mode'
 
 interface HomeProject {
   project_id: string
@@ -39,6 +42,13 @@ interface HomeProject {
   created_at: number
   updated_at: number
   deleted_at: number | null
+}
+
+interface ModelProviderSelection {
+  provider: string
+  model_id: string
+  created_at: number
+  updated_at: number
 }
 
 const PERMISSION_MODES: Array<{
@@ -55,6 +65,14 @@ const PERMISSION_MODES: Array<{
 
 function isPermissionMode(value: unknown): value is PermissionMode {
   return value === 'request' || value === 'auto' || value === 'full'
+}
+
+function isThinkingMode(value: unknown): value is ThinkingMode {
+  return value === 'on' || value === 'off'
+}
+
+function getModelSelectionKey(selection: Pick<ModelProviderSelection, 'provider' | 'model_id'>): string {
+  return `${selection.provider}/${selection.model_id}`
 }
 
 function getProjectCwd(project: HomeProject | null): string | undefined {
@@ -115,6 +133,20 @@ export function HomePage() {
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [projectFolderDraft, setProjectFolderDraft] = useState<string | null>(null)
   const [projectError, setProjectError] = useState('')
+  const [modelSelections, setModelSelections] = useState<ModelProviderSelection[]>([])
+  const [selectedModelKey, setSelectedModelKey] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return window.localStorage.getItem(MODEL_SELECTION_STORAGE_KEY) || ''
+  })
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [modelMenuPosition, setModelMenuPosition] = useState<{ left: number; bottom: number } | null>(null)
+  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>(() => {
+    if (typeof window === 'undefined') return 'on'
+    const saved = window.localStorage.getItem(THINKING_MODE_STORAGE_KEY)
+    return isThinkingMode(saved) ? saved : 'on'
+  })
+  const [thinkingMenuOpen, setThinkingMenuOpen] = useState(false)
+  const [thinkingMenuPosition, setThinkingMenuPosition] = useState<{ left: number; bottom: number } | null>(null)
   const [isSending, setIsSending] = useState(false)
   // 附件预览抽屉的 state。点击 AttachmentPreviewPanel 里的卡片会先调
   // window.files.read 把内容/二进制标记拿回来，然后塞进 filePreview，
@@ -160,6 +192,10 @@ export function HomePage() {
   const permissionMenuRef = useRef<HTMLDivElement | null>(null)
   const projectButtonRef = useRef<HTMLButtonElement | null>(null)
   const projectMenuRef = useRef<HTMLDivElement | null>(null)
+  const modelButtonRef = useRef<HTMLButtonElement | null>(null)
+  const modelMenuRef = useRef<HTMLDivElement | null>(null)
+  const thinkingButtonRef = useRef<HTMLButtonElement | null>(null)
+  const thinkingMenuRef = useRef<HTMLDivElement | null>(null)
   const projectNameInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
   const maxLength = 2000
@@ -174,6 +210,10 @@ export function HomePage() {
   }[harnessclawStatus]
   const currentPermission = PERMISSION_MODES.find((mode) => mode.id === permissionMode) || PERMISSION_MODES[0]
   const CurrentPermissionIcon = currentPermission.icon
+  const selectedModel = modelSelections.find((selection) => getModelSelectionKey(selection) === selectedModelKey)
+    || modelSelections[0]
+    || null
+  const selectedReasoningEffort = thinkingMode === 'on' ? 'medium' : undefined
   const filteredProjects = projects.filter((project) => {
     const query = projectSearch.trim().toLowerCase()
     if (!query) return true
@@ -184,7 +224,7 @@ export function HomePage() {
     const button = permissionButtonRef.current
     if (!button) return
     const rect = button.getBoundingClientRect()
-    const menuWidth = 330
+    const menuWidth = 280
     const margin = 12
     const left = Math.min(Math.max(margin, rect.left), window.innerWidth - menuWidth - margin)
     setPermissionMenuPosition({
@@ -206,13 +246,73 @@ export function HomePage() {
     })
   }
 
+  const updateModelMenuPosition = () => {
+    const button = modelButtonRef.current
+    if (!button) return
+    const rect = button.getBoundingClientRect()
+    const menuWidth = 220
+    const margin = 12
+    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - menuWidth - margin)
+    setModelMenuPosition({
+      left,
+      bottom: Math.max(margin, window.innerHeight - rect.top + 8),
+    })
+  }
+
+  const updateThinkingMenuPosition = () => {
+    const button = thinkingButtonRef.current
+    if (!button) return
+    const rect = button.getBoundingClientRect()
+    const menuWidth = 180
+    const margin = 12
+    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - menuWidth - margin)
+    setThinkingMenuPosition({
+      left,
+      bottom: Math.max(margin, window.innerHeight - rect.top + 8),
+    })
+  }
+
   useEffect(() => {
     void window.db.listProjects().then((rows) => setProjects(rows as HomeProject[])).catch(() => setProjects([]))
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    void window.db.listModelProviderSelections()
+      .then((rows) => {
+        if (cancelled) return
+        const selections = rows as ModelProviderSelection[]
+        setModelSelections(selections)
+        setSelectedModelKey((current) => {
+          if (current && selections.some((selection) => getModelSelectionKey(selection) === current)) return current
+          const next = selections[0] ? getModelSelectionKey(selections[0]) : ''
+          if (next) window.localStorage.setItem(MODEL_SELECTION_STORAGE_KEY, next)
+          return next
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setModelSelections([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     window.localStorage.setItem(PERMISSION_MODE_STORAGE_KEY, permissionMode)
   }, [permissionMode])
+
+  useEffect(() => {
+    if (selectedModelKey) {
+      window.localStorage.setItem(MODEL_SELECTION_STORAGE_KEY, selectedModelKey)
+    } else {
+      window.localStorage.removeItem(MODEL_SELECTION_STORAGE_KEY)
+    }
+  }, [selectedModelKey])
+
+  useEffect(() => {
+    window.localStorage.setItem(THINKING_MODE_STORAGE_KEY, thinkingMode)
+  }, [thinkingMode])
 
   useEffect(() => {
     if (!permissionMenuOpen) return
@@ -271,6 +371,58 @@ export function HomePage() {
   }, [projectMenuOpen])
 
   useEffect(() => {
+    if (!modelMenuOpen) return
+    updateModelMenuPosition()
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (modelButtonRef.current?.contains(target)) return
+      if (modelMenuRef.current?.contains(target)) return
+      setModelMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setModelMenuOpen(false)
+    }
+
+    window.addEventListener('resize', updateModelMenuPosition)
+    window.addEventListener('scroll', updateModelMenuPosition, true)
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('resize', updateModelMenuPosition)
+      window.removeEventListener('scroll', updateModelMenuPosition, true)
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [modelMenuOpen])
+
+  useEffect(() => {
+    if (!thinkingMenuOpen) return
+    updateThinkingMenuPosition()
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (thinkingButtonRef.current?.contains(target)) return
+      if (thinkingMenuRef.current?.contains(target)) return
+      setThinkingMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setThinkingMenuOpen(false)
+    }
+
+    window.addEventListener('resize', updateThinkingMenuPosition)
+    window.addEventListener('scroll', updateThinkingMenuPosition, true)
+    window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('resize', updateThinkingMenuPosition)
+      window.removeEventListener('scroll', updateThinkingMenuPosition, true)
+      window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [thinkingMenuOpen])
+
+  useEffect(() => {
     if (!createProjectOpen) return
     requestAnimationFrame(() => projectNameInputRef.current?.focus())
   }, [createProjectOpen])
@@ -315,6 +467,11 @@ export function HomePage() {
     setProjectMenuOpen(false)
     setNewProjectOptionsOpen(false)
     setProjectSearch('')
+  }
+
+  const selectModel = (selection: ModelProviderSelection) => {
+    setSelectedModelKey(getModelSelectionKey(selection))
+    setModelMenuOpen(false)
   }
 
   const validateProjectName = (name: string): string => {
@@ -411,6 +568,9 @@ export function HomePage() {
         approvalsReviewer: selectedPermission.approvalsReviewer,
         sandbox: selectedPermission.sandbox,
         cwd: resolvedCwd,
+        model: selectedModel?.model_id,
+        modelProvider: selectedModel?.provider,
+        effort: selectedReasoningEffort,
       })
 
       navigate('/chat', {
@@ -421,6 +581,10 @@ export function HomePage() {
           approvalPolicy: selectedPermission.approvalPolicy,
           approvalsReviewer: selectedPermission.approvalsReviewer,
           sandbox: selectedPermission.sandbox,
+          model: selectedModel?.model_id,
+          modelProvider: selectedModel?.provider,
+          reasoningEffort: selectedReasoningEffort,
+          thinkingMode,
           projectContext: selectedProject
             ? {
                 projectId: selectedProject.project_id,
@@ -750,16 +914,16 @@ export function HomePage() {
                             left: permissionMenuPosition.left,
                             bottom: permissionMenuPosition.bottom,
                           }}
-                          className="fixed z-[120] w-[330px] overflow-hidden rounded-[1.35rem] border border-border bg-card py-2 shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+                          className="fixed z-[120] w-[280px] overflow-hidden rounded-2xl border border-border bg-card py-1.5 shadow-[0_14px_42px_rgba(15,23,42,0.16)]"
                         >
-                          <div className="flex items-center justify-between px-4 pb-2 pt-1 text-sm font-medium text-muted-foreground">
+                          <div className="flex items-center justify-between px-3 pb-1.5 pt-1 text-xs font-medium text-muted-foreground">
                             <span>{t('home.permissions.title')}</span>
                             <button
                               type="button"
                               onClick={() => {
                                 void window.appRuntime.openExternal('https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it')
                               }}
-                              className="text-xs underline underline-offset-4 transition-colors hover:text-foreground"
+                              className="text-[11px] underline underline-offset-4 transition-colors hover:text-foreground"
                             >
                               {t('home.permissions.learnMore')}
                             </button>
@@ -777,18 +941,18 @@ export function HomePage() {
                                   setPermissionMode(mode.id)
                                   setPermissionMenuOpen(false)
                                 }}
-                                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60"
+                                className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/60"
                               >
-                                <Icon size={19} className="shrink-0 text-muted-foreground" />
+                                <Icon size={17} className="shrink-0 text-muted-foreground" />
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-sm font-semibold text-foreground">
                                     {t(`home.permissions.${mode.id}.label`)}
                                   </span>
-                                  <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                                  <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
                                     {t(`home.permissions.${mode.id}.description`)}
                                   </span>
                                 </span>
-                                {selected && <Check size={17} className="shrink-0 text-primary" />}
+                                {selected && <Check size={15} className="shrink-0 text-primary" />}
                               </button>
                             )
                           })}
@@ -799,6 +963,53 @@ export function HomePage() {
                   </div>
 
                   <div className="flex items-center gap-2.5">
+                    <button
+                      ref={modelButtonRef}
+                      type="button"
+                      onClick={() => {
+                        if (modelMenuOpen) {
+                          setModelMenuOpen(false)
+                          return
+                        }
+                        updateModelMenuPosition()
+                        setModelMenuOpen(true)
+                      }}
+                      aria-haspopup="menu"
+                      aria-expanded={modelMenuOpen}
+                      className="inline-flex h-8 max-w-[180px] items-center gap-1 rounded-xl bg-muted px-2.5 text-sm text-foreground transition-colors hover:bg-muted-foreground/15"
+                      title={selectedModel ? `${selectedModel.provider}/${selectedModel.model_id}` : t('home.modelSelector.empty')}
+                    >
+                      <span className="min-w-0 truncate">
+                        {selectedModel?.model_id || t('home.modelSelector.empty')}
+                      </span>
+                      <ChevronDown
+                        size={14}
+                        className={cn('shrink-0 text-muted-foreground transition-transform', modelMenuOpen && 'rotate-180')}
+                      />
+                    </button>
+                    <button
+                      ref={thinkingButtonRef}
+                      type="button"
+                      onClick={() => {
+                        if (thinkingMenuOpen) {
+                          setThinkingMenuOpen(false)
+                          return
+                        }
+                        updateThinkingMenuPosition()
+                        setThinkingMenuOpen(true)
+                      }}
+                      aria-haspopup="menu"
+                      aria-expanded={thinkingMenuOpen}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-xl px-2 text-sm text-foreground transition-colors hover:bg-muted"
+                      title={t('home.thinking.title')}
+                    >
+                      <Brain size={17} className="shrink-0" />
+                      <span>{t(`home.thinking.${thinkingMode}`)}</span>
+                      <ChevronDown
+                        size={14}
+                        className={cn('shrink-0 text-muted-foreground transition-transform', thinkingMenuOpen && 'rotate-180')}
+                      />
+                    </button>
                     <button
                       onClick={() => void handleSend()}
                       disabled={isSending || (!buildSkillComposerPayload(input, selectedSkills) && attachments.length === 0 && pasted.blocks.length === 0)}
@@ -907,6 +1118,96 @@ export function HomePage() {
         </div>
       </div>
       </div>
+
+      {modelMenuOpen && modelMenuPosition && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={modelMenuRef}
+          role="menu"
+          style={{
+            left: modelMenuPosition.left,
+            bottom: modelMenuPosition.bottom,
+          }}
+          className="fixed z-[120] w-[220px] overflow-hidden rounded-2xl border border-border bg-card py-1.5 shadow-[0_14px_42px_rgba(15,23,42,0.16)]"
+        >
+          <div className="max-h-[200px] overflow-y-auto">
+            {modelSelections.length > 0 ? (
+              modelSelections.map((selection) => {
+                const selected = selectedModel
+                  ? getModelSelectionKey(selection) === getModelSelectionKey(selectedModel)
+                  : false
+                return (
+                  <button
+                    key={getModelSelectionKey(selection)}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    onClick={() => selectModel(selection)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-foreground">{selection.model_id}</span>
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{selection.provider}</span>
+                    </span>
+                    {selected && <Check size={15} className="shrink-0 text-primary" />}
+                  </button>
+                )
+              })
+            ) : (
+              <div className="px-3 py-2 text-sm text-muted-foreground">
+                {t('home.modelSelector.emptyState')}
+              </div>
+            )}
+          </div>
+          <div className="mt-1 border-t border-border/80 pt-1">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setModelMenuOpen(false)
+                navigate('/settings', { state: { initialSection: 'models' } })
+              }}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70"
+            >
+              <span>{t('home.modelSelector.manage')}</span>
+              <ChevronRight size={15} className="text-muted-foreground" />
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {thinkingMenuOpen && thinkingMenuPosition && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={thinkingMenuRef}
+          role="menu"
+          style={{
+            left: thinkingMenuPosition.left,
+            bottom: thinkingMenuPosition.bottom,
+          }}
+          className="fixed z-[120] w-[180px] overflow-hidden rounded-[1rem] border border-border bg-card py-2 shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        >
+          {(['on', 'off'] as ThinkingMode[]).map((mode) => {
+            const selected = mode === thinkingMode
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                onClick={() => {
+                  setThinkingMode(mode)
+                  setThinkingMenuOpen(false)
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/70"
+              >
+                <span className="min-w-0 flex-1 truncate">{t(`home.thinking.${mode}`)}</span>
+                {selected && <Check size={16} className="shrink-0 text-primary" />}
+              </button>
+            )
+          })}
+        </div>,
+        document.body
+      )}
 
       {projectMenuOpen && projectMenuPosition && typeof document !== 'undefined' && createPortal(
         <div

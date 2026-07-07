@@ -97,11 +97,11 @@ export function Sidebar() {
     {
       items: [
         { icon: Plus, path: '/', label: t('sidebar.newTask') },
-        // 暂隐藏(功能未完成,保留代码勿删):定时任务 / 项目 / 团队
+        // 暂隐藏(功能未完成,保留代码勿删):定时任务 / 团队
         // { icon: Clock, path: '/scheduler', label: t('sidebar.scheduler') },
         { icon: MessageSquareText, path: '/sessions', label: t('sidebar.chat') },
         { icon: Puzzle, path: '/skills', label: t('sidebar.skills') },
-        // { icon: FolderKanban, path: '/projects', label: t('sidebar.projects') },
+        { icon: FolderKanban, path: '/projects', label: t('sidebar.projects') },
         // { icon: Users, path: '/team', label: t('sidebar.team') },
         { icon: FlaskConical, path: '/x-lab', label: t('sidebar.xLab') },
       ],

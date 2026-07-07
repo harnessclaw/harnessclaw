@@ -6,49 +6,6 @@ import { DangerConfirmMenu } from '../common/DangerConfirmMenu'
 import { cn } from '../../lib/utils'
 import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
 
-const usageChartData = [
-  { label: '04/09', value: 40.2 },
-  { label: '04/12', value: 19.1 },
-  { label: '04/14', value: 48.8 },
-  { label: '04/15', value: 10.4 },
-  { label: '04/16', value: 43.7 },
-  { label: '04/18', value: 48.2 },
-  { label: '04/19', value: 0.6 },
-  { label: '04/21', value: 26.5 },
-  { label: '04/23', value: 31.8 },
-] as const
-
-const projectAgents = [
-  {
-    id: 'agent-01',
-    bg: 'linear-gradient(180deg, #f7f7f5 0%, #e9edf4 100%)',
-    hair: '#6d4f34',
-    skin: '#d8a881',
-    shirt: '#f4f5f7',
-  },
-  {
-    id: 'agent-02',
-    bg: 'linear-gradient(180deg, #e2d5ba 0%, #b78f59 100%)',
-    hair: '#2d231d',
-    skin: '#9d6d4b',
-    shirt: '#80878d',
-  },
-  {
-    id: 'agent-03',
-    bg: 'linear-gradient(180deg, #f4ce69 0%, #e9a72b 100%)',
-    hair: '#3c1e16',
-    skin: '#b86d46',
-    shirt: '#c94026',
-  },
-  {
-    id: 'agent-04',
-    bg: 'linear-gradient(180deg, #dbe6f2 0%, #9bb0c8 100%)',
-    hair: '#263746',
-    skin: '#b98464',
-    shirt: '#8fa6c3',
-  },
-] as const
-
 function getProjectSessionLabel(t: any, session: DbSessionRow): string {
   const trimmed = session.title.trim()
   if (trimmed) return trimmed
@@ -179,7 +136,7 @@ export function ProjectWorkspacePage() {
 
   if (!loading && !project) {
     return (
-      <div className="flex h-full min-h-0 justify-center overflow-hidden px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+      <div className="flex h-full min-h-0 justify-center overflow-hidden px-4 pb-4 pt-10 sm:px-6 sm:pb-5 sm:pt-11 lg:px-8">
         <div className="w-full max-w-[1180px]">
           <button
             type="button"
@@ -202,39 +159,39 @@ export function ProjectWorkspacePage() {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 justify-center overflow-hidden px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+    <div className="relative flex h-full min-h-0 justify-center overflow-hidden px-4 pb-4 pt-10 sm:px-6 sm:pb-5 sm:pt-11 lg:px-8">
       <div className="flex h-full min-h-0 w-full max-w-[1320px] flex-col">
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.5fr)_380px]">
+        <div className="mb-4 flex items-center text-sm text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => navigate('/projects')}
+            className="-ml-2 inline-flex min-h-10 items-center gap-2 rounded-xl px-2.5 py-2 transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ArrowLeft size={16} />
+            <span>{t('projects.workspace.allProjects')}</span>
+          </button>
+        </div>
+
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+              {loading ? t('common.loading') : displayProjectName}
+            </h1>
+          </div>
+
+          <div className="hidden items-center gap-2 text-muted-foreground md:flex">
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card transition-colors hover:bg-muted"
+              aria-label={t('common.actions.more')}
+            >
+              <span className="text-xl leading-none">⋮</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] xl:grid-cols-[minmax(0,1fr)_380px]">
           <section className="flex min-h-0 flex-col">
-            <div className="mb-4 flex items-center text-sm text-muted-foreground">
-              <button
-                type="button"
-                onClick={() => navigate('/projects')}
-                className="-ml-2 inline-flex min-h-10 items-center gap-2 rounded-xl px-2.5 py-2 transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <ArrowLeft size={16} />
-                <span>{t('projects.workspace.allProjects')}</span>
-              </button>
-            </div>
-
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                  {loading ? t('common.loading') : displayProjectName}
-                </h1>
-              </div>
-
-              <div className="hidden items-center gap-2 text-muted-foreground md:flex">
-                <button
-                  type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card transition-colors hover:bg-muted"
-                  aria-label={t('common.actions.more')}
-                >
-                  <span className="text-xl leading-none">⋮</span>
-                </button>
-              </div>
-            </div>
-
             <div
               className={cn(
                 'relative overflow-hidden rounded-[28px] border bg-card transition-[border-color,box-shadow,transform] duration-200',
@@ -351,21 +308,8 @@ export function ProjectWorkspacePage() {
             </div>
           </section>
 
-          <aside className="min-w-0">
+          <aside className="min-w-0 lg:min-w-[280px]">
             <div className="space-y-1">
-              <div className="overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_14px_38px_rgba(15,23,42,0.05)]">
-                <PanelBlock
-                  title={t('projects.workspace.panels.constraints')}
-                  icon={<Plus size={18} />}
-                  actionLabel={t('projects.workspace.panels.addConstraint')}
-                  body={(
-                    <div className="rounded-[20px] border border-dashed border-border bg-muted/20 px-4 py-5 text-sm leading-6 text-muted-foreground">
-                      {displayProjectDescription.trim() || t('projects.workspace.panels.noDescription')}
-                    </div>
-                  )}
-                />
-              </div>
-
               <div className="overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_14px_38px_rgba(15,23,42,0.05)]">
                 <PanelBlock
                   title={t('projects.workspace.panels.files')}
@@ -380,32 +324,6 @@ export function ProjectWorkspacePage() {
                         {t('projects.workspace.panels.addFile')}
                       </p>
                     </div>
-                  )}
-                />
-              </div>
-
-              <div className="overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_14px_38px_rgba(15,23,42,0.05)]">
-                <PanelBlock
-                  title={t('projects.workspace.panels.usage')}
-                  icon={<Plus size={22} strokeWidth={2.2} />}
-                  actionLabel={t('projects.workspace.panels.usageDetail')}
-                  actionButtonClassName="h-10 w-10"
-                  sectionClassName="flex flex-col"
-                  bodyClassName="mt-4"
-                  body={(
-                    <UsageChartCard />
-                  )}
-                />
-              </div>
-
-              <div className="overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_14px_38px_rgba(15,23,42,0.05)]">
-                <PanelBlock
-                  title={t('projects.workspace.panels.agents')}
-                  icon={<Plus size={18} />}
-                  actionLabel={t('projects.workspace.panels.addAgent')}
-                  bodyClassName="mt-[2px]"
-                  body={(
-                    <ProjectAgentsCard />
                   )}
                 />
               </div>
@@ -426,188 +344,6 @@ export function ProjectWorkspacePage() {
           onConfirm={() => void handleDeleteProjectSession(confirmingSession.session_id)}
         />
       ) : null}
-    </div>
-  )
-}
-
-function UsageChartCard() {
-  const { t } = useTranslation()
-  const width = 320
-  const height = 180
-  const paddingTop = 14
-  const paddingRight = 10
-  const paddingBottom = 24
-  const paddingLeft = 36
-  const chartWidth = width - paddingLeft - paddingRight
-  const chartHeight = height - paddingTop - paddingBottom
-  const todayValue = usageChartData[usageChartData.length - 1]?.value ?? 0
-  const peakValue = Math.max(...usageChartData.map((item) => item.value))
-  const maxValue = Math.ceil(peakValue / 10) * 10
-  const yTicks = Array.from({ length: maxValue / 10 + 1 }, (_, index) => index * 10)
-  const labelIndexes = [0, 2, 4, 6, 8]
-
-  const points = usageChartData.map((point, index) => {
-    const x = paddingLeft + (chartWidth / (usageChartData.length - 1)) * index
-    const y = paddingTop + chartHeight - (point.value / maxValue) * chartHeight
-    return { ...point, x, y }
-  })
-
-  const linePath = points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-    .join(' ')
-  const areaPath = `${linePath} L ${points[points.length - 1]?.x.toFixed(2)} ${(paddingTop + chartHeight).toFixed(2)} L ${points[0]?.x.toFixed(2)} ${(paddingTop + chartHeight).toFixed(2)} Z`
-  const latestPoint = points[points.length - 1]
-
-  return (
-    <div className="rounded-[22px] border border-border/70 bg-muted/10 p-4">
-      <div className="flex flex-col">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-foreground">{t('projects.workspace.panels.usage')}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{t('projects.workspace.panels.usageTrend')}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-[11px] font-medium text-muted-foreground">{t('projects.workspace.panels.todayUsage')}</p>
-            <p className="text-[1.55rem] font-semibold tracking-tight text-foreground">
-              {todayValue.toFixed(1)}M
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <div className="w-full">
-            <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full overflow-visible">
-              <defs>
-                <linearGradient id="usage-fill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="rgba(29, 91, 230, 0.20)" />
-                  <stop offset="100%" stopColor="rgba(29, 91, 230, 0.02)" />
-                </linearGradient>
-              </defs>
-
-              {yTicks.map((tick) => {
-                const y = paddingTop + chartHeight - (tick / maxValue) * chartHeight
-                return (
-                  <g key={tick}>
-                    <line
-                      x1={paddingLeft}
-                      x2={width - paddingRight}
-                      y1={y}
-                      y2={y}
-                      stroke="rgba(148,163,184,0.28)"
-                      strokeDasharray="3 4"
-                    />
-                    <text
-                      x={paddingLeft - 7}
-                      y={y + 4}
-                      textAnchor="end"
-                      className="fill-muted-foreground text-[10px]"
-                    >
-                      {tick === 0 ? '0' : `${tick}M`}
-                    </text>
-                  </g>
-                )
-              })}
-
-              <path d={areaPath} fill="url(#usage-fill)" />
-              <path
-                d={linePath}
-                fill="none"
-                stroke="#1d5be6"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {points.map((point, index) => (
-                <circle
-                  key={point.label}
-                  cx={point.x}
-                  cy={point.y}
-                  r={index === points.length - 1 ? 4.5 : 3}
-                  fill={index === points.length - 1 ? '#1d5be6' : '#ffffff'}
-                  stroke="#1d5be6"
-                  strokeWidth={index === points.length - 1 ? 2.5 : 1.8}
-                />
-              ))}
-              {latestPoint ? (
-                <line
-                  x1={latestPoint.x}
-                  x2={latestPoint.x}
-                  y1={paddingTop}
-                  y2={paddingTop + chartHeight}
-                  stroke="rgba(29,91,230,0.14)"
-                  strokeDasharray="3 4"
-                />
-              ) : null}
-
-              {labelIndexes.map((tickIndex) => {
-                const point = points[tickIndex]
-                if (!point) return null
-
-                return (
-                  <text
-                    key={point.label}
-                    x={point.x}
-                    y={height - 6}
-                    textAnchor="middle"
-                    className="fill-muted-foreground text-[10px]"
-                  >
-                    {point.label}
-                  </text>
-                )
-              })}
-            </svg>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ProjectAgentsCard() {
-  return (
-    <div className="relative overflow-hidden rounded-[28px] border border-white/70 bg-[#fbfaf8] pl-[6px] pr-4 py-2 shadow-[0_18px_38px_rgba(15,23,42,0.08)]">
-      <div className="pointer-events-none absolute inset-x-10 bottom-0 h-5 rounded-full bg-[rgba(161,127,255,0.18)] blur-xl" />
-      <div className="relative flex items-center justify-start">
-        <div className="flex items-center justify-start -space-x-3">
-          {projectAgents.map((agent, index) => (
-            <div
-              key={agent.id}
-              className={cn(
-                'relative shrink-0 transition-transform',
-                index % 2 === 0 ? 'translate-y-0' : 'translate-y-0.5'
-              )}
-              style={{ zIndex: projectAgents.length - index }}
-            >
-              <AgentPortrait palette={agent} size={54} />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AgentPortrait({
-  palette,
-  size,
-}: {
-  palette: (typeof projectAgents)[number]
-  size: number
-}) {
-  return (
-    <div
-      className="relative overflow-hidden rounded-full shadow-[0_10px_20px_rgba(15,23,42,0.10)]"
-      style={{ width: size, height: size, background: palette.bg }}
-    >
-      <svg viewBox="0 0 54 54" className="h-full w-full" aria-hidden="true">
-        <circle cx="27" cy="27" r="27" fill="transparent" />
-        <ellipse cx="27" cy="60" rx="18" ry="16" fill={palette.shirt} />
-        <path d="M18 32c1-8 5.8-13 9-13s8 5 9 13c-2.7 2.8-5.5 4.3-9 4.3s-6.2-1.5-9-4.3Z" fill={palette.skin} />
-        <path d="M17 23c2-6.8 7.8-10.6 12-10.6 4.6 0 8.5 2.4 10.5 7.8l-2.8 4.7c-2.4-1.4-4.8-2.1-8.5-2.1-3.5 0-6.5.9-9 2.9L17 23Z" fill={palette.hair} />
-        <circle cx="22.2" cy="26.5" r="1.2" fill="#1f2937" opacity="0.72" />
-        <circle cx="31.4" cy="26.5" r="1.2" fill="#1f2937" opacity="0.72" />
-        <path d="M22.4 31.4c1.6 1.5 3 2.1 4.9 2.1s3.5-.6 5.2-2.1" fill="none" stroke="#825b45" strokeWidth="1.4" strokeLinecap="round" opacity="0.7" />
-      </svg>
     </div>
   )
 }

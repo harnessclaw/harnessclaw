@@ -78,6 +78,7 @@ function initTables(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
       title      TEXT NOT NULL DEFAULT '',
+      cwd        TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -131,6 +132,13 @@ function initTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_usage_events_created_at ON usage_events(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS model_provider_selections (
+      provider   TEXT PRIMARY KEY,
+      model_id   TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS skill_repositories (
       id                 TEXT PRIMARY KEY,
@@ -248,6 +256,9 @@ function initTables(db: Database.Database): void {
   if (!sessionColumns.some((col) => col.name === 'project_context_json')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN project_context_json TEXT`)
   }
+  if (!sessionColumns.some((col) => col.name === 'cwd')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN cwd TEXT`)
+  }
 
   seedDefaultProjects(db)
   migrateDefaultProjects(db)
@@ -261,21 +272,24 @@ export function upsertSession(
   options?: {
     projectId?: string
     projectContextJson?: string | null
+    cwd?: string | null
   }
 ): void {
   const now = Date.now()
   getDb().prepare(`
-    INSERT INTO sessions (session_id, title, project_id, project_context_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO sessions (session_id, title, project_id, project_context_json, cwd, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       updated_at = excluded.updated_at,
       project_id = COALESCE(excluded.project_id, sessions.project_id),
-      project_context_json = COALESCE(excluded.project_context_json, sessions.project_context_json)
+      project_context_json = COALESCE(excluded.project_context_json, sessions.project_context_json),
+      cwd = COALESCE(excluded.cwd, sessions.cwd)
   `).run(
     sessionId,
     title || '',
     options?.projectId || null,
     options?.projectContextJson || null,
+    options?.cwd || null,
     now,
     now
   )
@@ -296,6 +310,7 @@ export interface SessionRow {
   title: string
   project_id: string | null
   project_context_json: string | null
+  cwd: string | null
   created_at: number
   updated_at: number
 }
@@ -453,6 +468,43 @@ export interface ConfigDocumentRow {
   payload_text: string
   created_at: number
   updated_at: number
+}
+
+export interface ModelProviderSelectionRow {
+  provider: string
+  model_id: string
+  created_at: number
+  updated_at: number
+}
+
+export function upsertModelProviderSelection(input: {
+  provider: string
+  modelId: string
+}): ModelProviderSelectionRow {
+  const provider = input.provider.trim()
+  const modelId = input.modelId.trim()
+  const now = Date.now()
+  getDb().prepare(`
+    INSERT INTO model_provider_selections (provider, model_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(provider) DO UPDATE SET
+      model_id = excluded.model_id,
+      updated_at = excluded.updated_at
+  `).run(provider, modelId, now, now)
+
+  return getDb().prepare(`
+    SELECT provider, model_id, created_at, updated_at
+    FROM model_provider_selections
+    WHERE provider = ?
+  `).get(provider) as ModelProviderSelectionRow
+}
+
+export function listModelProviderSelections(): ModelProviderSelectionRow[] {
+  return getDb().prepare(`
+    SELECT provider, model_id, created_at, updated_at
+    FROM model_provider_selections
+    ORDER BY updated_at DESC, provider ASC
+  `).all() as ModelProviderSelectionRow[]
 }
 
 export function getConfigDocument(scope: ConfigScope): ConfigDocumentRow | null {

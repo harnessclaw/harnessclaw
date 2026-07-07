@@ -1378,7 +1378,7 @@ function EmptyState({ icon, title }: { icon: string; title: string }) {
 
 /**
  * 开发模式：会话工作区文件树（窄面板版）。
- * 读 `~/.harnessclaw/workspace/session/<sid>`，渲染完整文件树（含 deliverables/、tasks/ 等）；
+ * 读取会话启动时传给后端的 cwd，渲染完整文件树（含 deliverables/、tasks/ 等）；
  * 点文件交给宿主（ChatPage）走 FilePreviewDrawer 预览，不在 280px 面板内塞预览。
  */
 function WorkspaceFileTreeView({

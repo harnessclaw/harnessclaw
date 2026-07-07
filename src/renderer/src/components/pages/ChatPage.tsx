@@ -4209,6 +4209,18 @@ export function ChatPage() {
     typeof location.state?.cwd === 'string' && location.state.cwd.trim()
       ? location.state.cwd.trim()
       : undefined
+  const initialModel: string | undefined =
+    typeof location.state?.model === 'string' && location.state.model.trim()
+      ? location.state.model.trim()
+      : undefined
+  const initialModelProvider: string | undefined =
+    typeof location.state?.modelProvider === 'string' && location.state.modelProvider.trim()
+      ? location.state.modelProvider.trim()
+      : undefined
+  const initialReasoningEffort: string | undefined =
+    typeof location.state?.reasoningEffort === 'string' && location.state.reasoningEffort.trim()
+      ? location.state.reasoningEffort.trim()
+      : undefined
   const selectedSessionIdFromRoute = typeof location.state?.sessionId === 'string' ? location.state.sessionId : ''
   const createSessionOnOpen = location.state?.createSession === true
   const routeProjectContext = useMemo(() => normalizeProjectContext(location.state?.projectContext), [location.state])
@@ -4280,7 +4292,7 @@ export function ChatPage() {
   //      pops up while the network round-trip is in flight.
   //   2. window.artifacts.fetch — main process pulls bytes via
   //      `/api/v1/artifacts/{id}/content` and writes them to
-  //      ~/.harnessclaw/artifact-cache/<session>/<id>/<fileName>.
+  //      the session cwd when available, with artifact-cache as fallback.
   //   3. window.files.read on the resulting path — same pipeline as
   //      opening a local file: docx → mammoth → HTML, pdf → pdf-parse →
   //      text, etc.
@@ -4365,6 +4377,9 @@ export function ChatPage() {
     approvalsReviewer?: 'user' | 'auto_review'
     sandbox?: 'danger-full-access'
     cwd?: string
+    model?: string
+    modelProvider?: string
+    effort?: string
   } | null>(
     initialMessage || initialAttachments.length > 0
       ? {
@@ -4376,6 +4391,9 @@ export function ChatPage() {
           approvalsReviewer: initialApprovalsReviewer,
           sandbox: initialSandbox,
           cwd: initialCwd,
+          model: initialModel,
+          modelProvider: initialModelProvider,
+          effort: initialReasoningEffort,
         }
       : null
   )
@@ -4449,6 +4467,9 @@ export function ChatPage() {
     approvalsReviewer?: 'user' | 'auto_review',
     sandbox?: 'danger-full-access',
     cwd?: string,
+    model?: string,
+    modelProvider?: string,
+    effort?: string,
   ) => {
     pendingInitialTurn.current = null
     const trimmedText = text.trim()
@@ -4530,9 +4551,12 @@ export function ChatPage() {
       approvalsReviewer?: 'user' | 'auto_review'
       sandbox?: 'danger-full-access'
       cwd?: string
+      model?: string
+      modelProvider?: string
+      effort?: string
       images?: typeof wireImages
     } | undefined =
-      (coordinatorMode || planConfirmation || approvalPolicy || approvalsReviewer || sandbox || cwd || wireImages.length > 0)
+      (coordinatorMode || planConfirmation || approvalPolicy || approvalsReviewer || sandbox || cwd || model || modelProvider || effort || wireImages.length > 0)
         ? {
             ...(coordinatorMode ? { coordinatorMode } : {}),
             ...(planConfirmation ? { planConfirmation } : {}),
@@ -4540,6 +4564,9 @@ export function ChatPage() {
             ...(approvalsReviewer ? { approvalsReviewer } : {}),
             ...(sandbox ? { sandbox } : {}),
             ...(cwd ? { cwd } : {}),
+            ...(model ? { model } : {}),
+            ...(modelProvider ? { modelProvider } : {}),
+            ...(effort ? { effort } : {}),
             ...(wireImages.length > 0 ? { images: wireImages } : {}),
           }
         : undefined
@@ -5487,6 +5514,9 @@ export function ChatPage() {
       approvalsReviewer: initialApprovalsReviewer,
       sandbox: initialSandbox,
       cwd: initialCwd,
+      model: initialModel,
+      modelProvider: initialModelProvider,
+      effort: initialReasoningEffort,
     }
     setInput(initialMessage)
     setAttachments(initialAttachments)
@@ -5499,6 +5529,9 @@ export function ChatPage() {
     initialApprovalsReviewer,
     initialSandbox,
     initialCwd,
+    initialModel,
+    initialModelProvider,
+    initialReasoningEffort,
     location.key,
   ])
 
@@ -5597,6 +5630,9 @@ export function ChatPage() {
       next.approvalsReviewer,
       next.sandbox,
       next.cwd,
+      next.model,
+      next.modelProvider,
+      next.effort,
     )
   }, [ensureLocalSession, sendInitialMessage])
 
@@ -10662,16 +10698,16 @@ function PermissionRequestCard({
             </div>
             <div className="mt-1 rounded-lg border border-amber-200/70 bg-white/70 px-2.5 py-2 dark:border-amber-900/30 dark:bg-background/80">
               {requestData?.command ? (
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-black/[0.04] px-2 py-1.5 text-[11px] font-mono text-foreground/90 dark:bg-white/[0.05]">
+                <pre className="max-h-[132px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-black/[0.04] px-2 py-1.5 text-[11px] leading-5 font-mono text-foreground/90 dark:bg-white/[0.05]">
                   {requestData.command}
                 </pre>
               ) : (
-                <p className="line-clamp-3 break-all text-[11px] text-foreground/90">
+                <p className="max-h-[120px] overflow-y-auto break-all text-[11px] leading-5 text-foreground/90">
                   {requestData?.message || t('chat.permissions.defaultMessage')}
                 </p>
               )}
               {!requestData?.command && requestData?.description && (
-                <p className="mt-1 line-clamp-2 break-all text-[10px] text-muted-foreground">
+                <p className="mt-1 max-h-[120px] overflow-y-auto break-all text-[10px] leading-5 text-muted-foreground">
                   {requestData.description}
                 </p>
               )}
@@ -10724,7 +10760,7 @@ function PermissionRequestCard({
           {requestData?.toolInput && (
             <div>
               <p className="mb-1 text-[10px] text-muted-foreground">{t('chat.permissions.detailsLabel')}</p>
-              <pre className="max-h-40 overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80">
+              <pre className="max-h-[136px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background/80 p-2 text-[11px] leading-5 font-mono text-foreground/80">
                 {requestData.toolInput}
               </pre>
             </div>
@@ -10732,7 +10768,7 @@ function PermissionRequestCard({
           {resultData?.message && (
             <div>
               <p className="mb-1 text-[10px] text-muted-foreground">{t('chat.permissions.resultLabel')}</p>
-              <pre className="overflow-x-auto rounded-lg bg-background/80 p-2 text-[11px] font-mono text-foreground/80">
+              <pre className="max-h-[136px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background/80 p-2 text-[11px] leading-5 font-mono text-foreground/80">
                 {resultData.message}
               </pre>
             </div>
