@@ -21,6 +21,12 @@ import { FilePreviewModal } from '../attachments/FilePreviewModal'
 import type { FilePreviewData } from './ChatPage'
 import { HOME_CASES, HOME_CATEGORIES } from '../../data/homeCases'
 import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
+import {
+  getProjectCwd as getStoredProjectCwd,
+  readProjectCwds,
+  sessionBelongsToProjectByCwd,
+  setProjectCwd,
+} from '../../lib/projectCwds'
 import iconAttachFile from '../../assets/icon-attach-file.svg'
 import iconStatusConnected from '../../assets/status-connected.svg'
 import iconStatusConnecting from '../../assets/status-connecting.svg'
@@ -42,6 +48,19 @@ interface HomeProject {
   created_at: number
   updated_at: number
   deleted_at: number | null
+}
+
+interface HomeRouteState {
+  focusComposer?: boolean
+  selectedProject?: HomeProject
+  selectedProjectId?: string
+  hideRecommendations?: boolean
+}
+
+interface HomeProjectThread {
+  session_id: string
+  title: string
+  updated_at: number
 }
 
 interface ModelProviderSelection {
@@ -76,10 +95,13 @@ function getModelSelectionKey(selection: Pick<ModelProviderSelection, 'provider'
 }
 
 function getProjectCwd(project: HomeProject | null): string | undefined {
-  const value = project?.description?.trim()
-  if (!value) return undefined
-  if (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value)) return value
-  return undefined
+  if (!project) return undefined
+  return getStoredProjectCwd(project, readProjectCwds()) || undefined
+}
+
+function getThreadLabel(t: ReturnType<typeof useTranslation>['t'], thread: HomeProjectThread): string {
+  const title = thread.title.trim()
+  return title || t('home.projectThreads.untitled', { id: thread.session_id.slice(-6) })
 }
 
 // 推荐分类（id 同时是 HOME_CASES 的数据键，label 渲染时走 i18n）
@@ -95,6 +117,10 @@ const categories = [
 export function HomePage() {
   const { t } = useTranslation()
   const location = useLocation()
+  const routeState = (location.state && typeof location.state === 'object')
+    ? location.state as HomeRouteState
+    : null
+  const hideRecommendations = routeState?.hideRecommendations === true
   const [input, setInput] = useState('')
 
   const statusMeta = useMemo(() => ({
@@ -125,6 +151,8 @@ export function HomePage() {
   const [permissionMenuPosition, setPermissionMenuPosition] = useState<{ left: number; bottom: number } | null>(null)
   const [projects, setProjects] = useState<HomeProject[]>([])
   const [selectedProject, setSelectedProject] = useState<HomeProject | null>(null)
+  const [projectThreads, setProjectThreads] = useState<HomeProjectThread[]>([])
+  const [projectThreadsLoading, setProjectThreadsLoading] = useState(false)
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [projectMenuPosition, setProjectMenuPosition] = useState<{ left: number; bottom: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
@@ -275,6 +303,64 @@ export function HomePage() {
   useEffect(() => {
     void window.db.listProjects().then((rows) => setProjects(rows as HomeProject[])).catch(() => setProjects([]))
   }, [])
+
+  useEffect(() => {
+    const routeProject = routeState?.selectedProject
+    if (routeProject?.project_id) {
+      setSelectedProject(routeProject)
+      return
+    }
+
+    const routeProjectId = routeState?.selectedProjectId
+    if (!routeProjectId) return
+    const matchedProject = projects.find((project) => project.project_id === routeProjectId)
+    if (matchedProject) setSelectedProject(matchedProject)
+  }, [location.key, projects, routeState?.selectedProject, routeState?.selectedProjectId])
+
+  useEffect(() => {
+    if (!selectedProject || !hideRecommendations) {
+      setProjectThreads([])
+      setProjectThreadsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const loadProjectThreads = async () => {
+      setProjectThreadsLoading(true)
+      try {
+        const rows = await window.db.listSessions()
+        if (cancelled) return
+        const projectCwds = readProjectCwds()
+        const threads = rows
+          .filter((session) => (
+            session.project_id === selectedProject.project_id
+            || sessionBelongsToProjectByCwd(session, selectedProject, projectCwds)
+          ))
+          .map((session) => ({
+            session_id: session.session_id,
+            title: session.title,
+            updated_at: session.updated_at,
+          }))
+          .sort((a, b) => b.updated_at - a.updated_at)
+        setProjectThreads(threads)
+      } catch {
+        if (!cancelled) setProjectThreads([])
+      } finally {
+        if (!cancelled) setProjectThreadsLoading(false)
+      }
+    }
+
+    void loadProjectThreads()
+    const offSessionsChanged = window.db.onSessionsChanged(() => {
+      void loadProjectThreads()
+    })
+    window.addEventListener('project-cwds-changed', loadProjectThreads)
+    return () => {
+      cancelled = true
+      offSessionsChanged()
+      window.removeEventListener('project-cwds-changed', loadProjectThreads)
+    }
+  }, [hideRecommendations, selectedProject])
 
   useEffect(() => {
     let cancelled = false
@@ -446,9 +532,9 @@ export function HomePage() {
   }, [])
 
   useEffect(() => {
-    if (location.state?.focusComposer !== true) return
+    if (routeState?.focusComposer !== true) return
     requestAnimationFrame(() => inputRef.current?.focus())
-  }, [location.key, location.state])
+  }, [location.key, routeState?.focusComposer])
 
   const appendAttachments = (items: AttachmentItem[]) => {
     if (!items.length) return
@@ -503,6 +589,9 @@ export function HomePage() {
     }
 
     const project = result.project as HomeProject
+    if (result.path) setProjectCwd(project.project_id, result.path)
+    const projectCwd = getProjectCwd(project)
+    if (projectCwd) setProjectCwd(project.project_id, projectCwd)
     setProjects((current) => [project, ...current])
     selectProject(project)
     setCreateProjectOpen(false)
@@ -538,6 +627,7 @@ export function HomePage() {
       return
     }
     const project = result.project as HomeProject
+    setProjectCwd(project.project_id, picked.path)
     setProjects((current) => [project, ...current])
     selectProject(project)
   }
@@ -572,6 +662,10 @@ export function HomePage() {
         modelProvider: selectedModel?.provider,
         effort: selectedReasoningEffort,
       })
+
+      if (selectedProject) {
+        setProjectCwd(selectedProject.project_id, resolvedCwd)
+      }
 
       navigate('/chat', {
         state: {
@@ -1069,53 +1163,106 @@ export function HomePage() {
               </div>
             </div>
 
-        {/* 推荐区域 */}
-        <div ref={recommendRef} className="mt-[45px]">
-          {/* 分类标签 */}
-          <div className="mb-3 flex flex-wrap items-center gap-3">
-            {categories.map((category) => (
-              <button
-                key={category.id}
-                onClick={() => setSelectedCategory(category.id)}
-                className={cn(
-                  'rounded-full px-1.5 py-1 text-xs leading-5 transition-colors',
-                  selectedCategory === category.id
-                    ? 'font-semibold'
-                    : 'font-medium text-muted-foreground hover:text-foreground'
+            {hideRecommendations && selectedProject ? (
+              <div ref={recommendRef} className="mt-[45px]">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-[#222529]">
+                    {t('home.projectThreads.title', { name: getProjectDisplayName(selectedProject, t) })}
+                  </h2>
+                  <span className="text-xs text-muted-foreground">
+                    {projectThreadsLoading
+                      ? t('common.loading')
+                      : t('home.projectThreads.count', { count: projectThreads.length })}
+                  </span>
+                </div>
+
+                {projectThreadsLoading ? (
+                  <div className="rounded-xl border border-border bg-card px-4 py-5 text-sm text-muted-foreground">
+                    {t('common.loading')}
+                  </div>
+                ) : projectThreads.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-sm leading-6 text-muted-foreground">
+                    {t('home.projectThreads.empty')}
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border border-border bg-card">
+                    {projectThreads.map((thread, index) => (
+                      <button
+                        key={thread.session_id}
+                        type="button"
+                        onClick={() => navigate('/chat', { state: { sessionId: thread.session_id } })}
+                        className={cn(
+                          'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/45',
+                          index > 0 && 'border-t border-border'
+                        )}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                          {getThreadLabel(t, thread)}
+                        </span>
+                        <span className="flex-shrink-0 text-xs text-muted-foreground">
+                          {t('home.projectThreads.updatedAt', {
+                            time: new Date(thread.updated_at).toLocaleString(t('common.locale'), {
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            }),
+                          })}
+                        </span>
+                        <ChevronRight size={15} className="flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
                 )}
-                style={selectedCategory === category.id ? { color: '#222529' } : undefined}
-              >
-                {t(`home.categories.${category.id}`)}
-              </button>
-            ))}
-          </div>
+              </div>
+            ) : (
+              <div ref={recommendRef} className="mt-[45px]">
+                {/* 分类标签 */}
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  {categories.map((category) => (
+                    <button
+                      key={category.id}
+                      onClick={() => setSelectedCategory(category.id)}
+                      className={cn(
+                        'rounded-full px-1.5 py-1 text-xs leading-5 transition-colors',
+                        selectedCategory === category.id
+                          ? 'font-semibold'
+                          : 'font-medium text-muted-foreground hover:text-foreground'
+                      )}
+                      style={selectedCategory === category.id ? { color: '#222529' } : undefined}
+                    >
+                      {t(`home.categories.${category.id}`)}
+                    </button>
+                  ))}
+                </div>
 
-          {/* 案例卡片网格 - 纯文本格式 */}
-          <div className="grid grid-cols-3 gap-3">
-            {displayedCases.map((caseItem) => (
-              <button
-                key={caseItem.id}
-                onClick={() => handleCaseClick(caseItem)}
-                className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-md min-h-[120px]"
-              >
-                {/* 标题 */}
-                <h3 className="text-base font-medium text-foreground group-hover:text-primary transition-colors">
-                  {t(`home.cases.${caseItem.id}.title`)}
-                </h3>
+                {/* 案例卡片网格 - 纯文本格式 */}
+                <div className="grid grid-cols-3 gap-3">
+                  {displayedCases.map((caseItem) => (
+                    <button
+                      key={caseItem.id}
+                      onClick={() => handleCaseClick(caseItem)}
+                      className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-md min-h-[120px]"
+                    >
+                      {/* 标题 */}
+                      <h3 className="text-base font-medium text-foreground group-hover:text-primary transition-colors">
+                        {t(`home.cases.${caseItem.id}.title`)}
+                      </h3>
 
-                {/* 描述 */}
-                <p className="text-sm text-muted-foreground line-clamp-4">
-                  {t(`home.cases.${caseItem.id}.content`)}
-                </p>
-              </button>
-            ))}
-            {/* 隐形占位格:把当前分类补齐到最大条数,保证案例区高度恒定、
-                切分类时下方内容不上移(只占位,不显示任何内容)。 */}
-            {Array.from({ length: Math.max(0, maxCaseCount - displayedCases.length) }).map((_, i) => (
-              <div key={`case-placeholder-${i}`} aria-hidden="true" className="invisible min-h-[120px]" />
-            ))}
-          </div>
-        </div>
+                      {/* 描述 */}
+                      <p className="text-sm text-muted-foreground line-clamp-4">
+                        {t(`home.cases.${caseItem.id}.content`)}
+                      </p>
+                    </button>
+                  ))}
+                  {/* 隐形占位格:把当前分类补齐到最大条数,保证案例区高度恒定、
+                      切分类时下方内容不上移(只占位,不显示任何内容)。 */}
+                  {Array.from({ length: Math.max(0, maxCaseCount - displayedCases.length) }).map((_, i) => (
+                    <div key={`case-placeholder-${i}`} aria-hidden="true" className="invisible min-h-[120px]" />
+                  ))}
+                </div>
+              </div>
+            )}
       </div>
       </div>
 
