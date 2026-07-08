@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
@@ -17,9 +17,19 @@ import {
   Trash2,
   Plus,
   Clock,
+  MoreHorizontal,
+  SquarePen,
+  ChevronDown,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
+import {
+  clearProjectCwd,
+  PROJECT_CWDS_CHANGED_EVENT,
+  readProjectCwds,
+  sessionBelongsToProjectByCwd,
+  setProjectCwd,
+} from '../../lib/projectCwds'
 import { useHarnessclawStatus } from '../../hooks/useHarnessclawStatus'
 import { trackSearchUsed } from '../../lib/telemetry'
 import emmaLogo from '../../assets/emma-logo.png'
@@ -57,11 +67,19 @@ interface RecentSessionItem {
   session_id: string
   title: string
   project_id?: string | null
+  project_context_json?: string | null
+  cwd?: string | null
   updated_at: number
 }
 
 interface FloatingMenuState {
   sessionId: string
+  top: number
+  left: number
+}
+
+interface ProjectFloatingMenuState {
+  projectId: string
   top: number
   left: number
 }
@@ -80,6 +98,7 @@ interface AssignProjectDialogState {
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 const RECENT_WINDOW_SIZE = 8
+const PROJECT_THREAD_PREVIEW_SIZE = 5
 const FLOATING_MENU_WIDTH = 132
 const FLOATING_MENU_HEIGHT = 120
 const FLOATING_MENU_GAP = 6
@@ -87,6 +106,59 @@ const VIEWPORT_PADDING = 12
 const MIN_SIDEBAR_WIDTH = 220
 const MAX_SIDEBAR_WIDTH = 440
 const DEFAULT_SIDEBAR_WIDTH = 288
+
+function SidebarTooltip({
+  label,
+  children,
+  className,
+}: {
+  label: string
+  children: ReactNode
+  className?: string
+}) {
+  const triggerRef = useRef<HTMLSpanElement | null>(null)
+  const [tooltipPosition, setTooltipPosition] = useState<{ left: number; top: number } | null>(null)
+
+  const showTooltip = () => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setTooltipPosition({
+      left: rect.left + rect.width / 2,
+      top: Math.max(8, rect.top - 6),
+    })
+  }
+
+  const hideTooltip = () => {
+    setTooltipPosition(null)
+  }
+
+  return (
+    <span
+      ref={triggerRef}
+      className={cn('inline-flex min-w-0', className)}
+      onMouseEnter={showTooltip}
+      onMouseLeave={hideTooltip}
+      onFocusCapture={showTooltip}
+      onBlurCapture={hideTooltip}
+    >
+      {children}
+      {tooltipPosition && createPortal(
+        <span
+          role="tooltip"
+          className="pointer-events-none fixed z-[1000] whitespace-nowrap rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs leading-4 text-foreground shadow-lg"
+          style={{
+            left: tooltipPosition.left,
+            top: tooltipPosition.top,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          {label}
+        </span>,
+        document.body
+      )}
+    </span>
+  )
+}
 
 export function Sidebar() {
   const { t, i18n } = useTranslation()
@@ -99,9 +171,11 @@ export function Sidebar() {
         { icon: Plus, path: '/', label: t('sidebar.newTask') },
         // 暂隐藏(功能未完成,保留代码勿删):定时任务 / 团队
         // { icon: Clock, path: '/scheduler', label: t('sidebar.scheduler') },
-        { icon: MessageSquareText, path: '/sessions', label: t('sidebar.chat') },
+        // 暂隐藏(保留代码勿删):对话导航入口
+        // { icon: MessageSquareText, path: '/sessions', label: t('sidebar.chat') },
         { icon: Puzzle, path: '/skills', label: t('sidebar.skills') },
-        { icon: FolderKanban, path: '/projects', label: t('sidebar.projects') },
+        // 暂隐藏(保留代码勿删):项目导航入口
+        // { icon: FolderKanban, path: '/projects', label: t('sidebar.projects') },
         // { icon: Users, path: '/team', label: t('sidebar.team') },
         { icon: FlaskConical, path: '/x-lab', label: t('sidebar.xLab') },
       ],
@@ -130,12 +204,29 @@ export function Sidebar() {
   const [recentWindowStart, setRecentWindowStart] = useState(0)
   const [recentScrollFade, setRecentScrollFade] = useState({ top: false, bottom: false })
   const [projects, setProjects] = useState<DbProjectRow[]>([])
+  const [projectsExpanded, setProjectsExpanded] = useState(() => localStorage.getItem('sidebar-projects-expanded') !== 'false')
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('sidebar-expanded-project-ids')
+      const ids = raw ? JSON.parse(raw) : []
+      return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  })
+  const [showAllProjectThreadIds, setShowAllProjectThreadIds] = useState<Set<string>>(new Set())
+  const [projectMenuState, setProjectMenuState] = useState<ProjectFloatingMenuState | null>(null)
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState<{ projectId: string; name: string } | null>(null)
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
+  const [projectActionError, setProjectActionError] = useState('')
+  const [projectCwds, setProjectCwds] = useState<Record<string, string>>(() => readProjectCwds())
   const [assignDialog, setAssignDialog] = useState<AssignProjectDialogState | null>(null)
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<{ sessionId: string; title: string } | null>(null)
   const [attentionSessions, setAttentionSessions] = useState<Set<string>>(new Set())
   const floatingMenuRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const recentScrollRef = useRef<HTMLDivElement | null>(null)
+  const projectExpansionInitializedRef = useRef(false)
   const skipNextRecentReloadRef = useRef(0)
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme')
@@ -274,6 +365,33 @@ export function Sidebar() {
     localStorage.setItem('sidebar-recent-expanded', String(next))
   }
 
+  const toggleProjectsExpanded = () => {
+    const next = !projectsExpanded
+    setProjectsExpanded(next)
+    localStorage.setItem('sidebar-projects-expanded', String(next))
+  }
+
+  const toggleProjectExpanded = (projectId: string) => {
+    setExpandedProjectIds((current) => {
+      const next = new Set(current)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      localStorage.setItem('sidebar-expanded-project-ids', JSON.stringify(Array.from(next)))
+      return next
+    })
+  }
+
+  const showAllProjectThreads = (projectId: string) => {
+    setShowAllProjectThreadIds((current) => {
+      const next = new Set(current)
+      next.add(projectId)
+      return next
+    })
+  }
+
   const openSearch = () => {
     setSearchOpen(true)
     setSearchQuery('')
@@ -297,9 +415,11 @@ export function Sidebar() {
         const rows = await window.db.listSessions()
         if (!active) return
         setRecentSessions(rows)
+        setProjectCwds(readProjectCwds())
       } catch {
         if (!active) return
         setRecentSessions([])
+        setProjectCwds(readProjectCwds())
       }
     }
 
@@ -326,6 +446,23 @@ export function Sidebar() {
     return () => {
       active = false
       offSessionsChanged()
+    }
+  }, [])
+
+  useEffect(() => {
+    const refreshProjectCwds = () => {
+      setProjectCwds(readProjectCwds())
+    }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'harnessclaw-project-cwds') {
+        refreshProjectCwds()
+      }
+    }
+    window.addEventListener(PROJECT_CWDS_CHANGED_EVENT, refreshProjectCwds)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener(PROJECT_CWDS_CHANGED_EVENT, refreshProjectCwds)
+      window.removeEventListener('storage', handleStorage)
     }
   }, [])
 
@@ -373,16 +510,18 @@ export function Sidebar() {
   }, [searchOpen])
 
   useEffect(() => {
-    if (!menuState) return
+    if (!menuState && !projectMenuState) return
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null
       if (floatingMenuRef.current?.contains(target)) return
       setMenuState(null)
+      setProjectMenuState(null)
     }
 
     const handleViewportChange = () => {
       setMenuState(null)
+      setProjectMenuState(null)
     }
 
     window.addEventListener('mousedown', handlePointerDown)
@@ -394,7 +533,7 @@ export function Sidebar() {
       window.removeEventListener('resize', handleViewportChange)
       window.removeEventListener('scroll', handleViewportChange, true)
     }
-  }, [menuState])
+  }, [menuState, projectMenuState])
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
@@ -403,13 +542,61 @@ export function Sidebar() {
   }
 
   const recentItems = useMemo(() => {
-    return recentSessions.map((session) => ({
-      id: session.session_id,
-      title: session.title,
-      updatedAt: session.updated_at,
-      label: session.title.trim() || t('sidebar.noRecent'),
-    }))
-  }, [recentSessions, t])
+    return recentSessions
+      .filter((session) => !projects.some((project) => sessionBelongsToProjectByCwd(session, project, projectCwds)))
+      .map((session) => ({
+        id: session.session_id,
+        title: session.title,
+        updatedAt: session.updated_at,
+        label: session.title.trim() || t('sidebar.untitledSession'),
+      }))
+  }, [projectCwds, projects, recentSessions, t])
+
+  const formatSessionAge = (updatedAt: number) => {
+    const elapsed = Math.max(0, Date.now() - updatedAt)
+    const minutes = Math.max(1, Math.floor(elapsed / 60_000))
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+    if (days > 0) return t('sidebar.ageDays', { count: days })
+    if (hours > 0) return t('sidebar.ageHours', { count: hours })
+    return t('sidebar.ageMinutes', { count: minutes })
+  }
+
+  const projectItems = useMemo(() => {
+    return projects.map((project) => {
+      const sessions = recentSessions
+        .filter((session) => sessionBelongsToProjectByCwd(session, project, projectCwds))
+        .map((session) => ({
+          id: session.session_id,
+          title: session.title,
+          updatedAt: session.updated_at,
+          label: session.title.trim() || t('sidebar.untitledSession'),
+        }))
+
+      return {
+        project,
+        displayName: getProjectDisplayName(project, t),
+        sessions,
+      }
+    })
+  }, [projectCwds, projects, recentSessions, t])
+
+  useEffect(() => {
+    if (projectExpansionInitializedRef.current) return
+    if (projects.length === 0 || recentSessions.length === 0) return
+    if (localStorage.getItem('sidebar-expanded-project-ids')) {
+      projectExpansionInitializedRef.current = true
+      return
+    }
+
+    const projectIdsWithSessions = projects
+      .filter((project) => recentSessions.some((session) => sessionBelongsToProjectByCwd(session, project, projectCwds)))
+      .map((project) => project.project_id)
+
+    if (projectIdsWithSessions.length === 0) return
+    projectExpansionInitializedRef.current = true
+    setExpandedProjectIds(new Set(projectIdsWithSessions))
+  }, [projectCwds, projects, recentSessions])
 
   const handleOpenRecentSession = (sessionId: string) => {
     closeSearch()
@@ -484,7 +671,77 @@ export function Sidebar() {
       skipNextRecentReloadRef.current = Math.max(0, skipNextRecentReloadRef.current - 1)
       return
     }
+    setRecentSessions((prev) => prev.map((session) => (
+      session.session_id === sessionId
+        ? { ...session, project_id: projectId, updated_at: Date.now() }
+        : session
+    )))
+    if (projectId) {
+      const session = recentSessions.find((item) => item.session_id === sessionId)
+      if (session?.cwd) setProjectCwd(projectId, session.cwd)
+    }
+    setProjectCwds(readProjectCwds())
     setAssignDialog(null)
+  }
+
+  const handleOpenProjectNewConversation = (project: DbProjectRow) => {
+    setProjectMenuState(null)
+    closeSearch()
+    navigate('/', {
+      state: {
+        focusComposer: true,
+        hideRecommendations: true,
+        selectedProjectId: project.project_id,
+        selectedProject: project,
+      },
+    })
+  }
+
+  const handleDeleteProject = async (projectId: string) => {
+    setProjectActionError('')
+    setDeletingProjectId(projectId)
+    try {
+      const deletedSessionIds = new Set(
+        recentSessions
+          .filter((session) => {
+            const project = projects.find((item) => item.project_id === projectId)
+            return project ? sessionBelongsToProjectByCwd(session, project, projectCwds) : false
+          })
+          .map((session) => session.session_id),
+      )
+      const result = await window.db.deleteProject(projectId)
+      if (!result.ok) {
+        setProjectActionError(result.error || t('projects.errors.deleteFailed'))
+        return
+      }
+
+      setProjects((current) => current.filter((project) => project.project_id !== projectId))
+      const project = projects.find((item) => item.project_id === projectId)
+      setRecentSessions((current) => current.filter((session) => (
+        project ? !sessionBelongsToProjectByCwd(session, project, projectCwds) : true
+      )))
+      setProjectCwds(clearProjectCwd(projectId))
+      setExpandedProjectIds((current) => {
+        const next = new Set(current)
+        next.delete(projectId)
+        localStorage.setItem('sidebar-expanded-project-ids', JSON.stringify(Array.from(next)))
+        return next
+      })
+      setShowAllProjectThreadIds((current) => {
+        const next = new Set(current)
+        next.delete(projectId)
+        return next
+      })
+      setProjectMenuState(null)
+      setConfirmDeleteProject(null)
+      if (deletedSessionIds.has(selectedRecentSessionId)) {
+        navigate('/', { state: { focusComposer: true } })
+      } else if (location.pathname === `/projects/${projectId}`) {
+        navigate('/projects')
+      }
+    } finally {
+      setDeletingProjectId(null)
+    }
   }
 
   const itemCls = (active: boolean) => cn(
@@ -502,6 +759,9 @@ export function Sidebar() {
 
   const activeMenuItem = menuState
     ? recentItems.find((item) => item.id === menuState.sessionId) || null
+    : null
+  const activeMenuProject = projectMenuState
+    ? projectItems.find((item) => item.project.project_id === projectMenuState.projectId) || null
     : null
 
   const searchKeyword = searchQuery.trim().toLowerCase()
@@ -708,46 +968,240 @@ export function Sidebar() {
           </div>
 
           {expanded && (
-            <div className="mt-6 flex min-h-0 w-full flex-1 flex-col pb-3">
-              <button
-                onClick={toggleRecentExpanded}
-                className="mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-normal text-[#767676] transition-colors hover:bg-accent/50 hover:text-[#767676]"
-                style={{ lineHeight: '24px' }}
-                aria-expanded={recentExpanded}
-                aria-label={recentExpanded ? t('sidebar.recentCollapseAria') : t('sidebar.recentExpandAria')}
-              >
-                <MessageSquareText size={13} />
-                <span className="flex-1 text-left">{t('sidebar.recent')}</span>
-                <img
-                  src={iconRecentArrow}
-                  alt=""
-                  aria-hidden="true"
-                  className={cn('transition-transform duration-200', !recentExpanded && 'rotate-180')}
-                />
-              </button>
-              {recentExpanded && (
+            <div className="mt-6 flex min-h-0 w-full flex-1 flex-col gap-3 pb-3">
+              <section className="flex max-h-[46%] min-h-0 flex-col">
                 <div
-                  ref={recentScrollRef}
-                  onScroll={() => {
-                    const container = recentScrollRef.current
-                    if (!container) return
-                    const top = container.scrollTop > 6
-                    const bottom = container.scrollTop + container.clientHeight < container.scrollHeight - 6
-                    setRecentScrollFade({ top, bottom })
-                  }}
-                  className={cn(
-                    'recent-session-scroll -mr-1 min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-5',
-                    recentScrollFade.top && recentScrollFade.bottom && 'recent-session-scroll-fade-both',
-                    recentScrollFade.top && !recentScrollFade.bottom && 'recent-session-scroll-fade-top',
-                    !recentScrollFade.top && recentScrollFade.bottom && 'recent-session-scroll-fade-bottom',
-                  )}
+                  className="group/module mb-2 flex max-w-full items-center justify-start gap-2 rounded-lg px-3 py-1.5 text-xs font-normal text-[#767676] transition-colors hover:bg-accent/50 hover:text-[#767676]"
+                  style={{ lineHeight: '24px' }}
                 >
-                  {recentItems.length === 0 ? (
-                    <div className="px-3 py-2 text-xs leading-5 text-[#767676]">
-                      {t('sidebar.noRecent')}
-                    </div>
-                  ) : (
-                    recentItems.map((item) => (
+                  <button
+                    onClick={toggleProjectsExpanded}
+                    className="flex min-w-0 items-center gap-2 text-left"
+                    aria-expanded={projectsExpanded}
+                    aria-label={projectsExpanded ? t('sidebar.projectsCollapseAria') : t('sidebar.projectsExpandAria')}
+                  >
+                    <FolderKanban size={13} />
+                    <span className="text-left">{t('sidebar.projects')}</span>
+                  </button>
+                  <SidebarTooltip label={projectsExpanded ? t('common.collapse') : t('common.expand')}>
+                    <button
+                      type="button"
+                      onClick={toggleProjectsExpanded}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-md opacity-0 transition-all duration-200 hover:bg-background/80 group-hover/module:opacity-100 focus-visible:opacity-100"
+                      aria-expanded={projectsExpanded}
+                      aria-label={projectsExpanded ? t('sidebar.projectsCollapseAria') : t('sidebar.projectsExpandAria')}
+                    >
+                      <img
+                        src={iconRecentArrow}
+                        alt=""
+                        aria-hidden="true"
+                        className={cn('transition-transform duration-200', !projectsExpanded && 'rotate-180')}
+                      />
+                    </button>
+                  </SidebarTooltip>
+                </div>
+
+                {projectsExpanded && (
+                  <div className="-mr-1 min-h-0 space-y-1 overflow-x-hidden overflow-y-auto pr-1">
+                    {projectItems.length === 0 ? (
+                      <div className="px-3 py-2 text-xs leading-5 text-[#767676]">
+                        {t('sidebar.noProjects')}
+                      </div>
+                    ) : (
+                      projectItems.map((item) => {
+                        const projectOpen = expandedProjectIds.has(item.project.project_id)
+                        const activeProject = item.sessions.some((session) => session.id === selectedRecentSessionId)
+                        const showAllThreads = showAllProjectThreadIds.has(item.project.project_id)
+                        const visibleSessions = showAllThreads
+                          ? item.sessions
+                          : item.sessions.slice(0, PROJECT_THREAD_PREVIEW_SIZE)
+                        return (
+                          <div key={item.project.project_id} className="space-y-0.5">
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => toggleProjectExpanded(item.project.project_id)}
+                              onKeyDown={(event) => {
+                                if (event.target !== event.currentTarget) return
+                                if (event.key !== 'Enter' && event.key !== ' ') return
+                                event.preventDefault()
+                                toggleProjectExpanded(item.project.project_id)
+                              }}
+                              aria-expanded={projectOpen}
+                              aria-label={projectOpen ? t('common.collapse') : t('common.expand')}
+                              className={cn(
+                                'group/project flex w-full cursor-pointer items-center rounded-xl px-2.5 py-1.5 transition-colors focus-visible:outline-none',
+                                activeProject
+                                  ? 'bg-accent text-[#222529]'
+                                  : 'text-[#222529] hover:bg-accent'
+                              )}
+                            >
+                              <div className="flex min-w-0 flex-1 items-center gap-2">
+                                <div className="flex min-w-0 items-center gap-2 text-left">
+                                  <FolderKanban size={16} className="flex-shrink-0 text-[#4b4f55]" />
+                                  <span className="min-w-0 truncate text-sm font-[350] leading-6 tracking-[0px]">
+                                    {item.displayName}
+                                  </span>
+                                </div>
+                                <SidebarTooltip label={projectOpen ? t('common.collapse') : t('common.expand')}>
+                                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg opacity-0 transition-all duration-200 hover:bg-background/80 group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+                                    <ChevronDown
+                                      size={16}
+                                      aria-hidden="true"
+                                      className={cn(
+                                        'flex-shrink-0 text-[#4b4f55] opacity-80 transition-transform duration-200',
+                                        !projectOpen && '-rotate-90'
+                                      )}
+                                    />
+                                  </span>
+                                </SidebarTooltip>
+                              </div>
+
+                              <div className="ml-auto flex flex-shrink-0 items-center gap-0.5">
+                                <SidebarTooltip label={t('sidebar.more')}>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setProjectActionError('')
+                                      const rect = event.currentTarget.getBoundingClientRect()
+                                      const nextPosition = getFloatingMenuPosition(rect)
+                                      setProjectMenuState((prev) => prev?.projectId === item.project.project_id
+                                        ? null
+                                        : {
+                                            projectId: item.project.project_id,
+                                            top: nextPosition.top,
+                                            left: nextPosition.left,
+                                          })
+                                    }}
+                                    className={cn(
+                                      'pointer-events-none inline-flex h-7 w-7 items-center justify-center rounded-lg text-[#4b4f55] opacity-0 transition-all hover:bg-background/80 hover:opacity-100 group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100',
+                                      projectMenuState?.projectId === item.project.project_id && 'pointer-events-auto bg-background/80 opacity-100'
+                                    )}
+                                    aria-label={t('projects.actions.openAria', { name: item.displayName })}
+                                    aria-expanded={projectMenuState?.projectId === item.project.project_id}
+                                  >
+                                    <MoreHorizontal size={16} aria-hidden="true" />
+                                  </button>
+                                </SidebarTooltip>
+                                <SidebarTooltip label={t('search.newConversation')}>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      handleOpenProjectNewConversation(item.project)
+                                    }}
+                                    className="pointer-events-none inline-flex h-7 w-7 items-center justify-center rounded-lg text-[#4b4f55] opacity-0 transition-all hover:bg-background/80 hover:opacity-100 group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+                                    aria-label={t('sidebar.newProjectConversation', { name: item.displayName })}
+                                  >
+                                    <SquarePen size={15} aria-hidden="true" />
+                                  </button>
+                                </SidebarTooltip>
+                              </div>
+                            </div>
+
+                            {projectOpen && visibleSessions.length > 0 && (
+                              <div className="ml-7 space-y-0.5">
+                                {visibleSessions.map((session) => (
+                                  <button
+                                    key={session.id}
+                                    onClick={() => handleOpenRecentSession(session.id)}
+                                    className={cn(
+                                      'group relative flex w-full items-center gap-2 rounded-lg py-1 pl-2.5 pr-2 text-left transition-colors',
+                                      selectedRecentSessionId === session.id
+                                        ? 'bg-accent text-[#222529]'
+                                        : 'text-[#222529] hover:bg-accent'
+                                    )}
+                                  >
+                                    <span className="min-w-0 flex-1 truncate text-xs font-[350] leading-6">
+                                      {session.label}
+                                    </span>
+                                    <span className="flex-shrink-0 text-xs leading-6 text-[#8c9095]">
+                                      {formatSessionAge(session.updatedAt)}
+                                    </span>
+                                    {attentionSessions.has(session.id) && (
+                                      <img
+                                        src={iconQuestion}
+                                        alt=""
+                                        title={t('sidebar.awaitingReply')}
+                                        className="h-3 w-3 flex-shrink-0"
+                                        aria-hidden="true"
+                                      />
+                                    )}
+                                  </button>
+                                ))}
+                                {!showAllThreads && item.sessions.length > PROJECT_THREAD_PREVIEW_SIZE && (
+                                  <button
+                                    onClick={() => showAllProjectThreads(item.project.project_id)}
+                                    className="w-full rounded-lg px-2.5 py-1 text-left text-xs font-medium leading-6 text-[#8c9095] transition-colors hover:bg-accent/60 hover:text-[#767676]"
+                                  >
+                                    {t('sidebar.showMore')}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </section>
+
+              <section className="flex min-h-0 flex-1 flex-col">
+                <div
+                  className="group/module mb-2 flex max-w-full items-center justify-start gap-2 rounded-lg px-3 py-1.5 text-xs font-normal text-[#767676] transition-colors hover:bg-accent/50 hover:text-[#767676]"
+                  style={{ lineHeight: '24px' }}
+                >
+                  <button
+                    onClick={toggleRecentExpanded}
+                    className="flex min-w-0 items-center gap-2 text-left"
+                    aria-expanded={recentExpanded}
+                    aria-label={recentExpanded ? t('sidebar.recentCollapseAria') : t('sidebar.recentExpandAria')}
+                  >
+                    <MessageSquareText size={13} />
+                    <span className="text-left">{t('sidebar.recent')}</span>
+                  </button>
+                  <SidebarTooltip label={recentExpanded ? t('common.collapse') : t('common.expand')}>
+                    <button
+                      type="button"
+                      onClick={toggleRecentExpanded}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-md opacity-0 transition-all duration-200 hover:bg-background/80 group-hover/module:opacity-100 focus-visible:opacity-100"
+                      aria-expanded={recentExpanded}
+                      aria-label={recentExpanded ? t('sidebar.recentCollapseAria') : t('sidebar.recentExpandAria')}
+                    >
+                      <img
+                        src={iconRecentArrow}
+                        alt=""
+                        aria-hidden="true"
+                        className={cn('transition-transform duration-200', !recentExpanded && 'rotate-180')}
+                      />
+                    </button>
+                  </SidebarTooltip>
+                </div>
+                {recentExpanded && (
+                  <div
+                    ref={recentScrollRef}
+                    onScroll={() => {
+                      const container = recentScrollRef.current
+                      if (!container) return
+                      const top = container.scrollTop > 6
+                      const bottom = container.scrollTop + container.clientHeight < container.scrollHeight - 6
+                      setRecentScrollFade({ top, bottom })
+                    }}
+                    className={cn(
+                      'recent-session-scroll -mr-1 min-h-0 flex-1 space-y-0.5 overflow-x-hidden overflow-y-auto pb-5',
+                      recentScrollFade.top && recentScrollFade.bottom && 'recent-session-scroll-fade-both',
+                      recentScrollFade.top && !recentScrollFade.bottom && 'recent-session-scroll-fade-top',
+                      !recentScrollFade.top && recentScrollFade.bottom && 'recent-session-scroll-fade-bottom',
+                    )}
+                  >
+                    {recentItems.length === 0 ? (
+                      <div className="px-3 py-2 text-xs leading-5 text-[#767676]">
+                        {t('sidebar.noRecent')}
+                      </div>
+                    ) : (
+                      recentItems.map((item) => (
                         <div
                           key={item.id}
                           className={cn(
@@ -795,34 +1249,37 @@ export function Sidebar() {
                             </button>
                           )}
 
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              const rect = event.currentTarget.getBoundingClientRect()
-                              const nextPosition = getFloatingMenuPosition(rect)
-                              setMenuState((prev) => prev?.sessionId === item.id
-                                ? null
-                                : {
-                                    sessionId: item.id,
-                                    top: nextPosition.top,
-                                    left: nextPosition.left,
-                                  })
-                            }}
-                            className={cn(
-                              // Hidden by default; revealed on row hover / keyboard focus, or while its menu is open.
-                              'inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-background/80 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100',
-                              menuState?.sessionId === item.id && 'bg-background/80 text-foreground opacity-100'
-                            )}
-                            aria-label={t('sidebar.more')}
-                          >
-                            <img src={iconMore} alt="" className="h-[18px] w-[18px]" aria-hidden="true" />
-                          </button>
+                          <SidebarTooltip label={t('sidebar.more')}>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                const rect = event.currentTarget.getBoundingClientRect()
+                                const nextPosition = getFloatingMenuPosition(rect)
+                                setMenuState((prev) => prev?.sessionId === item.id
+                                  ? null
+                                  : {
+                                      sessionId: item.id,
+                                      top: nextPosition.top,
+                                      left: nextPosition.left,
+                                    })
+                              }}
+                              className={cn(
+                                // Hidden by default; revealed on row hover / keyboard focus, or while its menu is open.
+                                'inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-background/80 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100',
+                                menuState?.sessionId === item.id && 'bg-background/80 text-foreground opacity-100'
+                              )}
+                              aria-label={t('sidebar.more')}
+                            >
+                              <img src={iconMore} alt="" className="h-[18px] w-[18px]" aria-hidden="true" />
+                            </button>
+                          </SidebarTooltip>
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
-              )}
+                      ))
+                    )}
+                  </div>
+                )}
+              </section>
             </div>
           )}
         </div>
@@ -895,6 +1352,31 @@ export function Sidebar() {
         )}
       </nav>
 
+      {projectMenuState && activeMenuProject && createPortal(
+        <div
+          ref={floatingMenuRef}
+          className="fixed z-[80] min-w-[120px] rounded-xl border border-border bg-card p-1 shadow-lg"
+          style={{ top: projectMenuState.top, left: projectMenuState.left }}
+        >
+          <button
+            type="button"
+            disabled={deletingProjectId === activeMenuProject.project.project_id}
+            onClick={() => {
+              setConfirmDeleteProject({
+                projectId: activeMenuProject.project.project_id,
+                name: activeMenuProject.displayName,
+              })
+              setProjectMenuState(null)
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-red-950/20"
+          >
+            <Trash2 size={14} />
+            {t('sidebar.delete')}
+          </button>
+        </div>,
+        document.body
+      )}
+
       {menuState && activeMenuItem && createPortal(
         <div
           ref={floatingMenuRef}
@@ -948,6 +1430,54 @@ export function Sidebar() {
             <Trash2 size={14} />
             {t('sidebar.delete')}
           </button>
+        </div>,
+        document.body
+      )}
+
+      {confirmDeleteProject && createPortal(
+        <div className="fixed inset-0 z-[95]">
+          <div
+            className="absolute inset-0 bg-black/35"
+            onClick={() => {
+              if (deletingProjectId) return
+              setConfirmDeleteProject(null)
+              setProjectActionError('')
+            }}
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+            <div className="pointer-events-auto w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-2xl">
+              <h3 className="text-base font-semibold text-foreground">{t('projects.deleteConfirm.title')}</h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {t('projects.deleteConfirm.desc', { name: confirmDeleteProject.name })}
+              </p>
+              {projectActionError ? (
+                <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/20">
+                  {projectActionError}
+                </p>
+              ) : null}
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={Boolean(deletingProjectId)}
+                  onClick={() => {
+                    setConfirmDeleteProject(null)
+                    setProjectActionError('')
+                  }}
+                  className="inline-flex min-h-10 items-center justify-center rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(deletingProjectId)}
+                  onClick={() => void handleDeleteProject(confirmDeleteProject.projectId)}
+                  className="inline-flex min-h-10 items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {deletingProjectId ? t('projects.actions.deleting') : t('common.delete')}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>,
         document.body
       )}
