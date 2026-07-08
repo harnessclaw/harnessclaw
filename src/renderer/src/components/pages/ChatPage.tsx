@@ -34,8 +34,10 @@ import { AvatarLightbox } from '../common/AvatarLightbox'
 import { HtmlArtifactView } from '../common/HtmlArtifactView'
 import { ConfirmDeleteSessionDialog } from '../common/ConfirmDeleteSessionDialog'
 import { ConversationSidePanel, type AgentLogEntry, type MessageGroupedLog, type AgentTreeNode } from '../common/ConversationSidePanel'
+import { ProjectOpenWithControl } from '../common/ProjectOpenWithControl'
 import { isKnownArtifactExt } from '../../assets/artifact-icons'
 import { SystemNoticeModal, type SystemNotice } from '../common/SystemNoticeModal'
+import { readProjectCwds } from '../../lib/projectCwds'
 import emmaAvatar from '../../assets/emma-avatar.svg'
 import alexAvatar from '../../assets/alex-avatar.svg'
 import agentAvatar from '../../assets/agent-avatar.svg'
@@ -3932,8 +3934,8 @@ function WorkspaceInlinePreview({ file }: { file: { path: string; name: string }
 }
 
 /**
- * Session menu button (three dots) — placed at the top-right of the title bar.
- * Opens the same dropdown menu as SessionTitleMenu (rename / assign project / delete).
+ * Session menu button (three dots). Opens the same dropdown menu as
+ * SessionTitleMenu (rename / assign project / delete).
  */
 function SessionMenuButton({
   sessionId,
@@ -5142,6 +5144,14 @@ export function ChatPage() {
   const activeSessionPromptRaw = activeSessionMeta?.title || activeSessionMeta?.firstMsg || t('chat.newChat')
   const activeSessionPrompt = activeSessionPromptRaw.replace(/\n/g, ' ').trim()
   const activeProjectContext = activeSessionId ? sessionProjectContexts[activeSessionId] : routeProjectContext
+  const activeSessionDbRow = activeSessionId ? dbSessions.find((session) => session.session_id === activeSessionId) : null
+  const activeProjectDescriptionCwd = activeProjectContext?.description?.trim().startsWith('/')
+    ? activeProjectContext.description.trim()
+    : ''
+  const activeProjectCwd = activeSessionDbRow?.cwd
+    || initialCwd
+    || (activeProjectContext ? readProjectCwds()[activeProjectContext.projectId] || '' : '')
+    || activeProjectDescriptionCwd
   const [isRenamingTitle, setIsRenamingTitle] = useState(false)
   const [titleRenameValue, setTitleRenameValue] = useState('')
   const titleRenameInputRef = useRef<HTMLInputElement>(null)
@@ -8034,7 +8044,7 @@ export function ChatPage() {
       <div className="relative flex-1 flex min-w-0 flex-col overflow-hidden">
         {/* Top bar */}
         <div className="titlebar-drag px-4 pb-4 pt-5 sm:px-6 sm:pt-6 lg:px-[70px]">
-          <div className={cn(CHAT_RAIL_CLASS, 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between')}>
+          <div className={cn(CHAT_RAIL_CLASS, 'flex items-start justify-between gap-4')}>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 text-foreground">
                 {activeSessionId && isRenamingTitle ? (
@@ -8052,17 +8062,26 @@ export function ChatPage() {
                         setIsRenamingTitle(false)
                       }
                     }}
-                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-0.5 text-[12px] font-medium leading-5 text-[rgba(0,0,0,0.88)] outline-none focus:border-primary"
+                    className="min-w-0 max-w-[min(720px,calc(100%-44px))] flex-1 rounded-md border border-border bg-background px-2 py-0.5 text-[12px] font-medium leading-5 text-[rgba(0,0,0,0.88)] outline-none focus:border-primary"
                     aria-label={t('sessions.actions.rename')}
                   />
                 ) : (
                   <h1
-                    className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5 text-[rgba(0,0,0,0.88)]"
+                    className="min-w-0 max-w-[min(720px,calc(100%-44px))] truncate text-[14px] font-semibold leading-5 text-[rgba(0,0,0,0.88)]"
                     style={{ letterSpacing: 0, fontVariationSettings: '"opsz" auto' }}
                     title={activeSessionId ? activeSessionPrompt || t('chat.newChat') : t('chat.newChat')}
                   >
                     {activeSessionId ? activeSessionPrompt || t('chat.newChat') : t('chat.newChat')}
                   </h1>
+                )}
+                {activeSessionId && (
+                  <SessionMenuButton
+                    sessionId={activeSessionId}
+                    title={activeSessionPrompt || t('chat.newChat')}
+                    currentProjectId={activeProjectContext?.projectId || null}
+                    onDelete={handleClearHistory}
+                    onRename={startTitleRename}
+                  />
                 )}
               </div>
               {activeProjectContext ? (
@@ -8072,23 +8091,9 @@ export function ChatPage() {
               ) : null}
             </div>
 
-            {activeSessionId && (
-              <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
-                <SessionMenuButton
-                  sessionId={activeSessionId}
-                  title={activeSessionPrompt || t('chat.newChat')}
-                  currentProjectId={activeProjectContext?.projectId || null}
-                  onDelete={handleClearHistory}
-                  onRename={startTitleRename}
-                />
-                {/* Files button — hidden per design requirements
-                <SessionWorkspaceFilesButton sessionId={activeSessionId} />
-                */}
-                {/* Session-level stats popover — hidden per design requirements
-                <SessionStatsButton sessionId={activeSessionId} />
-                */}
-              </div>
-            )}
+            {activeSessionId ? (
+              <ProjectOpenWithControl cwd={activeProjectCwd} alwaysVisible className="flex-shrink-0" />
+            ) : null}
           </div>
         </div>
 

@@ -42,6 +42,49 @@ interface PendingApprovalRequest {
   proposedExecpolicyAmendment?: unknown
 }
 
+export interface CodexSessionProjection {
+  session_id: string
+  title: string
+  project_id: string | null
+  project_context_json: string | null
+  cwd: string | null
+  created_at: number
+  updated_at: number
+}
+
+export interface CodexToolActivityProjection {
+  id: number
+  message_id: string
+  type: string
+  name: string | null
+  content: string
+  call_id: string | null
+  is_error: number
+  duration_ms: number | null
+  render_hint: string | null
+  language: string | null
+  file_path: string | null
+  metadata_json: string | null
+  subagent_json: string | null
+  created_at: number
+}
+
+export interface CodexMessageProjection {
+  id: string
+  session_id: string
+  role: string
+  content: string
+  system_notice_json: string | null
+  content_segments: string | null
+  thinking: string | null
+  tools_used: string | null
+  usage_prompt: number | null
+  usage_completion: number | null
+  usage_total: number | null
+  created_at: number
+  tools: CodexToolActivityProjection[]
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -173,6 +216,235 @@ function formatWebSearchQueries(queries: string[]): string {
 
 function stringifyToolInput(input: Record<string, unknown>): string {
   return JSON.stringify(input, (_key, value) => typeof value === 'undefined' ? undefined : value)
+}
+
+function secondsToMs(value: unknown, fallback = Date.now()): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 1000) : fallback
+}
+
+function extractThread(result: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(result)) return null
+  return isPlainObject(result.thread) ? result.thread : null
+}
+
+function extractThreadRows(result: unknown): Record<string, unknown>[] {
+  if (!isPlainObject(result) || !Array.isArray(result.data)) return []
+  return result.data.filter(isPlainObject)
+}
+
+function threadToSessionProjection(thread: Record<string, unknown>): CodexSessionProjection {
+  const id = typeof thread.id === 'string' ? thread.id : ''
+  const createdAt = secondsToMs(thread.createdAt)
+  const updatedAt = secondsToMs(thread.recencyAt ?? thread.updatedAt, createdAt)
+  const title = typeof thread.name === 'string' && thread.name.trim()
+    ? thread.name.trim()
+    : typeof thread.preview === 'string'
+      ? thread.preview.trim()
+      : ''
+  return {
+    session_id: id,
+    title,
+    project_id: null,
+    project_context_json: null,
+    cwd: typeof thread.cwd === 'string' ? thread.cwd : null,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  }
+}
+
+function userInputToText(input: unknown): string {
+  if (!isPlainObject(input)) return ''
+  if (input.type === 'text') return typeof input.text === 'string' ? input.text : ''
+  if (input.type === 'localImage') return typeof input.path === 'string' ? `[image: ${input.path}]` : '[image]'
+  if (input.type === 'image') return typeof input.url === 'string' ? `[image: ${input.url}]` : '[image]'
+  if (input.type === 'skill') return typeof input.name === 'string' ? `/${input.name}` : ''
+  if (input.type === 'mention') return typeof input.name === 'string' ? `@${input.name}` : ''
+  return ''
+}
+
+function commandStatusIsError(status: unknown, exitCode: unknown): boolean {
+  if (status === 'failed' || status === 'declined') return true
+  return typeof exitCode === 'number' && exitCode !== 0
+}
+
+function toolFromThreadItem(
+  item: Record<string, unknown>,
+  messageId: string,
+  createdAt: number,
+  index: number,
+): CodexToolActivityProjection | null {
+  if (item.type === 'commandExecution') {
+    const command = typeof item.command === 'string' ? item.command : ''
+    return {
+      id: index,
+      message_id: messageId,
+      type: 'result',
+      name: 'Bash',
+      content: typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : '',
+      call_id: typeof item.id === 'string' ? item.id : null,
+      is_error: commandStatusIsError(item.status, item.exitCode) ? 1 : 0,
+      duration_ms: typeof item.durationMs === 'number' ? item.durationMs : null,
+      render_hint: 'terminal',
+      language: null,
+      file_path: null,
+      metadata_json: JSON.stringify({
+        source: 'codex_command_execution',
+        command,
+        cwd: typeof item.cwd === 'string' ? item.cwd : undefined,
+        processId: typeof item.processId === 'string' ? item.processId : undefined,
+        exitCode: typeof item.exitCode === 'number' ? item.exitCode : undefined,
+        status: typeof item.status === 'string' ? item.status : undefined,
+      }),
+      subagent_json: null,
+      created_at: createdAt,
+    }
+  }
+  if (item.type === 'webSearch') {
+    const action = isPlainObject(item.action) ? item.action : {}
+    const rawQueries = Array.isArray(action.queries) ? action.queries : []
+    const queries = uniqStrings([item.query, action.query, ...rawQueries])
+    return {
+      id: index,
+      message_id: messageId,
+      type: 'result',
+      name: 'Web Search',
+      content: queries.length > 0 ? `Searched web for:\n${formatWebSearchQueries(queries)}` : 'Web search completed',
+      call_id: typeof item.id === 'string' ? item.id : null,
+      is_error: 0,
+      duration_ms: null,
+      render_hint: 'search',
+      language: null,
+      file_path: null,
+      metadata_json: JSON.stringify({
+        source: 'codex_web_search',
+        query: queries[0] || '',
+        queries,
+      }),
+      subagent_json: null,
+      created_at: createdAt,
+    }
+  }
+  if (item.type === 'fileChange') {
+    const changes = Array.isArray(item.changes) ? item.changes : []
+    return {
+      id: index,
+      message_id: messageId,
+      type: 'result',
+      name: 'Write',
+      content: changes.map((change) => isPlainObject(change) && typeof change.path === 'string' ? change.path : '').filter(Boolean).join('\n'),
+      call_id: typeof item.id === 'string' ? item.id : null,
+      is_error: item.status === 'failed' || item.status === 'declined' ? 1 : 0,
+      duration_ms: null,
+      render_hint: 'diff',
+      language: null,
+      file_path: null,
+      metadata_json: JSON.stringify({
+        source: 'codex_file_change',
+        status: typeof item.status === 'string' ? item.status : undefined,
+        changes,
+      }),
+      subagent_json: null,
+      created_at: createdAt,
+    }
+  }
+  return null
+}
+
+function threadToMessageProjections(thread: Record<string, unknown>): CodexMessageProjection[] {
+  const sessionId = typeof thread.id === 'string' ? thread.id : ''
+  const turns = Array.isArray(thread.turns) ? thread.turns.filter(isPlainObject) : []
+  const messages: CodexMessageProjection[] = []
+  let toolIndex = 1
+
+  for (const turn of turns) {
+    const turnStartedAt = secondsToMs(turn.startedAt ?? turn.completedAt)
+    const items = Array.isArray(turn.items) ? turn.items.filter(isPlainObject) : []
+    let assistantMessage: CodexMessageProjection | null = null
+
+    for (const item of items) {
+      const itemId = typeof item.id === 'string' ? item.id : `item-${messages.length}-${toolIndex}`
+      if (item.type === 'userMessage') {
+        const content = Array.isArray(item.content)
+          ? item.content.map(userInputToText).filter(Boolean).join('\n\n')
+          : ''
+        messages.push({
+          id: itemId,
+          session_id: sessionId,
+          role: 'user',
+          content,
+          system_notice_json: null,
+          content_segments: null,
+          thinking: null,
+          tools_used: null,
+          usage_prompt: null,
+          usage_completion: null,
+          usage_total: null,
+          created_at: turnStartedAt,
+          tools: [],
+        })
+        continue
+      }
+
+      if (item.type === 'agentMessage') {
+        const content = typeof item.text === 'string' ? item.text : ''
+        const completedAt = turn.completedAt ? secondsToMs(turn.completedAt) : turnStartedAt
+        if (assistantMessage) {
+          assistantMessage.content = content
+          assistantMessage.content_segments = content ? JSON.stringify([{ text: content, ts: completedAt }]) : assistantMessage.content_segments
+          assistantMessage.created_at = Math.min(assistantMessage.created_at, completedAt)
+        } else {
+          assistantMessage = {
+            id: itemId,
+            session_id: sessionId,
+            role: 'assistant',
+            content,
+            system_notice_json: null,
+            content_segments: content ? JSON.stringify([{ text: content, ts: completedAt }]) : null,
+            thinking: null,
+            tools_used: null,
+            usage_prompt: null,
+            usage_completion: null,
+            usage_total: null,
+            created_at: completedAt,
+            tools: [],
+          }
+          messages.push(assistantMessage)
+        }
+        continue
+      }
+
+      const tool = toolFromThreadItem(
+        item,
+        assistantMessage?.id || `${turn.id || 'turn'}-assistant`,
+        turn.completedAt ? secondsToMs(turn.completedAt) : turnStartedAt,
+        toolIndex++,
+      )
+      if (tool) {
+        if (!assistantMessage) {
+          assistantMessage = {
+            id: tool.message_id,
+            session_id: sessionId,
+            role: 'assistant',
+            content: '',
+            system_notice_json: null,
+            content_segments: JSON.stringify([]),
+            thinking: null,
+            tools_used: null,
+            usage_prompt: null,
+            usage_completion: null,
+            usage_total: null,
+            created_at: tool.created_at,
+            tools: [],
+          }
+          messages.push(assistantMessage)
+        }
+        tool.message_id = assistantMessage.id
+        assistantMessage.tools.push(tool)
+      }
+    }
+  }
+
+  return messages
 }
 
 export class CodexAppServerClient extends EventEmitter {
@@ -580,6 +852,38 @@ export class CodexAppServerClient extends EventEmitter {
     const model = normalizeOptionText(options?.model)
     const modelProvider = normalizeOptionText(options?.modelProvider)
     const effort = normalizeOptionText(options?.effort)
+    try {
+      const resumed = await this.request('thread/resume', {
+        threadId: sessionId,
+        excludeTurns: true,
+        ...(model ? { model } : {}),
+        ...(modelProvider ? { modelProvider } : {}),
+        ...(effort ? { config: { model_reasoning_effort: effort } } : {}),
+        ...buildPermissionParams(options),
+      })
+      const resumedThreadId = extractThreadId(resumed)
+      if (resumedThreadId) {
+        this.uiToThread.set(sessionId, resumedThreadId)
+        this.threadToUi.set(resumedThreadId, sessionId)
+        this.defaultSessionId = sessionId
+        this.clientId = `codex:${resumedThreadId}`
+        this.subscriptions = [sessionId]
+        this.knownSessions.set(sessionId, Date.now())
+        writeAppLog('debug', 'codex-app-server', 'Resumed Codex thread', {
+          sessionId,
+          threadId: resumedThreadId,
+        })
+        this.emitCompatEvent({ type: 'connected', session_id: sessionId, client_id: this.clientId })
+        this.emitSessions()
+        return resumedThreadId
+      }
+    } catch (error) {
+      writeAppLog('debug', 'codex-app-server', 'Codex thread resume skipped; starting a new thread', {
+        sessionId,
+        error: asErrorMessage(error),
+      })
+    }
+
     const result = await this.request('thread/start', {
       cwd: resolvedCwd,
       ...(model ? { model } : {}),
@@ -613,6 +917,52 @@ export class CodexAppServerClient extends EventEmitter {
     this.emitCompatEvent({ type: 'connected', session_id: sessionId, client_id: this.clientId })
     this.emitSessions()
     return threadId
+  }
+
+  async listStoredSessions(): Promise<CodexSessionProjection[]> {
+    await this.ensureConnected()
+    const result = await this.request('thread/list', {
+      limit: 100,
+      sortKey: 'recency_at',
+      sortDirection: 'desc',
+      sourceKinds: ['cli', 'vscode', 'appServer', 'exec'],
+    })
+    return extractThreadRows(result)
+      .map(threadToSessionProjection)
+      .filter((session) => !!session.session_id)
+  }
+
+  async readStoredMessages(sessionId: string): Promise<CodexMessageProjection[]> {
+    if (!sessionId) return []
+    await this.ensureConnected()
+    const result = await this.request('thread/read', { threadId: sessionId, includeTurns: true })
+    const thread = extractThread(result)
+    if (!thread) return []
+    const threadId = typeof thread.id === 'string' ? thread.id : sessionId
+    this.uiToThread.set(sessionId, threadId)
+    this.threadToUi.set(threadId, sessionId)
+    return threadToMessageProjections(thread)
+  }
+
+  async deleteStoredSession(sessionId: string): Promise<boolean> {
+    if (!sessionId) return false
+    await this.ensureConnected()
+    const threadId = this.uiToThread.get(sessionId) || sessionId
+    await this.request('thread/delete', { threadId }, 30_000)
+    this.uiToThread.delete(sessionId)
+    this.threadToUi.delete(threadId)
+    this.knownSessions.delete(sessionId)
+    this.emitSessions()
+    return true
+  }
+
+  async updateStoredSessionTitle(sessionId: string, title: string): Promise<boolean> {
+    if (!sessionId) return false
+    await this.ensureConnected()
+    const threadId = this.uiToThread.get(sessionId) || sessionId
+    await this.request('thread/name/set', { threadId, name: title })
+    this.emitSessions()
+    return true
   }
 
   private resolveUiSessionId(threadId: unknown): string {
@@ -769,7 +1119,7 @@ export class CodexAppServerClient extends EventEmitter {
     const turnId = resolvedSessionId ? this.activeTurns.get(resolvedSessionId) : ''
     if (!threadId || !turnId) return false
     try {
-      await this.request('turn/abort', { threadId, turnId }, 10_000)
+      await this.request('turn/interrupt', { threadId, turnId }, 10_000)
       return true
     } catch (error) {
       this.emitCompatEvent({
@@ -794,7 +1144,24 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   listSessions(): void {
-    this.emitSessions()
+    void this.listStoredSessions()
+      .then((sessions) => {
+        this.emitCompatEvent({
+          type: 'sessions',
+          sessions: sessions.map((session) => ({
+            key: session.session_id,
+            session_id: session.session_id,
+            updated_at: session.updated_at,
+            updatedAt: new Date(session.updated_at).toLocaleString('zh-CN'),
+          })),
+        })
+      })
+      .catch((error) => {
+        writeAppLog('warn', 'codex-app-server', 'Failed to list Codex threads', {
+          error: asErrorMessage(error),
+        })
+        this.emitSessions()
+      })
   }
 
   async probe(): Promise<boolean> {

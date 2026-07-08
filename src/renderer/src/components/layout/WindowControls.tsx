@@ -1,16 +1,13 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+const IS_MAC = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
 
 /**
  * 自定义窗口控制按钮(最小化 / 最大化-还原 / 关闭)。
  *
- * 主进程两个平台都用无边框标题栏(`titleBarStyle: 'hidden'`,macOS 另外
- * 隐藏原生交通灯),因此这三个按钮由渲染层绘制,通过 `window.windowControls`
- * 暴露的 IPC 控制窗口。组件挂在 <AppLayout> 顶部右侧,所有页面共用。
- *
- * 图标取自设计稿(`前端设计图/首页/{最小化,放大,关闭}.svg`,14×14),
- * fill/stroke 改为 currentColor 以支持 hover 变色与深色模式自适应。最大化/
- * 全屏时中间按钮切换为「还原」图标(`前端设计图/UI走查/最大化框.svg`)。
+ * 主进程使用无边框窗口,因此这些按钮由渲染层绘制,通过 `window.windowControls`
+ * 暴露的 IPC 控制窗口。macOS 使用左侧三色交通灯样式;其他平台使用右侧图标按钮。
  */
 export function WindowControls() {
   const { t } = useTranslation()
@@ -26,6 +23,39 @@ export function WindowControls() {
 
   const controls = typeof window !== 'undefined' ? window.windowControls : undefined
   if (!controls) return null
+
+  if (IS_MAC) {
+    return (
+      <div className="titlebar-no-drag fixed left-4 top-4 z-50 flex items-center gap-2">
+        <MacTrafficButton
+          label={t('window.close')}
+          title={t('window.close')}
+          className="border-[#e2463f] bg-[#ff5f57]"
+          onClick={() => void controls.close()}
+        >
+          <MacCloseGlyph />
+        </MacTrafficButton>
+
+        <MacTrafficButton
+          label={t('window.minimize')}
+          title={t('window.minimize')}
+          className="border-[#dea123] bg-[#ffbd2e]"
+          onClick={() => void controls.minimize()}
+        >
+          <MacMinimizeGlyph />
+        </MacTrafficButton>
+
+        <MacTrafficButton
+          label={maximized ? t('window.restore') : t('window.maximize')}
+          title={maximized ? t('window.restore') : t('window.maximize')}
+          className="border-[#1ead35] bg-[#28c840]"
+          onClick={() => void controls.toggleMaximize()}
+        >
+          {maximized ? <MacRestoreGlyph /> : <MacZoomGlyph />}
+        </MacTrafficButton>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -61,6 +91,66 @@ export function WindowControls() {
         <CloseIcon />
       </button>
     </div>
+  )
+}
+
+function MacTrafficButton({
+  label,
+  title,
+  className,
+  onClick,
+  children,
+}: {
+  label: string
+  title: string
+  className: string
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={title}
+      className={`titlebar-no-drag group/window-button flex h-3 w-3 items-center justify-center rounded-full border text-black/65 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition brightness-100 hover:brightness-95 ${className}`}
+    >
+      <span className="opacity-0 transition-opacity group-hover/window-button:opacity-100">
+        {children}
+      </span>
+    </button>
+  )
+}
+
+function MacCloseGlyph() {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" fill="none" aria-hidden="true">
+      <path d="M1 1L5 5M5 1L1 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function MacMinimizeGlyph() {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" fill="none" aria-hidden="true">
+      <path d="M1 3H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function MacZoomGlyph() {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" fill="none" aria-hidden="true">
+      <path d="M1.5 1H5V4.5M5 1L1 5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function MacRestoreGlyph() {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" fill="none" aria-hidden="true">
+      <path d="M1 5V1.5M1 5H4.5M1 5L5 1" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 

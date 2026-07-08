@@ -880,10 +880,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
         style={{ width: expanded ? PANEL_WIDTH_EXPANDED : PANEL_WIDTH_COLLAPSED }}
         className="relative flex-shrink-0 flex flex-col select-none overflow-hidden transition-[width] duration-200"
       >
-      {/* Header: collapse/expand toggle pinned left, tabs centered (when
-          expanded). pt-[45px] + the 18px icon centered in the 36px button puts
-          the icon 54px from the top boundary, per design spec. */}
-      <div className="relative flex flex-shrink-0 items-center justify-center pl-2 pr-[26px] pt-[45px] pb-3">
+      {/* Header: collapse/expand toggle pinned left, tabs centered when expanded. */}
+      <div className="relative flex flex-shrink-0 items-center justify-center pl-2 pr-[26px] pt-4 pb-3">
         <button
           onClick={toggleExpanded}
           title={expanded ? t('chat.sidePanel.collapseAria') : t('chat.sidePanel.expandAria')}
