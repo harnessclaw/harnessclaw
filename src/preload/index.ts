@@ -230,6 +230,11 @@ const filesAPI = {
     ipcRenderer.invoke('files:saveClipboardImage', { data, mime }),
 }
 
+const projectOpenAppsAPI = {
+  list: () => ipcRenderer.invoke('project-open-apps:list'),
+  open: (input: { appId: string; cwd: string }) => ipcRenderer.invoke('project-open-apps:open', input),
+}
+
 // artifactsAPI bridges the renderer to artifacts:fetch, which downloads
 // the bytes of a stored artifact from the engine over HTTP and writes
 // them into the session cwd when available, falling back to artifact-cache.
@@ -561,6 +566,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('skills', skillsAPI)
     contextBridge.exposeInMainWorld('db', dbAPI)
     contextBridge.exposeInMainWorld('files', filesAPI)
+    contextBridge.exposeInMainWorld('projectOpenApps', projectOpenAppsAPI)
     contextBridge.exposeInMainWorld('artifacts', artifactsAPI)
     contextBridge.exposeInMainWorld('workspace', workspaceAPI)
     contextBridge.exposeInMainWorld('agentApi', agentAPI)
@@ -598,6 +604,8 @@ if (process.contextIsolated) {
   window.db = dbAPI
   // @ts-ignore (define in dts)
   window.files = filesAPI
+  // @ts-ignore (define in dts)
+  window.projectOpenApps = projectOpenAppsAPI
   // @ts-ignore (define in dts)
   window.artifacts = artifactsAPI
   // @ts-ignore (define in dts)

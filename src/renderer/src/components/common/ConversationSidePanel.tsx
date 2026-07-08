@@ -32,7 +32,6 @@ import emptyLogsIcon from '../../assets/empty-logs.svg'
 import emptyFilesIcon from '../../assets/empty-files.svg'
 
 const PANEL_WIDTH_EXPANDED = 280
-const PANEL_WIDTH_COLLAPSED = 44
 
 type PanelTab = 'plan' | 'logs' | 'artifacts'
 /** 产物 tab 下的子模式：general=通用模式（产物列表），dev=开发模式（工作区文件树） */
@@ -158,6 +157,7 @@ interface LegacyLogStep {
 }
 
 interface ConversationSidePanelProps {
+  expanded: boolean
   /** Plan 模式数据 — 只在 plan 模式下显示计划 tab */
   planData?: {
     planId: string
@@ -188,6 +188,38 @@ interface ConversationSidePanelProps {
   sessionId?: string
   /** 开发模式点击文件 → 宿主打开文件预览（复用 FilePreviewDrawer） */
   onSelectWorkspaceFile?: (path: string, fileName: string) => void
+}
+
+export function ConversationSidePanelToggle({
+  expanded,
+  onToggle,
+  className,
+}: {
+  expanded: boolean
+  onToggle: () => void
+  className?: string
+}) {
+  const { t } = useTranslation()
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={expanded ? t('chat.sidePanel.collapseAria') : t('chat.sidePanel.expandAria')}
+      aria-label={expanded ? t('chat.sidePanel.collapseAria') : t('chat.sidePanel.expandAria')}
+      aria-expanded={expanded}
+      className={cn(
+        'titlebar-no-drag inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-accent',
+        className
+      )}
+    >
+      <img
+        src={expanded ? iconSidebarCollapse : iconSidebarOpen}
+        alt=""
+        className="h-[18px] w-[18px]"
+        aria-hidden="true"
+      />
+    </button>
+  )
 }
 
 const TAB_STORAGE_KEY = 'chat-side-panel-tab'
@@ -732,7 +764,7 @@ function AgentCard({
 }
 
 
-export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs, agentTreeLogs, steps, artifacts, onSelectArtifact, onRevealArtifact, sessionId, onSelectWorkspaceFile }: ConversationSidePanelProps) {
+export function ConversationSidePanel({ expanded, planData, logEntries, messageGroupedLogs, agentTreeLogs, steps, artifacts, onSelectArtifact, onRevealArtifact, sessionId, onSelectWorkspaceFile }: ConversationSidePanelProps) {
   const { t } = useTranslation()
 
   // DEBUG: 检查 planData
@@ -762,8 +794,6 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
   }
 
   const flatAgentList = flattenAgentTree(effectiveAgentTreeLogs)
-  // Default closed every visit (tab choice is persisted, expanded state isn't).
-  const [expanded, setExpanded] = useState(false)
   // Plan 模式下默认显示 plan tab，否则读取存储的 tab
   const [activeTab, setActiveTab] = useState<PanelTab>(() => {
     if (planData) return 'plan'
@@ -855,7 +885,6 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
     }
   }, [artifactMode])
 
-  const toggleExpanded = () => setExpanded((prev) => !prev)
   const toggleLogExpanded = (id: string) => {
     setExpandedLogs((prev) => ({ ...prev, [id]: !prev[id] }))
   }
@@ -877,32 +906,12 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
 
       <aside
         aria-label={t('chat.sidePanel.label')}
-        style={{ width: expanded ? PANEL_WIDTH_EXPANDED : PANEL_WIDTH_COLLAPSED }}
+        style={{ width: expanded ? PANEL_WIDTH_EXPANDED : 0 }}
         className="relative flex-shrink-0 flex flex-col select-none overflow-hidden transition-[width] duration-200"
       >
-      {/* Header: collapse/expand toggle pinned left, tabs centered (when
-          expanded). pt-[45px] + the 18px icon centered in the 36px button puts
-          the icon 54px from the top boundary, per design spec. */}
-      <div className="relative flex flex-shrink-0 items-center justify-center pl-2 pr-[26px] pt-[45px] pb-3">
-        <button
-          onClick={toggleExpanded}
-          title={expanded ? t('chat.sidePanel.collapseAria') : t('chat.sidePanel.expandAria')}
-          aria-label={expanded ? t('chat.sidePanel.collapseAria') : t('chat.sidePanel.expandAria')}
-          aria-expanded={expanded}
-          className={cn(
-            'inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-accent',
-            expanded && 'absolute left-2'
-          )}
-        >
-          <img
-            src={expanded ? iconSidebarCollapse : iconSidebarOpen}
-            alt=""
-            className="h-[18px] w-[18px]"
-            aria-hidden="true"
-          />
-        </button>
-
-        {expanded && (
+      {/* Header: tabs only. Expand/collapse is controlled by ChatPage title actions. */}
+      {expanded && (
+        <div className="relative flex flex-shrink-0 items-center justify-center px-3 pt-4 pb-3">
           <div role="tablist" aria-label={t('chat.sidePanel.tabsAria')} className="flex items-center gap-1">
             {planData && (
               <button
@@ -946,8 +955,8 @@ export function ConversationSidePanel({ planData, logEntries, messageGroupedLogs
               {t('chat.sidePanel.tabArtifacts')}
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Body — only rendered while expanded; collapsed state is just the header button. */}
       {expanded && (
