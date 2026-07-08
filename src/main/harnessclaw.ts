@@ -9,7 +9,11 @@ import { readEngineConfig } from './config'
 import { sanitizeForLogging, writeAppLog } from './logging'
 import { reportTelemetry } from './telemetry-helper'
 import type { BrowserAgentSessionManagerLike } from './browser-agent-session'
-import { CodexAppServerClient } from './codex-app-server'
+import {
+  CodexAppServerClient,
+  type CodexMessageProjection,
+  type CodexSessionProjection,
+} from './codex-app-server'
 
 interface HarnessclawConfig {
   enabled: boolean
@@ -3565,6 +3569,22 @@ class CodexRuntimeClient extends EventEmitter {
       ...status,
       engine: 'codex',
     }
+  }
+
+  listStoredSessions(): Promise<CodexSessionProjection[]> {
+    return this.codex.listStoredSessions()
+  }
+
+  readStoredMessages(sessionId: string): Promise<CodexMessageProjection[]> {
+    return this.codex.readStoredMessages(sessionId)
+  }
+
+  deleteStoredSession(sessionId: string): Promise<boolean> {
+    return this.codex.deleteStoredSession(sessionId)
+  }
+
+  updateStoredSessionTitle(sessionId: string, title: string): Promise<boolean> {
+    return this.codex.updateStoredSessionTitle(sessionId, title)
   }
 
   respondPermission(

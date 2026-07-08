@@ -5,6 +5,7 @@ import { ArrowLeft, FilePlus2, FolderKanban, MoreHorizontal, Plus, SendHorizonta
 import { DangerConfirmMenu } from '../common/DangerConfirmMenu'
 import { cn } from '../../lib/utils'
 import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
+import { getProjectCwd, readProjectCwds, setProjectCwd } from '../../lib/projectCwds'
 
 function getProjectSessionLabel(t: any, session: DbSessionRow): string {
   const trimmed = session.title.trim()
@@ -88,11 +89,14 @@ export function ProjectWorkspacePage() {
   const handleCreateProjectSession = () => {
     const message = input.trim()
     if (!message || !project) return
+    const cwd = getProjectCwd(project, readProjectCwds())
+    if (cwd) setProjectCwd(project.project_id, cwd)
 
     navigate('/chat', {
       state: {
         createSession: true,
         initialMessage: message,
+        cwd: cwd || undefined,
         projectContext: {
           projectId: project.project_id,
           name: displayProjectName,

@@ -21,6 +21,7 @@ import { FilePreviewModal } from '../attachments/FilePreviewModal'
 import type { FilePreviewData } from './ChatPage'
 import { HOME_CASES, HOME_CATEGORIES } from '../../data/homeCases'
 import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
+import { getProjectCwd as getStoredProjectCwd, readProjectCwds, setProjectCwd } from '../../lib/projectCwds'
 import iconAttachFile from '../../assets/icon-attach-file.svg'
 import iconStatusConnected from '../../assets/status-connected.svg'
 import iconStatusConnecting from '../../assets/status-connecting.svg'
@@ -42,6 +43,13 @@ interface HomeProject {
   created_at: number
   updated_at: number
   deleted_at: number | null
+}
+
+interface HomeRouteState {
+  focusComposer?: boolean
+  selectedProject?: HomeProject
+  selectedProjectId?: string
+  hideRecommendations?: boolean
 }
 
 interface ModelProviderSelection {
@@ -76,10 +84,8 @@ function getModelSelectionKey(selection: Pick<ModelProviderSelection, 'provider'
 }
 
 function getProjectCwd(project: HomeProject | null): string | undefined {
-  const value = project?.description?.trim()
-  if (!value) return undefined
-  if (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value)) return value
-  return undefined
+  if (!project) return undefined
+  return getStoredProjectCwd(project, readProjectCwds()) || undefined
 }
 
 // 推荐分类（id 同时是 HOME_CASES 的数据键，label 渲染时走 i18n）
@@ -95,6 +101,10 @@ const categories = [
 export function HomePage() {
   const { t } = useTranslation()
   const location = useLocation()
+  const routeState = (location.state && typeof location.state === 'object')
+    ? location.state as HomeRouteState
+    : null
+  const hideRecommendations = routeState?.hideRecommendations === true
   const [input, setInput] = useState('')
 
   const statusMeta = useMemo(() => ({
@@ -277,6 +287,19 @@ export function HomePage() {
   }, [])
 
   useEffect(() => {
+    const routeProject = routeState?.selectedProject
+    if (routeProject?.project_id) {
+      setSelectedProject(routeProject)
+      return
+    }
+
+    const routeProjectId = routeState?.selectedProjectId
+    if (!routeProjectId) return
+    const matchedProject = projects.find((project) => project.project_id === routeProjectId)
+    if (matchedProject) setSelectedProject(matchedProject)
+  }, [location.key, projects, routeState?.selectedProject, routeState?.selectedProjectId])
+
+  useEffect(() => {
     let cancelled = false
     void window.db.listModelProviderSelections()
       .then((rows) => {
@@ -446,9 +469,9 @@ export function HomePage() {
   }, [])
 
   useEffect(() => {
-    if (location.state?.focusComposer !== true) return
+    if (routeState?.focusComposer !== true) return
     requestAnimationFrame(() => inputRef.current?.focus())
-  }, [location.key, location.state])
+  }, [location.key, routeState?.focusComposer])
 
   const appendAttachments = (items: AttachmentItem[]) => {
     if (!items.length) return
@@ -503,6 +526,9 @@ export function HomePage() {
     }
 
     const project = result.project as HomeProject
+    if (result.path) setProjectCwd(project.project_id, result.path)
+    const projectCwd = getProjectCwd(project)
+    if (projectCwd) setProjectCwd(project.project_id, projectCwd)
     setProjects((current) => [project, ...current])
     selectProject(project)
     setCreateProjectOpen(false)
@@ -538,6 +564,7 @@ export function HomePage() {
       return
     }
     const project = result.project as HomeProject
+    setProjectCwd(project.project_id, picked.path)
     setProjects((current) => [project, ...current])
     selectProject(project)
   }
@@ -572,6 +599,10 @@ export function HomePage() {
         modelProvider: selectedModel?.provider,
         effort: selectedReasoningEffort,
       })
+
+      if (selectedProject) {
+        setProjectCwd(selectedProject.project_id, resolvedCwd)
+      }
 
       navigate('/chat', {
         state: {
@@ -1069,53 +1100,56 @@ export function HomePage() {
               </div>
             </div>
 
-        {/* 推荐区域 */}
-        <div ref={recommendRef} className="mt-[45px]">
-          {/* 分类标签 */}
-          <div className="mb-3 flex flex-wrap items-center gap-3">
-            {categories.map((category) => (
-              <button
-                key={category.id}
-                onClick={() => setSelectedCategory(category.id)}
-                className={cn(
-                  'rounded-full px-1.5 py-1 text-xs leading-5 transition-colors',
-                  selectedCategory === category.id
-                    ? 'font-semibold'
-                    : 'font-medium text-muted-foreground hover:text-foreground'
-                )}
-                style={selectedCategory === category.id ? { color: '#222529' } : undefined}
-              >
-                {t(`home.categories.${category.id}`)}
-              </button>
-            ))}
-          </div>
+            {hideRecommendations ? (
+              <div ref={recommendRef} className="h-0" aria-hidden="true" />
+            ) : (
+              <div ref={recommendRef} className="mt-[45px]">
+                {/* 分类标签 */}
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  {categories.map((category) => (
+                    <button
+                      key={category.id}
+                      onClick={() => setSelectedCategory(category.id)}
+                      className={cn(
+                        'rounded-full px-1.5 py-1 text-xs leading-5 transition-colors',
+                        selectedCategory === category.id
+                          ? 'font-semibold'
+                          : 'font-medium text-muted-foreground hover:text-foreground'
+                      )}
+                      style={selectedCategory === category.id ? { color: '#222529' } : undefined}
+                    >
+                      {t(`home.categories.${category.id}`)}
+                    </button>
+                  ))}
+                </div>
 
-          {/* 案例卡片网格 - 纯文本格式 */}
-          <div className="grid grid-cols-3 gap-3">
-            {displayedCases.map((caseItem) => (
-              <button
-                key={caseItem.id}
-                onClick={() => handleCaseClick(caseItem)}
-                className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-md min-h-[120px]"
-              >
-                {/* 标题 */}
-                <h3 className="text-base font-medium text-foreground group-hover:text-primary transition-colors">
-                  {t(`home.cases.${caseItem.id}.title`)}
-                </h3>
+                {/* 案例卡片网格 - 纯文本格式 */}
+                <div className="grid grid-cols-3 gap-3">
+                  {displayedCases.map((caseItem) => (
+                    <button
+                      key={caseItem.id}
+                      onClick={() => handleCaseClick(caseItem)}
+                      className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-md min-h-[120px]"
+                    >
+                      {/* 标题 */}
+                      <h3 className="text-base font-medium text-foreground group-hover:text-primary transition-colors">
+                        {t(`home.cases.${caseItem.id}.title`)}
+                      </h3>
 
-                {/* 描述 */}
-                <p className="text-sm text-muted-foreground line-clamp-4">
-                  {t(`home.cases.${caseItem.id}.content`)}
-                </p>
-              </button>
-            ))}
-            {/* 隐形占位格:把当前分类补齐到最大条数,保证案例区高度恒定、
-                切分类时下方内容不上移(只占位,不显示任何内容)。 */}
-            {Array.from({ length: Math.max(0, maxCaseCount - displayedCases.length) }).map((_, i) => (
-              <div key={`case-placeholder-${i}`} aria-hidden="true" className="invisible min-h-[120px]" />
-            ))}
-          </div>
-        </div>
+                      {/* 描述 */}
+                      <p className="text-sm text-muted-foreground line-clamp-4">
+                        {t(`home.cases.${caseItem.id}.content`)}
+                      </p>
+                    </button>
+                  ))}
+                  {/* 隐形占位格:把当前分类补齐到最大条数,保证案例区高度恒定、
+                      切分类时下方内容不上移(只占位,不显示任何内容)。 */}
+                  {Array.from({ length: Math.max(0, maxCaseCount - displayedCases.length) }).map((_, i) => (
+                    <div key={`case-placeholder-${i}`} aria-hidden="true" className="invisible min-h-[120px]" />
+                  ))}
+                </div>
+              </div>
+            )}
       </div>
       </div>
 
