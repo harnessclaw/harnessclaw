@@ -1023,7 +1023,7 @@ function collectChangedKeys(prev: unknown, next: unknown, prefix: string, acc: s
   return acc
 }
 
-function buildExportPayload(type: string): { name: string; content: string } {
+async function buildExportPayload(type: string): Promise<{ name: string; content: string }> {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   if (type === 'logs') {
     return {
@@ -1053,10 +1053,15 @@ function buildExportPayload(type: string): { name: string; content: string } {
     name: `chat-export-${stamp}.json`,
     content: JSON.stringify({
       exportedAt: new Date().toISOString(),
-      sessions: dbListSessions().map((session) => ({
-        ...session,
-        messages: getMessages(session.session_id),
-      })),
+      sessions: harnessclawClient.getStatus().engine === 'codex'
+        ? await Promise.all((await harnessclawClient.listStoredSessions()).map(async (session) => ({
+            ...session,
+            messages: await harnessclawClient.readStoredMessages(session.session_id),
+          })))
+        : dbListSessions().map((session) => ({
+            ...session,
+            messages: getMessages(session.session_id),
+          })),
     }, null, 2),
   }
 }
@@ -1841,9 +1846,9 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
-  ipcMain.handle('app-runtime:exportData', (_, type: string) => {
+  ipcMain.handle('app-runtime:exportData', async (_, type: string) => {
     try {
-      const payload = buildExportPayload(type)
+      const payload = await buildExportPayload(type)
       const path = writeExportFile(payload.name, payload.content)
       return { ok: true, path }
     } catch (error) {
@@ -1947,17 +1952,25 @@ app.whenReady().then(() => {
   })
 
   // DB IPC handlers
-  ipcMain.handle('db:listSessions', () => {
+  ipcMain.handle('db:listSessions', async () => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        return await harnessclawClient.listStoredSessions()
+      }
       return dbListSessions()
     } catch (err) {
       console.error('[DB] listSessions error:', err)
-      return []
+      return dbListSessions()
     }
   })
 
   ipcMain.handle('db:createSession', (_, sessionId: string, title?: string) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        // Codex app-server owns persisted threads. Empty frontend-created
+        // sessions remain renderer runtime state until the first turn starts.
+        return { ok: true }
+      }
       upsertSession(sessionId, title)
       broadcastDbSessionsChanged()
       return { ok: true }
@@ -1972,6 +1985,12 @@ app.whenReady().then(() => {
     title?: string
   }) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        // Project assignment is UI-local until a Codex thread is materialized.
+        // Do not create a shadow session row for thread/turn/item state.
+        void input
+        return { ok: true }
+      }
       const project = getProject(input.projectId)
       if (!project) return { ok: false, error: 'Project not found' }
 
@@ -1991,18 +2010,29 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('db:getMessages', (_, sessionId: string) => {
+  ipcMain.handle('db:getMessages', async (_, sessionId: string) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        const messages = await harnessclawClient.readStoredMessages(sessionId)
+        return messages
+      }
       return getMessages(sessionId)
     } catch (err) {
       console.error('[DB] getMessages error:', err)
-      return []
+      return getMessages(sessionId)
     }
   })
 
-  ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
+  ipcMain.handle('db:deleteSession', async (_, sessionId: string) => {
     try {
       closeBrowserAgentSessionsForDbSession(sessionId)
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        const ok = await harnessclawClient.deleteStoredSession(sessionId)
+        attentionPersistent.delete(sessionId)
+        attentionLive.delete(sessionId)
+        broadcastDbSessionsChanged()
+        return ok ? { ok: true } : { ok: false, error: 'Failed to delete Codex thread' }
+      }
       dbDeleteSession(sessionId)
       attentionPersistent.delete(sessionId)
       attentionLive.delete(sessionId)
@@ -2013,8 +2043,13 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('db:updateSessionTitle', (_, sessionId: string, title: string) => {
+  ipcMain.handle('db:updateSessionTitle', async (_, sessionId: string, title: string) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        const ok = await harnessclawClient.updateStoredSessionTitle(sessionId, title)
+        broadcastDbSessionsChanged()
+        return ok ? { ok: true } : { ok: false, error: 'Failed to update Codex thread title' }
+      }
       updateSessionTitle(sessionId, title)
       broadcastDbSessionsChanged()
       return { ok: true }
@@ -2025,6 +2060,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle('db:updateSessionProject', (_, sessionId: string, projectId: string | null) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        void sessionId
+        void projectId
+        return { ok: true }
+      }
       updateSessionProject(sessionId, projectId)
       broadcastDbSessionsChanged()
       return { ok: true }
@@ -3155,6 +3195,14 @@ app.whenReady().then(() => {
       win.webContents.send('harnessclaw:event', event)
     })
 
+    if (harnessclawClient.getStatus().engine === 'codex') {
+      // In Codex mode, thread/turn/item history is authoritative in
+      // app-server's thread store and rollout files. The renderer keeps only a
+      // live in-memory projection of these compat events, while historical
+      // reads go back through app-server thread APIs.
+      return
+    }
+
     // Write to DB based on event type
     const type = event.type as string
     const normalizedType = normalizeEventType(type)
@@ -3654,6 +3702,9 @@ app.whenReady().then(() => {
     const ok = await harnessclawClient.send(content, sessionId, options)
     if (!ok) {
       return { ok: false, error: 'Failed to send message to Harnessclaw' }
+    }
+    if (harnessclawClient.getStatus().engine === 'codex') {
+      return { ok: true }
     }
     // Write user message to DB
     if (sessionId) {

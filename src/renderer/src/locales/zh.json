@@ -13,6 +13,7 @@
     "close": "关闭",
     "search": "搜索",
     "advanced": "高级设置",
+    "expand": "展开",
     "collapse": "收起",
     "and": "和",
     "docs": "文档",
@@ -40,8 +41,15 @@
     "projects": "项目",
     "team": "团队",
     "settings": "设置",
-    "recent": "最近对话",
-    "noRecent": "没有最近对话",
+    "recent": "对话",
+    "noRecent": "没有对话",
+    "untitledSession": "未命名对话",
+    "noProjects": "没有项目",
+    "showMore": "展开显示",
+    "newProjectConversation": "在 {{name}} 中新建对话",
+    "ageMinutes": "{{count}} 分钟",
+    "ageHours": "{{count}} 小时",
+    "ageDays": "{{count}} 天",
     "rename": "重命名",
     "delete": "删除",
     "exitProject": "退出项目",
@@ -61,8 +69,10 @@
     "mainNavigationAria": "主导航",
     "mainContentAria": "主内容区域",
     "collapseAria": "收起侧边栏",
-    "recentExpandAria": "展开最近聊天",
-    "recentCollapseAria": "收起最近聊天",
+    "recentExpandAria": "展开对话",
+    "recentCollapseAria": "收起对话",
+    "projectsExpandAria": "展开项目",
+    "projectsCollapseAria": "收起项目",
     "switchToEnglish": "Switch to English",
     "switchToChinese": "切换为中文",
     "switchDark": "切换暗色",
@@ -73,15 +83,15 @@
     "resizeAria": "拖动调整侧边栏宽度"
   },
   "search": {
-    "placeholder": "搜索操作或最近对话...",
+    "placeholder": "搜索操作或对话...",
     "searchConversations": "搜索对话",
     "quickActions": "快速操作",
     "newSession": "新建会话",
     "newConversation": "新建对话",
     "newSessionDesc": "跳转到首页，直接开始输入新的任务。",
     "recent": "最近",
-    "recentConversations": "最近对话",
-    "noRecent": "没有匹配的最近对话",
+    "recentConversations": "对话",
+    "noRecent": "没有匹配的对话",
     "noMatchActions": "没有匹配的操作",
     "close": "关闭搜索"
   },
@@ -480,6 +490,8 @@
       "subtitle": "将此会话归入项目"
     },
     "deleteConfirm": {
+      "title": "删除项目？",
+      "desc": "将删除「{{name}}」以及项目下的所有对话和历史记录，且无法恢复。",
       "batchDesc": "所选的 {{count}} 条对话的所有消息与历史将被永久删除，且无法恢复。"
     }
   },
@@ -1763,6 +1775,13 @@
       "clear": "移除当前项目",
       "cancel": "取消",
       "create": "创建"
+    },
+    "projectThreads": {
+      "title": "{{name}} 的对话",
+      "count": "{{count}} 条",
+      "empty": "当前项目暂无对话。你可以直接在上方输入新任务开始。",
+      "untitled": "未命名对话 {{id}}",
+      "updatedAt": "更新于 {{time}}"
     },
     "modelSelector": {
       "empty": "选择模型",
