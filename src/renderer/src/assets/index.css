@@ -203,7 +203,7 @@ html:not(.launcher-window) body {
 
 .recent-session-scroll:hover::-webkit-scrollbar {
   width: 5px;
-  height: 5px;
+  height: 0;
 }
 
 .recent-session-scroll:hover::-webkit-scrollbar-thumb {
@@ -2030,4 +2030,3 @@ html:not(.launcher-window) body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
-
