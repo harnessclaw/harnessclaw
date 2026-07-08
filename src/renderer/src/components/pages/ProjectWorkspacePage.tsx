@@ -3,8 +3,10 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, FilePlus2, FolderKanban, MoreHorizontal, Plus, SendHorizontal } from 'lucide-react'
 import { DangerConfirmMenu } from '../common/DangerConfirmMenu'
+import { ProjectOpenWithControl } from '../common/ProjectOpenWithControl'
 import { cn } from '../../lib/utils'
 import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
+import { getProjectCwd, readProjectCwds, setProjectCwd } from '../../lib/projectCwds'
 
 function getProjectSessionLabel(t: any, session: DbSessionRow): string {
   const trimmed = session.title.trim()
@@ -88,11 +90,14 @@ export function ProjectWorkspacePage() {
   const handleCreateProjectSession = () => {
     const message = input.trim()
     if (!message || !project) return
+    const cwd = getProjectCwd(project, readProjectCwds())
+    if (cwd) setProjectCwd(project.project_id, cwd)
 
     navigate('/chat', {
       state: {
         createSession: true,
         initialMessage: message,
+        cwd: cwd || undefined,
         projectContext: {
           projectId: project.project_id,
           name: displayProjectName,
@@ -115,6 +120,7 @@ export function ProjectWorkspacePage() {
   const confirmingSession = projectSessions.find((session) => session.session_id === confirmDeleteSessionId) ?? null
   const displayProjectName = project ? getProjectDisplayName(project, t) : ''
   const displayProjectDescription = project ? getProjectDisplayDescription(project, t) : ''
+  const projectCwd = project ? getProjectCwd(project, readProjectCwds()) : ''
 
   const handleDeleteProjectSession = async (sessionId: string) => {
     setSessionActionError('')
@@ -172,7 +178,7 @@ export function ProjectWorkspacePage() {
           </button>
         </div>
 
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
               {loading ? t('common.loading') : displayProjectName}
@@ -180,6 +186,7 @@ export function ProjectWorkspacePage() {
           </div>
 
           <div className="hidden items-center gap-2 text-muted-foreground md:flex">
+            <ProjectOpenWithControl cwd={projectCwd} />
             <button
               type="button"
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card transition-colors hover:bg-muted"

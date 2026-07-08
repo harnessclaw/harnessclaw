@@ -393,6 +393,27 @@ interface FilesAPI {
   >
 }
 
+interface ProjectOpenApp {
+  id: string
+  name: string
+  bundleId?: string
+  appPath?: string
+  cliPath?: string
+  iconDataUrl?: string
+  launchMode: 'bundle' | 'cli' | 'finder'
+  detectedBy: Array<'fixedPath' | 'cli' | 'appBundle'>
+}
+
+interface ProjectOpenAppsAPI {
+  list: () => Promise<{
+    ok: boolean
+    apps: ProjectOpenApp[]
+    platform: NodeJS.Platform
+    error?: string
+  }>
+  open: (input: { appId: string; cwd: string }) => Promise<{ ok: boolean; error?: string }>
+}
+
 interface ConsoleAgentDefinition {
   name: string
   display_name?: string
@@ -891,6 +912,7 @@ declare global {
     skills: SkillsAPI
     db: DbAPI
     files: FilesAPI
+    projectOpenApps: ProjectOpenAppsAPI
     artifacts: ArtifactsAPI
     workspace: WorkspaceAPI
     agentApi: AgentApiInterface
