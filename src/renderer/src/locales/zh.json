@@ -1030,6 +1030,7 @@
       "appConfig": "应用配置",
       "software": "软件设置",
       "launcher": "快捷助手",
+      "shortcuts": "快捷设置",
       "logs": "日志",
       "ui": "UI 设置",
       "storage": "数据与存储",
@@ -1581,6 +1582,29 @@
         "unset": "未设置",
         "pressKeys": "按下组合键…"
       }
+    },
+    "shortcuts": {
+      "header": {
+        "title": "快捷设置",
+        "subtitle": "查看并自定义快捷键。点击右侧胶囊录制，× 删除；冲突将红字提示且不生效。"
+      },
+      "group": {
+        "global": "全局快捷键",
+        "app": "应用内快捷键"
+      },
+      "item": {
+        "toggleWindow": "显示/隐藏窗口",
+        "search": "搜索",
+        "newTask": "新任务",
+        "settings": "打开设置"
+      },
+      "setBtn": "点击设置",
+      "conflict": "快捷键冲突，请更换",
+      "restoreDefaults": "恢复默认设置",
+      "pressKeys": "按下组合键…",
+      "capturingAria": "正在录制快捷键，按下组合键",
+      "clearAria": "删除快捷键",
+      "setAria": "点击设置快捷键"
     }
   },
   "welcome": {

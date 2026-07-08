@@ -17,6 +17,7 @@ import {
   // Keyboard = typing hint icon shown inside the hotkey-capture input
   // while we're waiting for the user to press a combination.
   Keyboard,
+  Command,
   // Icons for the "回答风格" preset cards. Target = precise,
   // Scale = balanced, Lightbulb = flexible, Sparkles = creative.
   Target, Scale, Lightbulb, Sparkles,
@@ -25,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { NoticeToast } from '../common/NoticeToast'
 import { useAppConfig, useEngineConfig } from '@/hooks/useEngineConfig'
 import { defaultDbDisplayPath, defaultLogsDisplayPath } from '@/lib/runtimePaths'
+import { DEFAULT_SHORTCUTS, DEFAULT_TOGGLE_WINDOW_HOTKEY, normalizeAccelerator } from '../../lib/shortcuts'
 import {
   ENGINE_TYPE_OPTIONS,
   MANAGED_PROVIDER_KEYS,
@@ -7207,6 +7209,212 @@ function HotkeyInput({
   )
 }
 
+// 紧凑快捷键录制胶囊（对齐设计截图）：有值显示字形 + ×；空值显示「点击设置」；
+// 录制中监听 keydown，Esc 取消。捕获到组合后交给上层做冲突检测。
+function ShortcutRecorder({
+  value,
+  onCapture,
+  onClear,
+}: {
+  value: string
+  onCapture: (accel: string) => void
+  onClear: () => void
+}) {
+  const { t } = useTranslation()
+  const [capturing, setCapturing] = useState(false)
+  const ref = useRef<HTMLButtonElement | null>(null)
+  const { modifiers, key } = parseAccelerator(value)
+
+  useEffect(() => {
+    if (!capturing) return
+    const onKey = (event: KeyboardEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.key === 'Escape') {
+        setCapturing(false)
+        return
+      }
+      const accel = eventToAccelerator(event)
+      if (!accel) return
+      onCapture(accel)
+      setCapturing(false)
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setCapturing(false)
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      window.removeEventListener('keydown', onKey, { capture: true })
+      window.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [capturing, onCapture])
+
+  if (!value && !capturing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCapturing(true)}
+        aria-label={t('settings.shortcuts.setAria')}
+        className="inline-flex items-center rounded-[8px] border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+      >
+        {t('settings.shortcuts.setBtn')}
+      </button>
+    )
+  }
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-[8px] border px-3 py-1.5 transition-colors',
+        capturing ? 'border-primary ring-2 ring-primary/20' : 'border-border bg-card',
+      )}
+    >
+      <button
+        ref={ref}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setCapturing(true)
+        }}
+        aria-pressed={capturing}
+        aria-label={capturing ? t('settings.shortcuts.capturingAria') : t('settings.shortcuts.setAria')}
+        className="inline-flex items-center gap-1"
+      >
+        {capturing && !key ? (
+          <span className="text-[12px] text-muted-foreground/70">{t('settings.shortcuts.pressKeys')}</span>
+        ) : (
+          <>
+            {modifiers.map((m) => renderToken(m, false))}
+            {key ? renderToken(key, false) : null}
+          </>
+        )}
+      </button>
+      {value && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            setCapturing(false)
+            onClear()
+          }}
+          aria-label={t('settings.shortcuts.clearAria')}
+          className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X size={12} aria-hidden="true" />
+        </button>
+      )}
+    </span>
+  )
+}
+
+// ─── Shortcuts Section ─────────────────────────────────────────────────────
+// 注册表驱动。显示/隐藏窗口复用 launcher.hotkey（与「快捷助手」栏同步）；
+// 搜索/新任务/打开设置存 shortcuts.*。冲突检测仅在本 4 项之间。
+function ShortcutsSection() {
+  const { t } = useTranslation()
+  const { config, loading, updateConfig } = useAppConfig()
+  const [conflictId, setConflictId] = useState<string | null>(null)
+
+  const launcher = (config?.launcher || {}) as { enabled?: boolean; hotkey?: string }
+  const shortcuts = (config?.shortcuts || {}) as Record<string, string>
+
+  const readShortcut = (id: string): string =>
+    typeof shortcuts[id] === 'string' ? shortcuts[id] : (DEFAULT_SHORTCUTS as Record<string, string>)[id]
+
+  interface Row {
+    id: string
+    group: 'global' | 'app'
+    label: string
+    value: string
+    write: (next: string) => void
+  }
+
+  const rows: Row[] = [
+    {
+      id: 'toggleWindow',
+      group: 'global',
+      label: t('settings.shortcuts.item.toggleWindow'),
+      value: typeof launcher.hotkey === 'string' ? launcher.hotkey : DEFAULT_TOGGLE_WINDOW_HOTKEY,
+      write: (next) => updateConfig({ launcher: { ...launcher, hotkey: next } }),
+    },
+    ...(['search', 'newTask', 'settings'] as const).map((id) => ({
+      id,
+      group: 'app' as const,
+      label: t(`settings.shortcuts.item.${id}`),
+      value: readShortcut(id),
+      write: (next: string) => updateConfig({ shortcuts: { ...shortcuts, [id]: next } }),
+    })),
+  ]
+
+  const handleCapture = (row: Row, accel: string) => {
+    const norm = normalizeAccelerator(accel)
+    const clash = rows.some((r) => r.id !== row.id && r.value && normalizeAccelerator(r.value) === norm)
+    if (clash) {
+      setConflictId(row.id)
+      return
+    }
+    setConflictId(null)
+    row.write(accel)
+  }
+
+  const handleClear = (row: Row) => {
+    if (conflictId === row.id) setConflictId(null)
+    row.write('')
+  }
+
+  const handleRestoreDefaults = () => {
+    setConflictId(null)
+    updateConfig({
+      launcher: { ...launcher, hotkey: DEFAULT_TOGGLE_WINDOW_HOTKEY },
+      shortcuts: { ...DEFAULT_SHORTCUTS },
+    })
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+  }
+
+  const groups: { key: 'global' | 'app'; title: string }[] = [
+    { key: 'global', title: t('settings.shortcuts.group.global') },
+    { key: 'app', title: t('settings.shortcuts.group.app') },
+  ]
+
+  return (
+    <div>
+      <SectionHeader icon={Keyboard} title={t('settings.shortcuts.header.title')} subtitle={t('settings.shortcuts.header.subtitle')} />
+      {groups.map((group) => (
+        <GroupCard key={group.key} title={group.title}>
+          {rows.filter((r) => r.group === group.key).map((row) => (
+            <SettingRow key={row.id} label={row.label}>
+              <div className="flex flex-col items-end gap-1">
+                <ShortcutRecorder
+                  value={row.value}
+                  onCapture={(accel) => handleCapture(row, accel)}
+                  onClear={() => handleClear(row)}
+                />
+                {conflictId === row.id && (
+                  <span className="text-xs text-red-600">{t('settings.shortcuts.conflict')}</span>
+                )}
+              </div>
+            </SettingRow>
+          ))}
+        </GroupCard>
+      ))}
+      <div className="mt-6 flex justify-end">
+        <button
+          type="button"
+          onClick={handleRestoreDefaults}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <RotateCcw size={14} aria-hidden="true" />
+          {t('settings.shortcuts.restoreDefaults')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Launcher Section ──────────────────────────────────────────────────────
 //
 // Standalone settings page for the Alfred-style quick launcher.
@@ -7847,7 +8055,7 @@ function VideoModelSection({ providerName }: { providerName: string }) {
 
 // ─── Nav ───────────────────────────────────────────────────────────────────
 
-type SectionKey = 'auth' | 'models' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher'
+type SectionKey = 'auth' | 'models' | 'agents' | 'channels' | 'search' | 'tools' | 'ui' | 'storage' | 'logs' | 'updates' | 'software' | 'launcher' | 'shortcuts'
 
 const FULL_WIDTH_SECTIONS = new Set<SectionKey>(['models', 'search', 'logs'])
 
@@ -7877,6 +8085,7 @@ export function SettingsPage() {
       items: [
         { key: 'software', icon: SlidersHorizontal, label: t('settings.nav.software') },
         { key: 'launcher', icon: Keyboard, label: t('settings.nav.launcher') },
+        { key: 'shortcuts', icon: Command, label: t('settings.nav.shortcuts') },
         { key: 'logs', icon: FileText, label: t('settings.nav.logs') },
         { key: 'ui', icon: Palette, label: t('settings.nav.ui') },
         { key: 'storage', icon: HardDrive, label: t('settings.nav.storage') },
@@ -7950,6 +8159,7 @@ export function SettingsPage() {
             {active === 'updates' && <UpdateSection />}
             {active === 'software' && <SoftwareSection />}
             {active === 'launcher' && <LauncherSection />}
+            {active === 'shortcuts' && <ShortcutsSection />}
             {active === 'ui' && <UISection />}
             {active === 'storage' && <StorageSection />}
           </div>
