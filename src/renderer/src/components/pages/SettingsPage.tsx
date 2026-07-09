@@ -7281,7 +7281,7 @@ function ShortcutRecorder({
         aria-label={capturing ? t('settings.shortcuts.capturingAria') : t('settings.shortcuts.setAria')}
         className="inline-flex items-center gap-1"
       >
-        {capturing && !key ? (
+        {capturing ? (
           <span className="text-[12px] text-muted-foreground/70">{t('settings.shortcuts.pressKeys')}</span>
         ) : (
           <>
@@ -7311,6 +7311,15 @@ function ShortcutRecorder({
 // ─── Shortcuts Section ─────────────────────────────────────────────────────
 // 注册表驱动。显示/隐藏窗口复用 launcher.hotkey（与「快捷助手」栏同步）；
 // 搜索/新任务/打开设置存 shortcuts.*。冲突检测仅在本 4 项之间。
+
+interface Row {
+  id: string
+  group: 'global' | 'app'
+  label: string
+  value: string
+  write: (next: string) => void
+}
+
 function ShortcutsSection() {
   const { t } = useTranslation()
   const { config, loading, updateConfig } = useAppConfig()
@@ -7321,14 +7330,6 @@ function ShortcutsSection() {
 
   const readShortcut = (id: string): string =>
     typeof shortcuts[id] === 'string' ? shortcuts[id] : (DEFAULT_SHORTCUTS as Record<string, string>)[id]
-
-  interface Row {
-    id: string
-    group: 'global' | 'app'
-    label: string
-    value: string
-    write: (next: string) => void
-  }
 
   const rows: Row[] = [
     {
