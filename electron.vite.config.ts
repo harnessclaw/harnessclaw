@@ -13,7 +13,7 @@ export default defineConfig({
       }
     },
     plugins: [externalizeDepsPlugin({
-      include: ['better-sqlite3']
+      include: ['better-sqlite3', 'node-pty']
     })]
   },
   preload: {

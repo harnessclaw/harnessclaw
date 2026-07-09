@@ -7,7 +7,7 @@ import {
   Loader2, Wrench, Brain, AlertCircle, RefreshCw, ChevronDown, ChevronUp,
   FileText, File, Folder, X, ArrowDown, AtSign, GitBranch, ListTodo, Users, MessagesSquare, ChevronLeft, ChevronRight, Search, HelpCircle, FolderOpen, Download,
   Globe, ExternalLink, Pencil, FolderPlus, FolderMinus,
-  PenLine, Clock, ShieldQuestion, ThumbsUp, ThumbsDown, Image as ImageIcon
+  PenLine, Clock, ShieldQuestion, ThumbsUp, ThumbsDown, Image as ImageIcon, Terminal
 } from 'lucide-react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -33,9 +33,12 @@ import { SessionStatsButton } from '../common/SessionStatsButton'
 import { AvatarLightbox } from '../common/AvatarLightbox'
 import { HtmlArtifactView } from '../common/HtmlArtifactView'
 import { ConfirmDeleteSessionDialog } from '../common/ConfirmDeleteSessionDialog'
-import { ConversationSidePanel, type AgentLogEntry, type MessageGroupedLog, type AgentTreeNode } from '../common/ConversationSidePanel'
+import { ConversationSidePanel, ConversationSidePanelToggle, type AgentLogEntry, type MessageGroupedLog, type AgentTreeNode } from '../common/ConversationSidePanel'
+import { ProjectOpenWithControl } from '../common/ProjectOpenWithControl'
+import { EmbeddedTerminal } from '../common/EmbeddedTerminal'
 import { isKnownArtifactExt } from '../../assets/artifact-icons'
 import { SystemNoticeModal, type SystemNotice } from '../common/SystemNoticeModal'
+import { readProjectCwds } from '../../lib/projectCwds'
 import emmaAvatar from '../../assets/emma-avatar.svg'
 import alexAvatar from '../../assets/alex-avatar.svg'
 import agentAvatar from '../../assets/agent-avatar.svg'
@@ -3932,8 +3935,8 @@ function WorkspaceInlinePreview({ file }: { file: { path: string; name: string }
 }
 
 /**
- * Session menu button (three dots) — placed at the top-right of the title bar.
- * Opens the same dropdown menu as SessionTitleMenu (rename / assign project / delete).
+ * Session menu button (three dots). Opens the same dropdown menu as
+ * SessionTitleMenu (rename / assign project / delete).
  */
 function SessionMenuButton({
   sessionId,
@@ -4226,6 +4229,8 @@ export function ChatPage() {
   const routeProjectContext = useMemo(() => normalizeProjectContext(location.state?.projectContext), [location.state])
   const [sessionMap, setSessionMap] = useState<Record<string, SessionState>>({})
   const [activeSessionId, setActiveSessionId] = useState('')
+  const [sidePanelExpanded, setSidePanelExpanded] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const [sessionProjectContexts, setSessionProjectContexts] = useState<Record<string, ProjectContext>>({})
   const [filePreview, setFilePreview] = useState<FilePreviewData | null>(null)
   // 用户消息里的图片附件单独走居中 FilePreviewModal，行为对齐首页输入框
@@ -5142,6 +5147,14 @@ export function ChatPage() {
   const activeSessionPromptRaw = activeSessionMeta?.title || activeSessionMeta?.firstMsg || t('chat.newChat')
   const activeSessionPrompt = activeSessionPromptRaw.replace(/\n/g, ' ').trim()
   const activeProjectContext = activeSessionId ? sessionProjectContexts[activeSessionId] : routeProjectContext
+  const activeSessionDbRow = activeSessionId ? dbSessions.find((session) => session.session_id === activeSessionId) : null
+  const activeProjectDescriptionCwd = activeProjectContext?.description?.trim().startsWith('/')
+    ? activeProjectContext.description.trim()
+    : ''
+  const activeProjectCwd = activeSessionDbRow?.cwd
+    || initialCwd
+    || (activeProjectContext ? readProjectCwds()[activeProjectContext.projectId] || '' : '')
+    || activeProjectDescriptionCwd
   const [isRenamingTitle, setIsRenamingTitle] = useState(false)
   const [titleRenameValue, setTitleRenameValue] = useState('')
   const titleRenameInputRef = useRef<HTMLInputElement>(null)
@@ -8033,8 +8046,8 @@ export function ChatPage() {
       {/* Main chat area */}
       <div className="relative flex-1 flex min-w-0 flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="titlebar-drag px-4 pb-4 pt-5 sm:px-6 sm:pt-6 lg:px-[70px]">
-          <div className={cn(CHAT_RAIL_CLASS, 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between')}>
+        <div className="titlebar-drag px-4 pb-4 pt-5 sm:px-6 sm:pt-6 lg:pl-[70px] lg:pr-5">
+          <div className="flex w-full min-w-0 items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 text-foreground">
                 {activeSessionId && isRenamingTitle ? (
@@ -8052,17 +8065,26 @@ export function ChatPage() {
                         setIsRenamingTitle(false)
                       }
                     }}
-                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-0.5 text-[12px] font-medium leading-5 text-[rgba(0,0,0,0.88)] outline-none focus:border-primary"
+                    className="min-w-0 max-w-[min(720px,calc(100%-44px))] flex-1 rounded-md border border-border bg-background px-2 py-0.5 text-[12px] font-medium leading-5 text-[rgba(0,0,0,0.88)] outline-none focus:border-primary"
                     aria-label={t('sessions.actions.rename')}
                   />
                 ) : (
                   <h1
-                    className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5 text-[rgba(0,0,0,0.88)]"
+                    className="min-w-0 max-w-[min(720px,calc(100%-44px))] truncate text-[14px] font-semibold leading-5 text-[rgba(0,0,0,0.88)]"
                     style={{ letterSpacing: 0, fontVariationSettings: '"opsz" auto' }}
                     title={activeSessionId ? activeSessionPrompt || t('chat.newChat') : t('chat.newChat')}
                   >
                     {activeSessionId ? activeSessionPrompt || t('chat.newChat') : t('chat.newChat')}
                   </h1>
+                )}
+                {activeSessionId && (
+                  <SessionMenuButton
+                    sessionId={activeSessionId}
+                    title={activeSessionPrompt || t('chat.newChat')}
+                    currentProjectId={activeProjectContext?.projectId || null}
+                    onDelete={handleClearHistory}
+                    onRename={startTitleRename}
+                  />
                 )}
               </div>
               {activeProjectContext ? (
@@ -8071,22 +8093,31 @@ export function ChatPage() {
                 </p>
               ) : null}
             </div>
-
             {activeSessionId && (
-              <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
-                <SessionMenuButton
-                  sessionId={activeSessionId}
-                  title={activeSessionPrompt || t('chat.newChat')}
-                  currentProjectId={activeProjectContext?.projectId || null}
-                  onDelete={handleClearHistory}
-                  onRename={startTitleRename}
+              <div
+                data-chat-header-actions
+                className="titlebar-no-drag ml-auto flex flex-shrink-0 items-center gap-3"
+              >
+                <button
+                  type="button"
+                  onClick={() => setTerminalOpen((current) => !current)}
+                  className={cn(
+                    'inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border transition-colors',
+                    terminalOpen
+                      ? 'border-primary/30 bg-primary/10 text-primary'
+                      : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                  title={t('chat.terminal.toggle')}
+                  aria-label={t('chat.terminal.toggle')}
+                  aria-pressed={terminalOpen}
+                >
+                  <Terminal size={17} />
+                </button>
+                <ProjectOpenWithControl cwd={activeProjectCwd} alwaysVisible className="flex-shrink-0" />
+                <ConversationSidePanelToggle
+                  expanded={sidePanelExpanded}
+                  onToggle={() => setSidePanelExpanded((current) => !current)}
                 />
-                {/* Files button — hidden per design requirements
-                <SessionWorkspaceFilesButton sessionId={activeSessionId} />
-                */}
-                {/* Session-level stats popover — hidden per design requirements
-                <SessionStatsButton sessionId={activeSessionId} />
-                */}
               </div>
             )}
           </div>
@@ -8523,12 +8554,20 @@ export function ChatPage() {
                 </div>
               </div>
             </div>
+
+            <EmbeddedTerminal
+              open={terminalOpen}
+              sessionId={activeSessionId}
+              cwd={activeProjectCwd}
+              onClose={() => setTerminalOpen(false)}
+            />
           </>
         )}
       </div>
 
       {/* Right-side panel: logs (plan steps) + artifacts. Default collapsed. */}
       <ConversationSidePanel
+        expanded={sidePanelExpanded}
         planData={(() => {
           console.log('[ChatPage] activeSession.planDraft:', activeSession.planDraft)
           return activeSession.planDraft
@@ -9181,9 +9220,9 @@ function MessageBubble({
           : 'mb-1.5 rounded-2xl px-3.5 py-2.5 text-sm',
         'min-w-0 max-w-full overflow-hidden',
         !compact && isUser
-          ? 'bg-[rgba(218,159,103,0.1)] text-[rgba(0,0,0,0.88)]'
+          ? 'chat-message-bubble-user bg-[rgba(218,159,103,0.1)] text-[rgba(0,0,0,0.88)]'
           : !compact
-            ? 'w-full border border-border bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
+            ? 'chat-message-bubble-assistant w-full border border-border bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
             : 'text-foreground'
       )}
     >
@@ -9199,7 +9238,7 @@ function MessageBubble({
         <UserMessageText text={text} />
       ) : (
         <div className={cn(
-          'prose max-w-none break-words [overflow-wrap:anywhere] text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-hr:my-4 prose-hr:border-border/70 prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:break-all prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground dark:prose-invert',
+          'chat-message-body prose max-w-none break-words [overflow-wrap:anywhere] text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-li:text-foreground prose-a:text-primary prose-blockquote:border-l-border prose-blockquote:text-muted-foreground prose-hr:my-4 prose-hr:border-border/70 prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:text-foreground prose-code:break-all prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:text-foreground dark:prose-invert',
           compact ? 'prose-xs' : 'prose-sm'
         )}>
           <ReactMarkdown

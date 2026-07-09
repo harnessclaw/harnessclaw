@@ -109,7 +109,7 @@
     --popover: #151823;
     --popover-foreground: #E2E5EB;
     --foreground: #E2E5EB;
-    --muted-foreground: #6B7280;
+    --muted-foreground: #9AA4B2;
 
     /* 主色 - 亮蓝 */
     --primary: #3B82F6;
@@ -168,7 +168,51 @@ html:not(.launcher-window) body {
 }
 .dark .chat-message-body,
 .dark .chat-message-body :where(p, li, strong, h1, h2, h3, h4, h5, h6) {
-  color: var(--foreground);
+  color: #dce3ef;
+}
+
+.dark .chat-message-bubble-assistant {
+  background: #151823;
+  border-color: #2a3144;
+  color: #dce3ef;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--background) 62%, transparent);
+}
+
+.dark .chat-message-bubble-user {
+  background: #20283b;
+  border: 1px solid #2f3a52;
+  color: #eef2ff;
+}
+
+.dark .chat-message-body {
+  --tw-prose-body: #dce3ef;
+  --tw-prose-headings: #f4f7fb;
+  --tw-prose-lead: #dce3ef;
+  --tw-prose-links: #93c5fd;
+  --tw-prose-bold: #f4f7fb;
+  --tw-prose-counters: #9aa4b2;
+  --tw-prose-bullets: #9aa4b2;
+  --tw-prose-hr: #2a3144;
+  --tw-prose-quotes: #dce3ef;
+  --tw-prose-quote-borders: #3b82f6;
+  --tw-prose-captions: #9aa4b2;
+  --tw-prose-code: #f4f7fb;
+  --tw-prose-pre-code: #e5e7eb;
+  --tw-prose-pre-bg: #1c1f2c;
+  --tw-prose-th-borders: #3a4358;
+  --tw-prose-td-borders: #2a3144;
+}
+
+.dark .chat-message-body :where(code):not(:where(pre code)) {
+  background: #23283a;
+  color: #f4f7fb;
+  border: 1px solid #31384c;
+}
+
+.dark .chat-message-body :where(pre) {
+  background: #1c1f2c;
+  border-color: #31384c;
+  color: #e5e7eb;
 }
 
 /* 自定义滚动条 */
@@ -203,7 +247,7 @@ html:not(.launcher-window) body {
 
 .recent-session-scroll:hover::-webkit-scrollbar {
   width: 5px;
-  height: 5px;
+  height: 0;
 }
 
 .recent-session-scroll:hover::-webkit-scrollbar-thumb {
@@ -272,6 +316,31 @@ html:not(.launcher-window) body {
     rgba(0, 0, 0, 0.52) calc(100% - (var(--recent-session-fade-size) * 0.55)),
     transparent 100%
   );
+}
+
+.local-terminal-panel .xterm {
+  height: 100%;
+  padding: 0;
+}
+
+.local-terminal-panel .xterm-viewport {
+  background-color: var(--background) !important;
+}
+
+.local-terminal-panel .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #ccd0da;
+}
+
+.local-terminal-panel .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #bcc0cc;
+}
+
+.dark .local-terminal-panel .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #45475a;
+}
+
+.dark .local-terminal-panel .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #585b70;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2030,4 +2099,3 @@ html:not(.launcher-window) body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
-

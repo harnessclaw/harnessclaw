@@ -393,6 +393,38 @@ interface FilesAPI {
   >
 }
 
+interface ProjectOpenApp {
+  id: string
+  name: string
+  bundleId?: string
+  appPath?: string
+  cliPath?: string
+  launchMode: 'bundle' | 'cli' | 'finder'
+  detectedBy: Array<'fixedPath' | 'cli' | 'appBundle'>
+}
+
+interface ProjectOpenAppsAPI {
+  list: () => Promise<{
+    ok: boolean
+    apps: ProjectOpenApp[]
+    platform: NodeJS.Platform
+    error?: string
+  }>
+  open: (input: { appId: string; cwd: string }) => Promise<{ ok: boolean; error?: string }>
+}
+
+interface LocalTerminalAPI {
+  start: (input?: { sessionId?: string; cwd?: string; cols?: number; rows?: number }) => Promise<
+    | { ok: true; id: string; pid: number; cwd: string; shell: string }
+    | { ok: false; error: string }
+  >
+  write: (id: string, data: string) => Promise<{ ok: boolean; error?: string }>
+  resize: (id: string, cols: number, rows: number) => Promise<{ ok: boolean; error?: string }>
+  kill: (id: string) => Promise<{ ok: boolean; error?: string }>
+  onData: (callback: (event: { id: string; data: string }) => void) => () => void
+  onExit: (callback: (event: { id: string; exitCode: number; signal?: number }) => void) => () => void
+}
+
 interface ConsoleAgentDefinition {
   name: string
   display_name?: string
@@ -891,6 +923,8 @@ declare global {
     skills: SkillsAPI
     db: DbAPI
     files: FilesAPI
+    projectOpenApps: ProjectOpenAppsAPI
+    localTerminal: LocalTerminalAPI
     artifacts: ArtifactsAPI
     workspace: WorkspaceAPI
     agentApi: AgentApiInterface

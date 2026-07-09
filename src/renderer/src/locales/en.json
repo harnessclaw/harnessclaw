@@ -16,6 +16,7 @@
     "refresh": "Refresh",
     "search": "Search",
     "advanced": "Advanced",
+    "expand": "Expand",
     "collapse": "Collapse",
     "and": "and",
     "docs": "Docs",
@@ -40,8 +41,15 @@
     "projects": "Projects",
     "team": "Team",
     "settings": "Settings",
-    "recent": "Recent",
-    "noRecent": "No recent chats",
+    "recent": "Conversations",
+    "noRecent": "No conversations",
+    "untitledSession": "Untitled conversation",
+    "noProjects": "No projects",
+    "showMore": "Show more",
+    "newProjectConversation": "New conversation in {{name}}",
+    "ageMinutes": "{{count}}m",
+    "ageHours": "{{count}}h",
+    "ageDays": "{{count}}d",
     "rename": "Rename",
     "delete": "Delete",
     "exitProject": "Leave Project",
@@ -61,8 +69,10 @@
     "mainNavigationAria": "Main Navigation",
     "mainContentAria": "Main Content Area",
     "collapseAria": "Collapse Sidebar",
-    "recentExpandAria": "Expand Recent",
-    "recentCollapseAria": "Collapse Recent",
+    "recentExpandAria": "Expand conversations",
+    "recentCollapseAria": "Collapse conversations",
+    "projectsExpandAria": "Expand projects",
+    "projectsCollapseAria": "Collapse projects",
     "switchToEnglish": "Switch to English",
     "switchToChinese": "切换为中文",
     "switchDark": "Dark Mode",
@@ -73,15 +83,15 @@
     "resizeAria": "Drag to resize sidebar width"
   },
   "search": {
-    "placeholder": "Search actions or recent chats...",
+    "placeholder": "Search actions or conversations...",
     "searchConversations": "Search conversations",
     "quickActions": "Quick actions",
     "newSession": "New Session",
     "newConversation": "New Conversation",
     "newSessionDesc": "Go to home and start a new task.",
     "recent": "Recent",
-    "recentConversations": "Recent Conversations",
-    "noRecent": "No matching recent chats",
+    "recentConversations": "Conversations",
+    "noRecent": "No matching conversations",
     "noMatchActions": "No matching actions",
     "close": "Close Search"
   },
@@ -480,6 +490,8 @@
       "subtitle": "Assign this session to a project"
     },
     "deleteConfirm": {
+      "title": "Delete project?",
+      "desc": "This will delete \"{{name}}\" and all conversations and history in this project. This cannot be undone.",
       "batchDesc": "All messages and history of the {{count}} selected sessions will be permanently deleted and cannot be recovered."
     }
   },
@@ -540,6 +552,12 @@
       "noSessions": "No conversations yet. Start your first chat from the input above.",
       "unnamedSession": "Unnamed Chat {{id}}",
       "deleteSessionError": "Failed to delete chat, please try again later.",
+      "openWith": {
+        "choose": "Choose app",
+        "noApps": "No available apps",
+        "openWithApp": "Open current project with {{name}}",
+        "openFailed": "Failed to open project"
+      },
       "panels": {
         "constraints": "Project Constraints",
         "addConstraint": "Add Description",
@@ -867,6 +885,24 @@
       "memberChange": "{{name}} changed",
       "archivedDesc": "This team is no longer receiving new collaboration messages.",
       "defaultDesc": "Team members remain in the current group"
+    },
+    "terminal": {
+      "title": "Terminal",
+      "toggle": "Show or hide terminal",
+      "new": "New terminal",
+      "restart": "Restart terminal",
+      "close": "Close terminal",
+      "closeTab": "Close this terminal",
+      "empty": "No terminal. Click + to create one.",
+      "apiUnavailable": "Terminal API is unavailable. Restart the app completely.",
+      "exited": "Process exited with code {{code}}",
+      "status": {
+        "idle": "Idle",
+        "starting": "Starting",
+        "running": "Running",
+        "exited": "Exited",
+        "error": "Failed"
+      }
     },
     "header": {
       "artifacts": "Artifacts in this session",
@@ -1757,6 +1793,13 @@
       "clear": "Remove current project",
       "cancel": "Cancel",
       "create": "Create"
+    },
+    "projectThreads": {
+      "title": "{{name}} conversations",
+      "count": "{{count}} threads",
+      "empty": "No conversations in this project yet. Start one from the composer above.",
+      "untitled": "Untitled conversation {{id}}",
+      "updatedAt": "Updated {{time}}"
     },
     "modelSelector": {
       "empty": "Select model",

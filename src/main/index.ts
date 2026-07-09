@@ -1,10 +1,13 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, screen, globalShortcut, protocol, net, Notification } from 'electron'
-import { basename, dirname, extname, isAbsolute, join, resolve, resolve as resolvePath, sep, sep as pathSep } from 'path'
+import { basename, delimiter, dirname, extname, isAbsolute, join, resolve, resolve as resolvePath, sep, sep as pathSep } from 'path'
 import { homedir } from 'os'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync } from 'fs'
+import { spawn, spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import * as pty from 'node-pty'
+import type { IPty } from 'node-pty'
 import { harnessclawClient } from './harnessclaw'
 import type { BrowserAgentSessionManagerLike } from './browser-agent-session'
 import { BrowserAgentHelperClient } from './browser-agent-helper-client'
@@ -142,6 +145,16 @@ const DEFAULT_WINDOW_HEIGHT = 650
 const MIN_WINDOW_WIDTH = 960
 const MIN_WINDOW_HEIGHT = 650
 
+type LocalTerminalSession = {
+  id: string
+  ownerWebContentsId: number
+  pty: IPty
+  cwd: string
+  shell: string
+  dataDisposable?: { dispose: () => void }
+  exitDisposable?: { dispose: () => void }
+}
+
 type WindowState = {
   width: number
   height: number
@@ -168,6 +181,245 @@ function stripProjectContextBlock(content: string): string {
 
 function sanitizeProjectFolderName(name: string): string {
   return name.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').slice(0, 80) || 'Untitled Project'
+}
+
+type ProjectOpenAppLaunchMode = 'bundle' | 'cli' | 'finder'
+
+type KnownProjectOpenApp = {
+  id: string
+  name: string
+  bundleId?: string
+  appPaths?: string[]
+  cliBinaries?: string[]
+  launchMode?: ProjectOpenAppLaunchMode
+}
+
+type ProjectOpenAppInfo = {
+  id: string
+  name: string
+  bundleId?: string
+  appPath?: string
+  cliPath?: string
+  launchMode: ProjectOpenAppLaunchMode
+  detectedBy: Array<'fixedPath' | 'cli' | 'appBundle'>
+}
+
+const KNOWN_PROJECT_OPEN_APPS: KnownProjectOpenApp[] = [
+  {
+    id: 'vscode',
+    name: 'VS Code',
+    bundleId: 'com.microsoft.VSCode',
+    appPaths: ['/Applications/Visual Studio Code.app', '~/Applications/Visual Studio Code.app'],
+    cliBinaries: ['code'],
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    bundleId: 'com.todesktop.230313mzl4w4u92',
+    appPaths: ['/Applications/Cursor.app', '~/Applications/Cursor.app'],
+    cliBinaries: ['cursor'],
+  },
+  {
+    id: 'finder',
+    name: 'Finder',
+    bundleId: 'com.apple.finder',
+    appPaths: ['/System/Library/CoreServices/Finder.app'],
+    launchMode: 'finder',
+  },
+  {
+    id: 'terminal',
+    name: 'Terminal',
+    bundleId: 'com.apple.Terminal',
+    appPaths: ['/System/Applications/Utilities/Terminal.app', '/Applications/Utilities/Terminal.app'],
+  },
+  {
+    id: 'iterm2',
+    name: 'iTerm2',
+    bundleId: 'com.googlecode.iterm2',
+    appPaths: ['/Applications/iTerm.app', '/Applications/iTerm2.app', '~/Applications/iTerm.app', '~/Applications/iTerm2.app'],
+  },
+  {
+    id: 'ghostty',
+    name: 'Ghostty',
+    bundleId: 'com.mitchellh.ghostty',
+    appPaths: ['/Applications/Ghostty.app', '~/Applications/Ghostty.app'],
+    cliBinaries: ['ghostty'],
+  },
+  {
+    id: 'warp',
+    name: 'Warp',
+    bundleId: 'dev.warp.Warp-Stable',
+    appPaths: ['/Applications/Warp.app', '~/Applications/Warp.app'],
+    cliBinaries: ['warp'],
+  },
+  {
+    id: 'xcode',
+    name: 'Xcode',
+    bundleId: 'com.apple.dt.Xcode',
+    appPaths: ['/Applications/Xcode.app'],
+  },
+  {
+    id: 'intellij',
+    name: 'IntelliJ IDEA',
+    bundleId: 'com.jetbrains.intellij',
+    appPaths: [
+      '/Applications/IntelliJ IDEA.app',
+      '/Applications/IntelliJ IDEA CE.app',
+      '~/Applications/JetBrains Toolbox/IntelliJ IDEA Ultimate.app',
+      '~/Applications/JetBrains Toolbox/IntelliJ IDEA Community Edition.app',
+      '~/Applications/IntelliJ IDEA.app',
+      '~/Applications/IntelliJ IDEA CE.app',
+    ],
+    cliBinaries: ['idea'],
+  },
+  {
+    id: 'rider',
+    name: 'Rider',
+    bundleId: 'com.jetbrains.rider',
+    appPaths: ['/Applications/Rider.app', '~/Applications/Rider.app', '~/Applications/JetBrains Toolbox/Rider.app'],
+    cliBinaries: ['rider'],
+  },
+  {
+    id: 'goland',
+    name: 'GoLand',
+    bundleId: 'com.jetbrains.goland',
+    appPaths: ['/Applications/GoLand.app', '~/Applications/GoLand.app', '~/Applications/JetBrains Toolbox/GoLand.app'],
+    cliBinaries: ['goland'],
+  },
+]
+
+function expandUserPath(pathValue: string): string {
+  if (pathValue === '~') return homedir()
+  if (pathValue.startsWith('~/')) return join(homedir(), pathValue.slice(2))
+  return pathValue
+}
+
+function findCliBinary(candidates: string[] | undefined): string | undefined {
+  if (!candidates || candidates.length === 0) return undefined
+  const searchDirs = [
+    ...((process.env.PATH || '').split(delimiter).filter(Boolean)),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ]
+  const seen = new Set<string>()
+
+  for (const candidate of candidates) {
+    const expanded = expandUserPath(candidate)
+    if (isAbsolute(expanded) && existsSync(expanded)) return expanded
+
+    for (const dir of searchDirs) {
+      const fullPath = join(dir, candidate)
+      if (seen.has(fullPath)) continue
+      seen.add(fullPath)
+      if (existsSync(fullPath)) return fullPath
+    }
+  }
+
+  return undefined
+}
+
+function readPlistRaw(plistPath: string, key: string): string | undefined {
+  if (process.platform !== 'darwin' || !existsSync(plistPath)) return undefined
+  const result = spawnSync('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', plistPath], {
+    encoding: 'utf8',
+    timeout: 1200,
+  })
+  if (result.status !== 0) return undefined
+  const value = result.stdout.trim()
+  return value || undefined
+}
+
+function readAppBundleInfo(appPath: string): {
+  bundleId?: string
+  displayName?: string
+} {
+  const infoPath = join(appPath, 'Contents', 'Info.plist')
+  return {
+    bundleId: readPlistRaw(infoPath, 'CFBundleIdentifier'),
+    displayName: readPlistRaw(infoPath, 'CFBundleDisplayName') || readPlistRaw(infoPath, 'CFBundleName'),
+  }
+}
+
+function resolveKnownProjectOpenApps(): ProjectOpenAppInfo[] {
+  return KNOWN_PROJECT_OPEN_APPS.flatMap((definition) => {
+    const detectedBy: ProjectOpenAppInfo['detectedBy'] = []
+    const appPath = definition.appPaths
+      ?.map(expandUserPath)
+      .find((candidate) => {
+        const found = existsSync(candidate)
+        if (found) detectedBy.push('fixedPath')
+        return found
+      })
+
+    const cliPath = findCliBinary(definition.cliBinaries)
+    if (cliPath) detectedBy.push('cli')
+
+    const bundleInfo = appPath ? readAppBundleInfo(appPath) : {}
+    if (bundleInfo.bundleId) detectedBy.push('appBundle')
+    const bundleId = bundleInfo.bundleId || definition.bundleId
+
+    if (!appPath && !cliPath) return []
+
+    return [{
+      id: definition.id,
+      name: bundleInfo.displayName || definition.name,
+      bundleId,
+      appPath,
+      cliPath,
+      launchMode: definition.launchMode || (appPath ? 'bundle' : 'cli'),
+      detectedBy: Array.from(new Set(detectedBy)),
+    }]
+  })
+}
+
+function listKnownProjectOpenApps(): ProjectOpenAppInfo[] {
+  return resolveKnownProjectOpenApps()
+}
+
+function openProjectWithApp(appInfo: ProjectOpenAppInfo, cwd: string): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolveOpen) => {
+    const normalizedCwd = resolve(cwd)
+    if (!existsSync(normalizedCwd) || !statSync(normalizedCwd).isDirectory()) {
+      resolveOpen({ ok: false, error: `项目路径不存在：${normalizedCwd}` })
+      return
+    }
+
+    let command = ''
+    let args: string[] = []
+
+    if (appInfo.launchMode === 'finder') {
+      command = 'open'
+      args = [normalizedCwd]
+    } else if (appInfo.appPath) {
+      command = 'open'
+      args = ['-a', appInfo.appPath, normalizedCwd]
+    } else if (appInfo.bundleId) {
+      command = 'open'
+      args = ['-b', appInfo.bundleId, normalizedCwd]
+    } else if (appInfo.cliPath) {
+      command = appInfo.cliPath
+      args = [normalizedCwd]
+    }
+
+    if (!command) {
+      resolveOpen({ ok: false, error: '未找到可用的打开方式' })
+      return
+    }
+
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+    })
+    child.once('error', (error) => {
+      resolveOpen({ ok: false, error: error.message })
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolveOpen({ ok: true })
+    })
+  })
 }
 
 function isValidModelProviderName(value: string): boolean {
@@ -304,6 +556,72 @@ function resolveSessionWorkspaceRoot(rawSessionId: unknown): { ok: true; root: s
   }
 
   return { ok: true, root: join(homedir(), '.harnessclaw', 'workspace', 'session', safeSid), persisted: false }
+}
+
+const localTerminalSessions = new Map<string, LocalTerminalSession>()
+
+function resolveLocalTerminalCwd(rawCwd: unknown, rawSessionId: unknown): string {
+  const explicitCwd = normalizePersistedCwd(rawCwd)
+  if (explicitCwd) {
+    try {
+      const stat = statSync(explicitCwd)
+      if (stat.isDirectory()) return explicitCwd
+    } catch {
+      // fall through to session workspace / home
+    }
+  }
+
+  const workspace = resolveSessionWorkspaceRoot(rawSessionId)
+  if (workspace.ok) {
+    try {
+      if (!existsSync(workspace.root)) {
+        mkdirSync(workspace.root, { recursive: true })
+      }
+      return workspace.root
+    } catch {
+      // fall through to home
+    }
+  }
+
+  return homedir()
+}
+
+function resolveLocalTerminalShell(): { shell: string; args: string[] } {
+  if (process.platform === 'win32') {
+    return { shell: process.env.ComSpec || 'cmd.exe', args: [] }
+  }
+
+  const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
+  return { shell, args: ['-l'] }
+}
+
+function disposeLocalTerminalSession(id: string): void {
+  const session = localTerminalSessions.get(id)
+  if (!session) return
+  localTerminalSessions.delete(id)
+  try {
+    session.dataDisposable?.dispose()
+  } catch {
+    // ignore disposal failures
+  }
+  try {
+    session.exitDisposable?.dispose()
+  } catch {
+    // ignore disposal failures
+  }
+  try {
+    session.pty.kill()
+  } catch {
+    // process may already be gone
+  }
+}
+
+function disposeLocalTerminalsForWebContents(webContentsId: number): void {
+  for (const session of localTerminalSessions.values()) {
+    if (session.ownerWebContentsId === webContentsId) {
+      disposeLocalTerminalSession(session.id)
+    }
+  }
 }
 
 function normalizeSubagent(raw: unknown): PersistedSubagent | undefined {
@@ -1023,7 +1341,7 @@ function collectChangedKeys(prev: unknown, next: unknown, prefix: string, acc: s
   return acc
 }
 
-function buildExportPayload(type: string): { name: string; content: string } {
+async function buildExportPayload(type: string): Promise<{ name: string; content: string }> {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   if (type === 'logs') {
     return {
@@ -1053,10 +1371,15 @@ function buildExportPayload(type: string): { name: string; content: string } {
     name: `chat-export-${stamp}.json`,
     content: JSON.stringify({
       exportedAt: new Date().toISOString(),
-      sessions: dbListSessions().map((session) => ({
-        ...session,
-        messages: getMessages(session.session_id),
-      })),
+      sessions: harnessclawClient.getStatus().engine === 'codex'
+        ? await Promise.all((await harnessclawClient.listStoredSessions()).map(async (session) => ({
+            ...session,
+            messages: await harnessclawClient.readStoredMessages(session.session_id),
+          })))
+        : dbListSessions().map((session) => ({
+            ...session,
+            messages: getMessages(session.session_id),
+          })),
     }, null, 2),
   }
 }
@@ -1651,6 +1974,126 @@ app.whenReady().then(() => {
     BrowserWindow.fromWebContents(event.sender)?.setBounds(bounds)
   })
 
+  ipcMain.handle('project-open-apps:list', async () => {
+    try {
+      return { ok: true, apps: await listKnownProjectOpenApps(), platform: process.platform }
+    } catch (error) {
+      return { ok: false, apps: [], platform: process.platform, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('project-open-apps:open', async (_, input: { appId?: string; cwd?: string }) => {
+    const appId = typeof input?.appId === 'string' ? input.appId : ''
+    const cwd = typeof input?.cwd === 'string' ? input.cwd : ''
+    if (!appId || !cwd) return { ok: false, error: '缺少打开方式或项目路径' }
+
+    const appInfo = resolveKnownProjectOpenApps().find((item) => item.id === appId)
+    if (!appInfo) return { ok: false, error: '当前打开方式不可用' }
+    return openProjectWithApp(appInfo, cwd)
+  })
+
+  ipcMain.handle('local-terminal:start', (event, input: {
+    sessionId?: string
+    cwd?: string
+    cols?: number
+    rows?: number
+  } | undefined) => {
+    try {
+      const id = randomUUID()
+      const cwd = resolveLocalTerminalCwd(input?.cwd, input?.sessionId)
+      const { shell: shellPath, args } = resolveLocalTerminalShell()
+      const cols = Number.isFinite(input?.cols) ? Math.max(20, Math.min(300, Math.floor(input?.cols || 80))) : 80
+      const rows = Number.isFinite(input?.rows) ? Math.max(6, Math.min(120, Math.floor(input?.rows || 24))) : 24
+      const env = {
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+      }
+      const terminal = pty.spawn(shellPath, args, {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd,
+        env,
+      })
+      const ownerWebContentsId = event.sender.id
+      const session: LocalTerminalSession = {
+        id,
+        ownerWebContentsId,
+        pty: terminal,
+        cwd,
+        shell: shellPath,
+      }
+      session.dataDisposable = terminal.onData((data) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('local-terminal:data', { id, data })
+        }
+      })
+      session.exitDisposable = terminal.onExit((exit) => {
+        localTerminalSessions.delete(id)
+        try {
+          session.dataDisposable?.dispose()
+          session.exitDisposable?.dispose()
+        } catch {
+          // ignore disposal failures
+        }
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('local-terminal:exit', { id, exitCode: exit.exitCode, signal: exit.signal })
+        }
+      })
+      localTerminalSessions.set(id, session)
+      event.sender.once('destroyed', () => {
+        disposeLocalTerminalsForWebContents(ownerWebContentsId)
+      })
+      return {
+        ok: true,
+        id,
+        pid: terminal.pid,
+        cwd,
+        shell: basename(shellPath),
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      writeAppLog('error', 'local-terminal.start', 'Failed to start local terminal', { error: message })
+      return { ok: false, error: message }
+    }
+  })
+
+  ipcMain.handle('local-terminal:write', (_, input: { id?: string; data?: string } | undefined) => {
+    const id = typeof input?.id === 'string' ? input.id : ''
+    const data = typeof input?.data === 'string' ? input.data : ''
+    const session = id ? localTerminalSessions.get(id) : null
+    if (!session) return { ok: false, error: 'terminal_not_found' }
+    if (!data) return { ok: true }
+    try {
+      session.pty.write(data)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('local-terminal:resize', (_, input: { id?: string; cols?: number; rows?: number } | undefined) => {
+    const id = typeof input?.id === 'string' ? input.id : ''
+    const session = id ? localTerminalSessions.get(id) : null
+    if (!session) return { ok: false, error: 'terminal_not_found' }
+    const cols = Number.isFinite(input?.cols) ? Math.max(20, Math.min(300, Math.floor(input?.cols || 80))) : 80
+    const rows = Number.isFinite(input?.rows) ? Math.max(6, Math.min(120, Math.floor(input?.rows || 24))) : 24
+    try {
+      session.pty.resize(cols, rows)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('local-terminal:kill', (_, id: unknown) => {
+    if (typeof id !== 'string' || !id) return { ok: false, error: 'invalid_terminal_id' }
+    if (!localTerminalSessions.has(id)) return { ok: true }
+    disposeLocalTerminalSession(id)
+    return { ok: true }
+  })
+
   // First-launch detection
   ipcMain.handle('app:isFirstLaunch', () => {
     return !existsSync(HARNESSCLAW_LAUNCHED_FLAG)
@@ -1841,9 +2284,9 @@ app.whenReady().then(() => {
     return { ok: true }
   })
 
-  ipcMain.handle('app-runtime:exportData', (_, type: string) => {
+  ipcMain.handle('app-runtime:exportData', async (_, type: string) => {
     try {
-      const payload = buildExportPayload(type)
+      const payload = await buildExportPayload(type)
       const path = writeExportFile(payload.name, payload.content)
       return { ok: true, path }
     } catch (error) {
@@ -1947,17 +2390,25 @@ app.whenReady().then(() => {
   })
 
   // DB IPC handlers
-  ipcMain.handle('db:listSessions', () => {
+  ipcMain.handle('db:listSessions', async () => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        return await harnessclawClient.listStoredSessions()
+      }
       return dbListSessions()
     } catch (err) {
       console.error('[DB] listSessions error:', err)
-      return []
+      return dbListSessions()
     }
   })
 
   ipcMain.handle('db:createSession', (_, sessionId: string, title?: string) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        // Codex app-server owns persisted threads. Empty frontend-created
+        // sessions remain renderer runtime state until the first turn starts.
+        return { ok: true }
+      }
       upsertSession(sessionId, title)
       broadcastDbSessionsChanged()
       return { ok: true }
@@ -1972,6 +2423,12 @@ app.whenReady().then(() => {
     title?: string
   }) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        // Project assignment is UI-local until a Codex thread is materialized.
+        // Do not create a shadow session row for thread/turn/item state.
+        void input
+        return { ok: true }
+      }
       const project = getProject(input.projectId)
       if (!project) return { ok: false, error: 'Project not found' }
 
@@ -1991,18 +2448,29 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('db:getMessages', (_, sessionId: string) => {
+  ipcMain.handle('db:getMessages', async (_, sessionId: string) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        const messages = await harnessclawClient.readStoredMessages(sessionId)
+        return messages
+      }
       return getMessages(sessionId)
     } catch (err) {
       console.error('[DB] getMessages error:', err)
-      return []
+      return getMessages(sessionId)
     }
   })
 
-  ipcMain.handle('db:deleteSession', (_, sessionId: string) => {
+  ipcMain.handle('db:deleteSession', async (_, sessionId: string) => {
     try {
       closeBrowserAgentSessionsForDbSession(sessionId)
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        const ok = await harnessclawClient.deleteStoredSession(sessionId)
+        attentionPersistent.delete(sessionId)
+        attentionLive.delete(sessionId)
+        broadcastDbSessionsChanged()
+        return ok ? { ok: true } : { ok: false, error: 'Failed to delete Codex thread' }
+      }
       dbDeleteSession(sessionId)
       attentionPersistent.delete(sessionId)
       attentionLive.delete(sessionId)
@@ -2013,8 +2481,13 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('db:updateSessionTitle', (_, sessionId: string, title: string) => {
+  ipcMain.handle('db:updateSessionTitle', async (_, sessionId: string, title: string) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        const ok = await harnessclawClient.updateStoredSessionTitle(sessionId, title)
+        broadcastDbSessionsChanged()
+        return ok ? { ok: true } : { ok: false, error: 'Failed to update Codex thread title' }
+      }
       updateSessionTitle(sessionId, title)
       broadcastDbSessionsChanged()
       return { ok: true }
@@ -2025,6 +2498,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle('db:updateSessionProject', (_, sessionId: string, projectId: string | null) => {
     try {
+      if (harnessclawClient.getStatus().engine === 'codex') {
+        void sessionId
+        void projectId
+        return { ok: true }
+      }
       updateSessionProject(sessionId, projectId)
       broadcastDbSessionsChanged()
       return { ok: true }
@@ -3155,6 +3633,14 @@ app.whenReady().then(() => {
       win.webContents.send('harnessclaw:event', event)
     })
 
+    if (harnessclawClient.getStatus().engine === 'codex') {
+      // In Codex mode, thread/turn/item history is authoritative in
+      // app-server's thread store and rollout files. The renderer keeps only a
+      // live in-memory projection of these compat events, while historical
+      // reads go back through app-server thread APIs.
+      return
+    }
+
     // Write to DB based on event type
     const type = event.type as string
     const normalizedType = normalizeEventType(type)
@@ -3654,6 +4140,9 @@ app.whenReady().then(() => {
     const ok = await harnessclawClient.send(content, sessionId, options)
     if (!ok) {
       return { ok: false, error: 'Failed to send message to Harnessclaw' }
+    }
+    if (harnessclawClient.getStatus().engine === 'codex') {
+      return { ok: true }
     }
     // Write user message to DB
     if (sessionId) {

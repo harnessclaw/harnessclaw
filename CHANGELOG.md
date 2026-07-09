@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, with versions tracked in the repository and published to GitHub Releases.
 
+## [0.0.24-beta.1] - 2026-07-09
+
+### Added
+
+- Added an embedded terminal to the conversation page with multi-terminal tabs, tab renaming, theme-aware xterm rendering, and local shell execution.
+- Added a project open-with control for launching the current workspace in supported local apps.
+
+### Fixed
+
+- Improved dark-mode readability for the sidebar, conversation messages, and the embedded terminal.
+
+## [0.0.24-beta.0] - 2026-07-02
+
+### Changed
+
+- Refreshed home page: an animated background glow, and a live connection-status badge (Connected / Connecting / Offline) next to the title.
+- Onboarding, update, and delete-confirmation dialogs now use the animated background.
+- Main window now has R22 rounded corners; the window button switches to a "restore" icon when maximized or full-screen.
+- Conversation side panel: empty states for Plan / Logs / Files now show an illustration with a caption; fixed the right panel being over-compressed on narrow windows.
+- Polished the conversation list and various UI details per design review.
+
 ## [0.0.23] - 2026-06-26
 
 ### Added

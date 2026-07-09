@@ -230,6 +230,36 @@ const filesAPI = {
     ipcRenderer.invoke('files:saveClipboardImage', { data, mime }),
 }
 
+const projectOpenAppsAPI = {
+  list: () => ipcRenderer.invoke('project-open-apps:list'),
+  open: (input: { appId: string; cwd: string }) => ipcRenderer.invoke('project-open-apps:open', input),
+}
+
+const localTerminalAPI = {
+  start: (input?: { sessionId?: string; cwd?: string; cols?: number; rows?: number }) =>
+    ipcRenderer.invoke('local-terminal:start', input) as Promise<
+      | { ok: true; id: string; pid: number; cwd: string; shell: string }
+      | { ok: false; error: string }
+    >,
+  write: (id: string, data: string) =>
+    ipcRenderer.invoke('local-terminal:write', { id, data }) as Promise<{ ok: boolean; error?: string }>,
+  resize: (id: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('local-terminal:resize', { id, cols, rows }) as Promise<{ ok: boolean; error?: string }>,
+  kill: (id: string) =>
+    ipcRenderer.invoke('local-terminal:kill', id) as Promise<{ ok: boolean; error?: string }>,
+  onData: (callback: (event: { id: string; data: string }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, event: { id: string; data: string }): void => callback(event)
+    ipcRenderer.on('local-terminal:data', handler)
+    return () => ipcRenderer.removeListener('local-terminal:data', handler)
+  },
+  onExit: (callback: (event: { id: string; exitCode: number; signal?: number }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, event: { id: string; exitCode: number; signal?: number }): void =>
+      callback(event)
+    ipcRenderer.on('local-terminal:exit', handler)
+    return () => ipcRenderer.removeListener('local-terminal:exit', handler)
+  },
+}
+
 // artifactsAPI bridges the renderer to artifacts:fetch, which downloads
 // the bytes of a stored artifact from the engine over HTTP and writes
 // them into the session cwd when available, falling back to artifact-cache.
@@ -561,6 +591,8 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('skills', skillsAPI)
     contextBridge.exposeInMainWorld('db', dbAPI)
     contextBridge.exposeInMainWorld('files', filesAPI)
+    contextBridge.exposeInMainWorld('projectOpenApps', projectOpenAppsAPI)
+    contextBridge.exposeInMainWorld('localTerminal', localTerminalAPI)
     contextBridge.exposeInMainWorld('artifacts', artifactsAPI)
     contextBridge.exposeInMainWorld('workspace', workspaceAPI)
     contextBridge.exposeInMainWorld('agentApi', agentAPI)
@@ -598,6 +630,10 @@ if (process.contextIsolated) {
   window.db = dbAPI
   // @ts-ignore (define in dts)
   window.files = filesAPI
+  // @ts-ignore (define in dts)
+  window.projectOpenApps = projectOpenAppsAPI
+  // @ts-ignore (define in dts)
+  window.localTerminal = localTerminalAPI
   // @ts-ignore (define in dts)
   window.artifacts = artifactsAPI
   // @ts-ignore (define in dts)
