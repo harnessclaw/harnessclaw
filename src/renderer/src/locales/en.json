@@ -1060,6 +1060,7 @@
       "appConfig": "App Config",
       "software": "Software",
       "launcher": "Quick Launcher",
+      "shortcuts": "Shortcuts",
       "logs": "Logs",
       "ui": "UI Settings",
       "storage": "Storage",
@@ -1611,6 +1612,29 @@
         "unset": "Not set",
         "pressKeys": "Press a key combination…"
       }
+    },
+    "shortcuts": {
+      "header": {
+        "title": "Shortcuts",
+        "subtitle": "View and customize keyboard shortcuts. Click a chip to record, × to remove; conflicts are shown in red and not applied."
+      },
+      "group": {
+        "global": "Global shortcuts",
+        "app": "In-app shortcuts"
+      },
+      "item": {
+        "toggleWindow": "Show / hide window",
+        "search": "Search",
+        "newTask": "New task",
+        "settings": "Open settings"
+      },
+      "setBtn": "Click to set",
+      "conflict": "Shortcut conflict, please choose another",
+      "restoreDefaults": "Restore defaults",
+      "pressKeys": "Press keys…",
+      "capturingAria": "Recording shortcut, press a combination",
+      "clearAria": "Remove shortcut",
+      "setAria": "Click to set shortcut"
     }
   },
   "welcome": {

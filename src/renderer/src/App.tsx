@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 import { HashRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
+import { useAppConfig } from './hooks/useEngineConfig'
+import { readAppShortcuts, matchesAccelerator } from './lib/shortcuts'
 import { AppLayout } from './components/layout/AppLayout'
 import { HomePage } from './components/pages/HomePage'
 import { AgentsPage } from './components/pages/AgentsPage'
@@ -95,15 +97,14 @@ function ChatNavigationBridge() {
 function GlobalShortcuts() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { config } = useAppConfig()
+  const settingsHotkey = readAppShortcuts(config).settings
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const meta = event.metaKey || event.ctrlKey
-      if (!meta) return
-      if (event.altKey || event.shiftKey) return
-      if (event.key !== ',') return
+      if (!matchesAccelerator(event, settingsHotkey)) return
 
-      // Don't override "," typed inside a composer / input / editable.
+      // Don't override the combo typed inside a composer / input / editable.
       const target = event.target as HTMLElement | null
       if (target) {
         const tag = target.tagName
@@ -120,7 +121,7 @@ function GlobalShortcuts() {
 
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [navigate, location.pathname])
+  }, [navigate, location.pathname, settingsHotkey])
 
   return null
 }

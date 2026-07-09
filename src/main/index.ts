@@ -1767,7 +1767,9 @@ function readLauncherSettings(): { enabled: boolean; hotkey: string } {
     const cfg = asRecord(readHarnessclawConfig({}))
     const launcher = asRecord(cfg.launcher)
     const enabled = launcher.enabled === true
-    const hotkey = typeof launcher.hotkey === 'string' && launcher.hotkey.trim().length > 0
+    // 空串 = 用户在「快捷设置」里删除了该快捷键 → 保留空串（后续不注册）。
+    // 仅字段缺失或类型不对时才回退默认，避免首次运行没有快捷键。
+    const hotkey = typeof launcher.hotkey === 'string'
       ? String(launcher.hotkey).trim()
       : DEFAULT_LAUNCHER_HOTKEY
     return { enabled, hotkey }
@@ -1799,6 +1801,12 @@ function applyLauncherConfig(): void {
 
   if (!enabled) {
     writeAppLog('info', 'launcher.shortcut', 'Quick launcher disabled by config')
+    return
+  }
+
+  // 空快捷键 = 用户主动删除，仅解绑不注册（上方已解绑旧绑定）。
+  if (!hotkey) {
+    writeAppLog('info', 'launcher.shortcut', 'Quick launcher hotkey cleared — not registering')
     return
   }
 
