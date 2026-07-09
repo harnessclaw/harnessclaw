@@ -37,6 +37,8 @@ import iconQuestion from '../../assets/icon-question.svg'
 import iconRecentArrow from '../../assets/icon-recent-arrow.svg'
 import iconSidebarOpen from '../../assets/icon-sidebar-open.svg'
 import iconSidebarCollapse from '../../assets/icon-sidebar-collapse.svg'
+import { useAppConfig } from '../../hooks/useEngineConfig'
+import { readAppShortcuts, matchesAccelerator } from '../../lib/shortcuts'
 import { ConfirmDeleteSessionDialog } from '../common/ConfirmDeleteSessionDialog'
 import { SearchChatPlaceholder } from '../common/SearchChatPlaceholder'
 import { NewChatItem } from '../common/NewChatItem'
@@ -109,6 +111,8 @@ export function Sidebar() {
   ], [t])
 
   const harnessclawStatus = useHarnessclawStatus()
+  const { config: appConfig } = useAppConfig()
+  const appShortcuts = readAppShortcuts(appConfig)
   const selectedRecentSessionId = typeof location.state?.sessionId === 'string' ? location.state.sessionId : ''
   const [expanded, setExpanded] = useState(() => localStorage.getItem('sidebar-expanded') === 'true')
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -331,7 +335,7 @@ export function Sidebar() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey && event.key.toLowerCase() === 'k') {
+      if (matchesAccelerator(event, appShortcuts.search)) {
         event.preventDefault()
         setSearchOpen((prev) => {
           const next = !prev
@@ -344,11 +348,10 @@ export function Sidebar() {
         return
       }
 
-      // ⌘/Ctrl + N — new session. Handled here (rather than in
-      // App.tsx) so we can close the search palette first when it's
-      // open; otherwise the navigation would land on the homepage
-      // with the overlay still mounted on top.
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'n') {
+      // New session. Handled here (rather than in App.tsx) so we can close
+      // the search palette first when it's open; otherwise the navigation
+      // would land on the homepage with the overlay still mounted on top.
+      if (matchesAccelerator(event, appShortcuts.newTask)) {
         event.preventDefault()
         closeSearch()
         navigate('/', { state: { focusComposer: true } })
@@ -365,7 +368,7 @@ export function Sidebar() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [navigate])
+  }, [navigate, appShortcuts.search, appShortcuts.newTask])
 
   useEffect(() => {
     if (!searchOpen) return
