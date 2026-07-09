@@ -49,12 +49,52 @@ import iconAttachFile from '../../assets/icon-attach-file.svg'
 import iconTitleMenu from '../../assets/icon-title-menu.svg'
 import sendIconActive from '../../assets/send-icon-active.svg'
 import sendIcon from '../../assets/send-icon.svg'
+import permissionIcon from '../../assets/permission-icon.svg'
 import analystAvatar from '../../assets/team/analyst.png'
 import developerAvatar from '../../assets/team/developer.png'
 import lifestyleAvatar from '../../assets/team/lifestyle.png'
 import researcherAvatar from '../../assets/team/researcher.png'
 import writerAvatar from '../../assets/team/writer.png'
 import { getSecretaryForType } from '../../utils/secretaryAssignment'
+import type {
+  MessageRole, HarnessclawStatus, SubagentInfo, ProjectContext,
+  ArtifactRef, ToolErrorRecovery, ToolActivity, Message, SessionItem, FilePreviewData,
+  StepDecisionResultData, RespondStepDecisionHandler, SystemNoticeData,
+  WebPreviewData, LinkOpenBehavior, AttachmentItem,
+  RespondPermissionHandler, RespondAskQuestionHandler, SessionState,
+  SyncAgentState, AsyncAgentState, TeamState, CollaborationState,
+  BrowserSessionCardState,
+} from './chat/types'
+// Re-exported so existing external importers (HomePage / ConversationSidePanel /
+// FilePreviewModal) keep resolving these from ChatPage unchanged.
+export type { ArtifactRef, FilePreviewData, LinkOpenBehavior } from './chat/types'
+import {
+  createEmptyCollaborationState, createSyncAgentState, createEmptySessionState, createPersistentSessionId,
+  normalizeProjectContext, parseProjectContextJson, buildMessagePayload, stripProjectContextBlock,
+  extractAttachments, normalizeSubagent, isSameSubagent, getModuleKey, parseJsonObject, isRecord,
+  asStringArray, normalizeEventType, getToolEventName, getToolEventCallId,
+  getToolCallEventContent, getToolResultEventContent, getToolDurationMs, getToolRenderHint,
+  getToolLanguage, getToolFilePath, getToolMetadata, extractSearchResultUrls, extractSearchQuery,
+  extractSearchResultCount, extractGeneratedImagesFromMetadata, safeUrlHostname, faviconUrl,
+  upsertSessionToolByCallId, summarizeInlineText, createSubagentInfo, createTaskStatusPayload,
+  createRoutedAgentStatusPayload, createAgentMessageStatusPayload, createAsyncAgentStatusPayload,
+  createTeamStatusPayload, parsePersistedCollaborationStatusPayload,
+  mergeLegacyCollaborationFallback,
+  getPersistedStatusTone, inferCollaborationFromMessages, buildSystemErrorNotice,
+  getHarnessclawEventSessionId, getFileLanguage, formatMessageTime, formatTeamUpdateTime,
+  findAttachableAssistantMessageIndex, compactMessagesForDisplay,
+  isCodexInlineActivity, isLegacyCodexApprovalAdapterNotice, stripLegacyCodexApprovalAdapterNotice,
+  repairRecoveredTurnOrder,
+  extractFilePreviewData, parsePermissionRequestData, parsePermissionResultData, parseAskQuestionRequestData,
+  parseAskQuestionResultData, parseStepDecisionRequestData, parseStepDecisionResultData, getConversationLabel,
+  getToolDisplayName, formatDurationMs, getToolRenderHintLabel, getToolResultSummary,
+  normalizeBrowserSession, extractBrowserSessionIDs,
+  closeBrowserSessionIDs, upsertBrowserSession, selectBrowserSession,
+  getToolErrorPresentation, getToolErrorColorClasses, extractErrorInfoFromMetadata, getTaskStatusLabel,
+  getTaskStatusClasses,
+  getAsyncAgentStatusLabel, getAsyncAgentStatusClasses, getSubagentVisualStatus, getTeamEventLabel,
+  getTeamEventSummary, extractArtifactsFromActivity, formatArtifactSize,
+} from './chat/utils'
 
 const TEAM_AVATARS = [analystAvatar, developerAvatar, lifestyleAvatar, researcherAvatar, writerAvatar]
 
@@ -282,265 +322,6 @@ function FilePathChip({ path, onOpen }: { path: string; onOpen: (path: string) =
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type MessageRole = 'user' | 'assistant' | 'system'
-type HarnessclawStatus = 'disconnected' | 'connecting' | 'connected'
-
-interface SubagentInfo {
-  taskId: string
-  label: string
-  status: 'ok' | 'error' | string
-}
-
-interface ProjectContext {
-  projectId: string
-  name: string
-  description: string
-  createdAt?: number
-}
-
-interface ContentSegment {
-  text: string
-  ts: number
-  subagent?: SubagentInfo
-}
-
-/**
- * v1.13: ArtifactRef wire shape (see harnessclaw-engine websocket protocol §10.6).
- * Stored inside `ToolActivity.metadata.artifacts` so it round-trips through the
- * existing metadata_json DB column without a schema change.
- */
-export interface ArtifactRef {
-  artifact_id: string
-  name?: string
-  type?: string
-  mime_type?: string
-  size_bytes?: number
-  description?: string
-  preview_text?: string
-  uri?: string
-  role?: string
-}
-
-interface ToolErrorRecovery {
-  action?: string
-  next_card_id?: string
-}
-
-interface ToolActivity {
-  type:
-    | 'hint'
-    | 'call'
-    | 'result'
-    | 'status'
-    | 'permission'
-    | 'permission_result'
-    | 'question'
-    | 'question_result'
-    // v0.5.0 — failure decision gate (continue / retry / cancel) surfaced
-    // by Scheduler / PlanCoordinator when retries / re-plans run out.
-    | 'step_decision'
-    | 'step_decision_result'
-  name?: string
-  content: string
-  callId?: string
-  isError?: boolean
-  durationMs?: number
-  renderHint?: string
-  language?: string
-  filePath?: string
-  metadata?: Record<string, unknown>
-  /** v1.12: agent.intent attached at sub-agent tool_start, rendered as the tool card header line. */
-  intent?: string
-  ts: number
-  subagent?: SubagentInfo
-  /**
-   * v2 §6.5 — terminal status from card.close.payload.status:
-   * `ok` / `failed` / `cancelled` / `skipped`. The renderer uses this to
-   * route between green-completed, red/orange-failed and gray
-   * cancelled/skipped treatments. `cancelled` is deliberately decoupled
-   * from `isError` so abort flows render as neutral gray, not error red.
-   */
-  status?: string
-  /**
-   * v2 §12 — categorized failure type. One of
-   * invalid_input / permission_denied / tool_timeout / user_aborted /
-   * rate_limit / overloaded / model_error / contract_fail /
-   * dependency_fail / internal. Unknown values fall back to `internal`
-   * presentation (never thrown / never rendered raw).
-   */
-  errorType?: string
-  /** v2 §12 — opaque error code for diagnostics, e.g. "HTTP 429". */
-  errorCode?: string
-  /** v2 §12 — engine hint that an automatic retry is in progress / will be attempted. */
-  retryable?: boolean
-  /** v2 §12 — countdown until next retry in ms. Display-only, not a control. */
-  retryAfterMs?: number
-  /** v2 §12 — recovery hint reserved for future engine versions. Render defensively. */
-  recovery?: ToolErrorRecovery
-  /**
-   * v2 §12 — developer-facing `error.message` (e.g. "unknown tool: WebFetch").
-   * Hidden from the main UI; only rendered inside the collapsible "详情"
-   * panel or a hover tooltip for diagnostics. The primary user-facing
-   * string lives in `content` and is sourced from `error.user_message`.
-   */
-  devMessage?: string
-  /** v2 phases — 仅在 type='call' 且 result 未到达时有效。
-   *  引擎流式追踪到的卡片阶段。 */
-  phase?: 'planning' | 'planning_args' | 'queued'
-        | 'permission_wait' | 'executing'
-  phaseHint?: string      // 引擎解析好的中文
-  phaseBytes?: number     // 字节计数（开发者面板用，UI 通常显示 phaseHint）
-}
-
-interface Message {
-  id: string
-  role: MessageRole
-  content: string // kept for compatibility, accumulated text
-  timestamp: number
-  systemNotice?: SystemNoticeData
-  isStreaming?: boolean
-  thinking?: string
-  tools?: ToolActivity[]
-  toolsUsed?: string[]
-  attachments?: AttachmentItem[]
-  contentSegments?: ContentSegment[] // text segments with timestamps for interleaving
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-  hintSummary?: string // v2.2 M4: from card.add(message) Hint.Summary; shown while content is empty
-}
-
-interface SessionItem {
-  key: string
-  updatedAt?: string
-}
-
-export interface FilePreviewData {
-  path: string
-  fileName: string
-  operation: 'read_file' | 'write_file'
-  content: string
-  limit?: number
-  /**
-   * `true` when the underlying file is a binary format (e.g. .docx, .pdf,
-   * .xlsx, images) that cannot be safely round-tripped through a UTF-8
-   * string. In that case `content` is usually empty (placeholder UI) and
-   * exporting uses the original `path` as `sourcePath` so the raw bytes are
-   * copied verbatim instead of being written as garbled text.
-   */
-  isBinary?: boolean
-  /**
-   * When the main process was able to convert a binary file (docx / xlsx /
-   * pptx / pdf) into something readable, `content` is populated and this
-   * flag tells the renderer how to display it:
-   *   - 'html': dangerouslySetInnerHTML inside a prose container (docx via
-   *     mammoth, xlsx via SheetJS, pptx via the inline parser).
-   *   - 'text': render in a whitespace-preserving prose surface (pdf via
-   *     pdf-parse).
-   * `isBinary` is still set so export copies the original file bytes
-   * verbatim instead of writing the converted preview back out.
-   */
-  previewKind?: 'html' | 'text'
-  /**
-   * When the preview originated from an ArtifactRef (top-bar dropdown /
-   * in-drawer file list / inline `artifact://` link), the artifact_id is
-   * kept here so the drawer's side-list can still match this preview
-   * against the session's artifact list — `path` swaps from
-   * `artifact://art_xxx` to the cached temp-file path during fetch+read,
-   * so we can no longer match on `path` alone.
-   */
-  artifactId?: string
-}
-
-interface PermissionRequestData {
-  toolInput: string
-  message: string
-  isReadOnly: boolean
-  command?: string
-  description?: string
-  options: Array<{ label: string; scope: 'once' | 'session'; allow: boolean }>
-}
-
-interface PermissionResultData {
-  approved: boolean
-  scope: 'once' | 'session'
-  message: string
-}
-
-interface AskQuestionRequestData {
-  question: string
-  options: Array<{ label: string; description?: string }>
-  multi: boolean
-  allowCustom: boolean
-}
-
-interface AskQuestionResultData {
-  status: 'success' | 'cancelled'
-  output: string
-  errorMessage?: string
-}
-
-// v0.5.0 §7.1 kind=step_decision — payload shape used by StepDecisionCard.
-interface StepDecisionRequestData {
-  scope: 'step' | 'plan'
-  stepId: string
-  stepDescription: string
-  reason: string
-  attempts: number
-  allowRetry: boolean
-}
-
-interface StepDecisionResultData {
-  decision: 'continue' | 'retry' | 'cancel'
-  note?: string
-}
-
-type RespondStepDecisionHandler = (
-  requestId: string,
-  decision: 'continue' | 'retry' | 'cancel',
-  note?: string,
-) => Promise<{ ok: boolean; error?: string }>
-
-interface SystemNoticeData {
-  kind: 'error'
-  title: string
-  message: string
-  reason?: string
-  sessionId?: string
-  hint?: string
-}
-
-interface SessionNotice {
-  id: string
-  title: string
-  message: string
-  tone: 'info' | 'warning'
-  ts: number
-}
-
-/**
- * Search-result URL extracted from a tool result's metadata.urls (WebSearch /
- * TavilySearch). Rendered as a clickable chip in the tool card; clicking
- * opens the WebPreviewDrawer.
- */
-interface SearchResultUrl {
-  url: string
-  title?: string
-}
-
-interface WebPreviewData {
-  url: string
-  title?: string
-  query?: string
-}
-
-interface GeneratedImagePreview {
-  path: string
-  fileName: string
-  mime?: string
-  bytes?: number
-  model?: string
-  prompt?: string
-  size?: string
-}
 
 /**
  * Lightweight context so any tool card (or any future surface) can request
@@ -554,301 +335,11 @@ function useOpenWebPreview(): ((data: WebPreviewData) => void) | null {
   return useContext(WebPreviewContext)
 }
 
-/**
- * User preference for how plain http(s) links inside markdown messages should
- * open: in the built-in WebPreviewDrawer (`'drawer'`) or via the system's
- * default browser through `shell.openExternal` (`'external'`). Configured in
- * Settings → UI 设置. Default is `'drawer'`.
- */
-export type LinkOpenBehavior = 'drawer' | 'external'
 const LinkOpenBehaviorContext = createContext<LinkOpenBehavior>('drawer')
 
-type AttachmentItem = LocalAttachmentItem
-type RespondPermissionHandler = (requestId: string, approved: boolean, scope: 'once' | 'session') => Promise<void>
-type RespondAskQuestionHandler = (toolUseId: string, status: 'success' | 'cancelled', output?: string, errorMessage?: string) => Promise<{ ok: boolean; error?: string }>
 
-// Per-session state
-interface SessionState {
-  messages: Message[]
-  pendingAssistantId: string | null
-  isProcessing: boolean
-  currentThinking: string
-  /**
-   * v1.12: agent.intent — pre-tool progress sentence (e.g. "正在搜索 vLLM 论文").
-   * Set on `agent_intent`, cleared when the matching tool finishes (matched by
-   * `toolUseId`) or when the assistant turn ends.
-   */
-  currentIntent?: {
-    text: string
-    toolUseId: string
-    agentName: string
-    fromSubagent: boolean
-  }
-  isPaused: boolean
-  isStopping: boolean
-  pauseReason?: string
-  collaboration: CollaborationState
-  /**
-   * v1.15+ pending plan-confirmation draft for this session.
-   * Set on `plan_proposed` (or implicitly on `plan_created` for auto mode);
-   * cleared on `response_end`. While `confirmed` is true the inline review
-   * card is replaced by a small top-right `PlanStatusButton` that shows
-   * live execution status.
-   *
-   * v1.16: per-step `skill` was renamed to optional `subagent_type` and
-   * `availableSkills` to `availableSubagents`. The standard frontend doesn't
-   * render the field — the server-side SubagentResolver picks the L3 at
-   * dispatch time — so we keep it on the type only for advanced overrides.
-   *
-   * v1.16 §6.13/§6.16: PlanCoordinator now emits `plan.*` / `step.*`
-   * lifecycle events. We keep the resolved subagent_type / per-step status /
-   * output summary here so PlanStatusButton can show "执行情况".
-   */
-  /**
-   * v0.5.0 §11 — transient engine note (e.g. retry-status from Scheduler).
-   * Shown as a colored banner above the composer until a newer note arrives
-   * or the current turn ends.
-   */
-  engineNote?: {
-    text: string
-    severity: 'info' | 'warn' | 'error' | string
-    stepId?: string
-    stepDescription?: string
-    agentName?: string
-    ts: number
-  }
-  planDraft?: {
-    planId: string
-    agentId?: string
-    goal: string
-    rationale?: string
-    steps: Array<{
-      id: string
-      subagent_type?: string
-      description?: string
-      prompt?: string
-      depends_on?: string[]
-      /** v1.16+ live status, populated from `step.*` emit events. */
-      status?: 'pending' | 'dispatched' | 'running' | 'completed' | 'failed' | 'skipped'
-      /** v1.16+ short output / failure / skip summary. */
-      summary?: string
-    }>
-    availableSubagents: string[]
-    confirmed: boolean
-    /**
-     * v1.16+ overall plan status driven by `plan.*` events. `running` is the
-     * default once the plan is approved; `completed` / `failed` are terminal.
-     */
-    planStatus?: 'created' | 'running' | 'completed' | 'failed'
-  }
-  /**
-   * v1.16: tracks whether the current turn was sent with
-   * `plan_confirmation="required"`. PlanCoordinator emits `plan.created`
-   * BEFORE `plan.proposed` (per §6.16); without this flag the renderer
-   * would synthesize a `confirmed: true` draft on `plan.created` and never
-   * show the inline review card. While true, `plan_created` skips synthesis
-   * and waits for `plan_proposed`. Cleared on `plan_proposed` /
-   * `plan_approved` / `response_end`.
-   */
-  awaitingPlanProposed?: boolean
-  /**
-   * v0.6.0 §10.9 — pending system notices (card_kind=system) that the user
-   * has not yet acknowledged. Each notice is shown as a modal that MUST be
-   * manually dismissed via "我已知晓"; we FIFO-queue them per-session so
-   * concurrent notices don't overwrite each other. Dedup is by `id` (=
-   * server's card_id, which is session-deduped upstream).
-   */
-  systemNotices?: SystemNotice[]
-  /**
-   * Lightweight user-facing runtime note. Unlike systemNotices, this is not
-   * persisted into the transcript and is dismissed inline above the composer.
-   */
-  sessionNotice?: SessionNotice
-  /**
-   * v4 (2026-06-22) — Agent 树状日志数据,用于右侧日志面板渲染子秘书层级结构。
-   * 根节点是 Emma(Leader),子节点是各个专业 agent(Browser/Research/File...)。
-   * 由 WebSocket 事件处理器(subagent_start/end, tool_start/end)实时构建。
-   */
-  agentTreeLogs?: import('../common/ConversationSidePanel').AgentTreeNode[]
-}
 
-interface CollaborationCapabilities {
-  subAgents: boolean
-  tasks: boolean
-  messaging: boolean
-  asyncAgent: boolean
-  teams: boolean
-}
-
-interface RoutedAgentInfo {
-  agentId: string
-  agentName: string
-  description: string
-  agentType: string
-  updatedAt: number
-}
-
-interface LoadedSkillInfo {
-  name: string
-  version?: string
-  source?: string
-}
-
-interface SyncAgentState {
-  agentId: string
-  agentName: string
-  description: string
-  /** v1.12: full task prompt (≤800 runes) handed from parent to sub-agent. */
-  task?: string
-  /** Runtime execution shape — sync | async. Returns "sync" for every leaf
-   *  L3 so it's nearly useless for "which worker did this" UX. */
-  agentType: string
-  /** LLM-facing dispatch label: writer / researcher / analyst / developer
-   *  / freelancer / ... — empty for legacy events that didn't carry it.
-   *  Use this (not agentType) anywhere the user needs to tell workers
-   *  apart in a dashboard / list. */
-  subagentType?: string
-  /** Skills preloaded by SpawnSync (candidate) or LoadSkill (runtime) on
-   *  this agent's first turn. Empty unless the agent definition opts
-   *  into skill self-management (freelancer always; fixed L3s when they
-   *  list SearchSkill / LoadSkill in AllowedTools). */
-  loadedSkills?: LoadedSkillInfo[]
-  parentAgentId: string
-  status: 'running' | 'completed' | 'max_turns' | 'model_error' | 'aborted' | 'timeout' | 'error'
-  durationMs?: number
-  numTurns?: number
-  deniedTools: string[]
-  streamText: string
-  activeToolName?: string
-  activeToolStatus?: 'running' | 'completed' | 'error'
-  activeToolSummary?: string
-  /** v1.12: latest agent.intent for this sub-agent. Cleared on matching tool_end / subagent_end. */
-  currentIntent?: { text: string; toolUseId: string }
-  lastEventAt?: number
-  eventCount: number
-  updatedAt: number
-}
-
-interface CollaborationTask {
-  taskId: string
-  subject: string
-  status: 'pending' | 'in_progress' | 'completed' | 'deleted'
-  owner?: string
-  activeForm?: string
-  scopeId?: string
-  updatedAt: number
-}
-
-interface AgentMessageInfo {
-  id: string
-  from: string
-  to: string
-  summary: string
-  teamId?: string
-  ts: number
-}
-
-interface AsyncAgentState {
-  agentId: string
-  agentName: string
-  description: string
-  agentType: string
-  parentAgentId: string
-  status: 'running' | 'idle' | 'completed' | 'failed'
-  durationMs?: number
-  errorType?: string
-  errorMessage?: string
-  updatedAt: number
-}
-
-interface TeamState {
-  teamId: string
-  teamName: string
-  members: string[]
-  lastEvent: 'created' | 'member_join' | 'member_left' | 'deleted'
-  memberName?: string
-  memberType?: string
-  updatedAt: number
-}
-
-interface CollaborationState {
-  capabilities: CollaborationCapabilities
-  routedAgent?: RoutedAgentInfo
-  syncAgents: Record<string, SyncAgentState>
-  tasks: Record<string, CollaborationTask>
-  agentMessages: AgentMessageInfo[]
-  asyncAgents: Record<string, AsyncAgentState>
-  teams: Record<string, TeamState>
-}
-
-interface PersistedTaskStatusPayload {
-  kind: 'task_event'
-  taskId: string
-  subject: string
-  status: CollaborationTask['status']
-  owner?: string
-  activeForm?: string
-  scopeId?: string
-  summary: string
-}
-
-interface PersistedRoutedAgentPayload {
-  kind: 'agent_routed'
-  agentId: string
-  agentName: string
-  description?: string
-  agentType?: string
-  summary: string
-}
-
-interface PersistedAgentMessagePayload {
-  kind: 'agent_message'
-  id: string
-  from: string
-  to: string
-  summary: string
-  teamId?: string
-}
-
-interface PersistedAsyncAgentStatusPayload {
-  kind: 'async_agent_event'
-  agentId: string
-  agentName: string
-  description: string
-  agentType: string
-  parentAgentId: string
-  status: AsyncAgentState['status']
-  durationMs?: number
-  errorType?: string
-  errorMessage?: string
-  summary: string
-}
-
-interface PersistedTeamStatusPayload {
-  kind: 'team_event'
-  teamId: string
-  teamName?: string
-  members: string[]
-  lastEvent: TeamState['lastEvent']
-  memberName?: string
-  memberType?: string
-  summary: string
-}
-
-type PersistedCollaborationStatusPayload =
-  | PersistedTaskStatusPayload
-  | PersistedRoutedAgentPayload
-  | PersistedAgentMessagePayload
-  | PersistedAsyncAgentStatusPayload
-  | PersistedTeamStatusPayload
-
-const ATTACHMENT_BLOCK_START = '[HARNESSCLAW_LOCAL_ATTACHMENTS]'
-const ATTACHMENT_BLOCK_END = '[/HARNESSCLAW_LOCAL_ATTACHMENTS]'
-const PROJECT_CONTEXT_BLOCK_START = '[HARNESSCLAW_PROJECT_CONTEXT]'
-const PROJECT_CONTEXT_BLOCK_END = '[/HARNESSCLAW_PROJECT_CONTEXT]'
-const ERROR_ATTACH_WINDOW_MS = 30_000
 const CHAT_RAIL_CLASS = 'mx-auto w-full max-w-[72rem] min-w-0'
-const LEGACY_CODEX_APPROVAL_ADAPTER_ERROR = 'Codex requested an approval that is not implemented in this minimal adapter.'
 const noopUnsubscribe = () => {}
 
 interface ChatGreeting {
@@ -1559,343 +1050,6 @@ function TeamStackDeck({ teams }: { teams: TeamState[] }) {
   )
 }
 
-function createEmptyCollaborationState(): CollaborationState {
-  return {
-    capabilities: {
-      subAgents: false,
-      tasks: false,
-      messaging: false,
-      asyncAgent: false,
-      teams: false,
-    },
-    syncAgents: {},
-    tasks: {},
-    agentMessages: [],
-    asyncAgents: {},
-    teams: {},
-  }
-}
-
-function createSyncAgentState(t: (key: string) => string, agentId: string, now: number): SyncAgentState {
-  return {
-    agentId,
-    agentName: 'subagent',
-    description: t('chat.status.subagentTask'),
-    agentType: 'sync',
-    parentAgentId: 'main',
-    status: 'running',
-    deniedTools: [],
-    streamText: '',
-    eventCount: 0,
-    updatedAt: now,
-  }
-}
-
-function createEmptySessionState(): SessionState {
-  return {
-    messages: [],
-    pendingAssistantId: null,
-    isProcessing: false,
-    currentThinking: '',
-    isPaused: false,
-    isStopping: false,
-    collaboration: createEmptyCollaborationState(),
-  }
-}
-
-function createPersistentSessionId(): string {
-  return globalThis.crypto.randomUUID()
-}
-
-function normalizeProjectContext(raw: unknown): ProjectContext | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const candidate = raw as Record<string, unknown>
-  const projectId = typeof candidate.projectId === 'string'
-    ? candidate.projectId
-    : typeof candidate.project_id === 'string'
-      ? candidate.project_id
-      : ''
-  const name = typeof candidate.name === 'string' ? candidate.name : ''
-  const description = typeof candidate.description === 'string' ? candidate.description : ''
-  const createdAt = typeof candidate.createdAt === 'number'
-    ? candidate.createdAt
-    : typeof candidate.created_at === 'number'
-      ? candidate.created_at
-      : undefined
-
-  if (!projectId || !name) return null
-  return { projectId, name, description, createdAt }
-}
-
-function parseProjectContextJson(jsonText: string | null): ProjectContext | null {
-  if (!jsonText) return null
-  try {
-    return normalizeProjectContext(JSON.parse(jsonText))
-  } catch {
-    return null
-  }
-}
-
-function buildMessagePayload(content: string, attachments: AttachmentItem[]): string {
-  const text = content.trim()
-  if (attachments.length === 0) return text
-
-  // v1.x: 之前只把非图片附件写进 JSON 元数据块，导致切换会话后图片附件
-  // 无法从 DB 恢复（extractAttachments 拿不到它们的元信息），UI 上图片就
-  // 丢失了。现在把所有附件元数据都持久化进 JSON 块；图片的 base64 内容
-  // 仍然只通过 multimodal 通道发送，不会出现在 prompt 文本里。
-  const attachmentPayload = JSON.stringify({
-    version: 1,
-    items: attachments.map(({ name, path, url, size, extension, kind }) => ({
-      name,
-      path,
-      url,
-      size,
-      extension,
-      kind,
-    })),
-  }, null, 2)
-
-  const hasImages = attachments.some((a) => a.kind === 'image')
-  const instructions = [
-    'Attached local files are listed below.',
-    hasImages
-      ? 'Image entries (kind = "image") are already supplied as inline multimodal content in this turn — do NOT try to re-read them with filesystem tools; use the local path or URL only for non-image files.'
-      : 'Use the local path or file URL with filesystem tools when you need to inspect file contents.',
-  ].join('\n')
-
-  return [
-    text,
-    instructions,
-    ATTACHMENT_BLOCK_START,
-    attachmentPayload,
-    ATTACHMENT_BLOCK_END,
-  ].filter(Boolean).join('\n\n')
-}
-
-function stripProjectContextBlock(content: string): string {
-  const startIndex = content.indexOf(PROJECT_CONTEXT_BLOCK_START)
-  const endIndex = content.indexOf(PROJECT_CONTEXT_BLOCK_END)
-  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return content
-
-  return `${content.slice(0, startIndex)}${content.slice(endIndex + PROJECT_CONTEXT_BLOCK_END.length)}`.trim()
-}
-
-function extractAttachments(content: string): { content: string; attachments: AttachmentItem[] } {
-  const withoutProjectContext = stripProjectContextBlock(content)
-  const startIndex = withoutProjectContext.indexOf(ATTACHMENT_BLOCK_START)
-  const endIndex = withoutProjectContext.indexOf(ATTACHMENT_BLOCK_END)
-  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
-    return { content: withoutProjectContext, attachments: [] }
-  }
-
-  const jsonStart = startIndex + ATTACHMENT_BLOCK_START.length
-  const jsonText = withoutProjectContext.slice(jsonStart, endIndex).trim()
-  const body = withoutProjectContext.slice(0, startIndex).trim()
-
-  try {
-    const parsed = JSON.parse(jsonText) as { items?: Array<Omit<AttachmentItem, 'id'>> }
-    const attachments = Array.isArray(parsed.items)
-      ? parsed.items.map((item) => ({
-          ...item,
-          id: item.path || item.url || `${item.name}-${item.size}`,
-        }))
-      : []
-    return { content: body, attachments }
-  } catch {
-    return { content, attachments: [] }
-  }
-}
-
-function normalizeSubagent(raw: unknown): SubagentInfo | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const candidate = raw as Record<string, unknown>
-  const taskId = typeof candidate.task_id === 'string' ? candidate.task_id : typeof candidate.taskId === 'string' ? candidate.taskId : ''
-  const label = typeof candidate.label === 'string' ? candidate.label : ''
-  const status = typeof candidate.status === 'string' ? candidate.status : ''
-  if (!taskId || !label) return undefined
-  return { taskId, label, status: status || 'ok' }
-}
-
-function isSameSubagent(left?: SubagentInfo, right?: SubagentInfo): boolean {
-  return left?.taskId === right?.taskId
-}
-
-function getModuleKey(subagent?: SubagentInfo): string {
-  return subagent?.taskId || '__main__'
-}
-
-function parseJsonObject(raw: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(raw)
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>
-    }
-  } catch {
-    return null
-  }
-  return null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
-}
-
-function normalizeEventType(type: string): string {
-  return type.replace(/\./g, '_')
-}
-
-function stringifyToolPayload(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (value == null) return ''
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-function getToolEventName(source: Record<string, unknown>): string | undefined {
-  if (typeof source.name === 'string' && source.name) return source.name
-  if (typeof source.tool_name === 'string' && source.tool_name) return source.tool_name
-  return undefined
-}
-
-function getToolEventCallId(source: Record<string, unknown>): string | undefined {
-  if (typeof source.call_id === 'string' && source.call_id) return source.call_id
-  if (typeof source.tool_use_id === 'string' && source.tool_use_id) return source.tool_use_id
-  if (typeof source.request_id === 'string' && source.request_id) return source.request_id
-  return undefined
-}
-
-function getToolCallEventContent(source: Record<string, unknown>): string {
-  if ('arguments' in source) return stringifyToolPayload(source.arguments)
-  if ('input' in source) return stringifyToolPayload(source.input)
-  if (typeof source.tool_input === 'string') return source.tool_input
-  if (typeof source.content === 'string') return source.content
-  return ''
-}
-
-function getToolResultEventContent(source: Record<string, unknown>): string {
-  if (typeof source.output === 'string') return source.output
-  if (typeof source.content === 'string') return source.content
-  return ''
-}
-
-function getToolDurationMs(source: Record<string, unknown>): number | undefined {
-  return typeof source.duration_ms === 'number' && Number.isFinite(source.duration_ms)
-    ? source.duration_ms
-    : undefined
-}
-
-function getToolRenderHint(source: Record<string, unknown>): string | undefined {
-  return typeof source.render_hint === 'string' && source.render_hint ? source.render_hint : undefined
-}
-
-function getToolLanguage(source: Record<string, unknown>): string | undefined {
-  return typeof source.language === 'string' && source.language ? source.language : undefined
-}
-
-function getToolFilePath(source: Record<string, unknown>): string | undefined {
-  return typeof source.file_path === 'string' && source.file_path ? source.file_path : undefined
-}
-
-function getToolMetadata(source: Record<string, unknown>): Record<string, unknown> | undefined {
-  return isRecord(source.metadata) ? source.metadata : undefined
-}
-
-function isCodexCommandActivity(activity?: ToolActivity): boolean {
-  return activity?.metadata?.source === 'codex_command_execution'
-}
-
-function isCodexWebSearchActivity(activity?: ToolActivity): boolean {
-  return activity?.metadata?.source === 'codex_web_search'
-}
-
-function isCodexInlineActivity(activity?: ToolActivity): boolean {
-  return isCodexCommandActivity(activity) || isCodexWebSearchActivity(activity)
-}
-
-/**
- * Pull a clickable URL list out of a tool-result's metadata. WebSearch and
- * TavilySearch populate `metadata.urls` as `[{url, title}, ...]` per the
- * current engine protocol (card.close inner.metadata.urls).
- */
-function extractSearchResultUrls(metadata?: Record<string, unknown>): SearchResultUrl[] {
-  if (!metadata) return []
-  const raw = metadata.urls
-  if (!Array.isArray(raw)) return []
-  const out: SearchResultUrl[] = []
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue
-    const url = typeof entry.url === 'string' ? entry.url.trim() : ''
-    if (!/^https?:\/\//i.test(url)) continue
-    const title = typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : undefined
-    out.push({ url, title })
-  }
-  return out
-}
-
-function extractSearchQuery(metadata?: Record<string, unknown>): string | undefined {
-  if (!metadata) return undefined
-  return typeof metadata.query === 'string' && metadata.query.trim() ? metadata.query.trim() : undefined
-}
-
-function extractSearchResultCount(metadata?: Record<string, unknown>): number | undefined {
-  if (!metadata) return undefined
-  return typeof metadata.result_count === 'number' && Number.isFinite(metadata.result_count)
-    ? metadata.result_count
-    : undefined
-}
-
-function extractGeneratedImagesFromMetadata(metadata?: Record<string, unknown>): GeneratedImagePreview[] {
-  const raw = metadata?.images
-  if (!Array.isArray(raw)) return []
-  const images: GeneratedImagePreview[] = []
-  for (const item of raw) {
-    if (!isRecord(item)) continue
-    const path = typeof item.path === 'string' ? item.path.trim() : ''
-    if (!path || !path.startsWith('/')) continue
-    images.push({
-      path,
-      fileName: getFileName(path),
-      mime: typeof item.mime === 'string' ? item.mime : undefined,
-      bytes: typeof item.bytes === 'number' && Number.isFinite(item.bytes) ? item.bytes : undefined,
-      model: typeof item.model === 'string' ? item.model : undefined,
-      prompt: typeof item.prompt === 'string' ? item.prompt : undefined,
-      size: typeof item.size === 'string' ? item.size : undefined,
-    })
-  }
-  return images
-}
-
-function safeUrlHostname(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
-}
-
-/**
- * Resolve a favicon URL for the given site host. Uses Google's public
- * favicon proxy so we get a normalized PNG regardless of whether the
- * site itself exposes a fetchable /favicon.ico. Returns an empty string
- * when the host cannot be derived (which short-circuits `<FaviconImage>`
- * to the default Globe glyph).
- */
-function faviconUrl(host: string, size = 32): string {
-  if (!host) return ''
-  // Strip any path/protocol just in case; Google's proxy only wants the
-  // bare domain. Encodes high-bit characters defensively.
-  const bare = host.replace(/^https?:\/\//i, '').split('/')[0]
-  if (!bare) return ''
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(bare)}&sz=${size}`
-}
 
 /**
  * Small `<img>` wrapper that tries to fetch the site's real favicon and
@@ -1956,1006 +1110,6 @@ function FaviconImage({ url, size = 16, className }: { url: string; size?: numbe
  * This preserves the original turn placement so a replayed prompt rejoins
  * its original card instead of duplicating onto the latest message.
  */
-function upsertSessionToolByCallId(
-  messages: Message[],
-  fallbackMessageId: string,
-  activity: ToolActivity,
-): Message[] {
-  if (activity.callId) {
-    for (let i = 0; i < messages.length; i += 1) {
-      const tools = messages[i].tools
-      if (!tools) continue
-      const index = tools.findIndex((t) => t.callId === activity.callId && t.type === activity.type)
-      if (index === -1) continue
-      const nextTools = tools.slice()
-      nextTools[index] = activity
-      const nextMessages = messages.slice()
-      nextMessages[i] = { ...messages[i], tools: nextTools }
-      return nextMessages
-    }
-  }
-  return messages.map((m) => m.id === fallbackMessageId ? { ...m, tools: [...(m.tools || []), activity] } : m)
-}
-
-function summarizeInlineText(text: string, maxLength = 140): string {
-  const normalized = text.replace(/\s+/g, ' ').trim()
-  if (!normalized) return ''
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized
-}
-
-function createSubagentInfo(agentId: string, agentName: string, status = 'running'): SubagentInfo {
-  return {
-    taskId: agentId,
-    label: agentName || 'subagent',
-    status,
-  }
-}
-
-function createTaskStatusPayload(t: any, task: {
-  taskId: string
-  subject: string
-  status: CollaborationTask['status']
-  owner?: string
-  activeForm?: string
-  scopeId?: string
-}): PersistedTaskStatusPayload {
-  return {
-    kind: 'task_event',
-    taskId: task.taskId,
-    subject: task.subject,
-    status: task.status,
-    owner: task.owner,
-    activeForm: task.activeForm,
-    scopeId: task.scopeId,
-    summary:
-      task.status === 'in_progress'
-        ? t('chat.status.taskInProgress', { subject: task.activeForm || task.subject }) + (task.owner ? ` · ${task.owner}` : '')
-        : task.status === 'completed'
-          ? t('chat.status.taskDone', { subject: task.subject }) + (task.owner ? ` · ${task.owner}` : '')
-          : task.status === 'deleted'
-            ? t('chat.status.taskRemoved', { subject: task.subject })
-            : t('chat.status.taskCreated', { subject: task.subject }),
-  }
-}
-
-function createRoutedAgentStatusPayload(t: any, agent: {
-  agentId: string
-  agentName: string
-  description?: string
-  agentType?: string
-}): PersistedRoutedAgentPayload {
-  return {
-    kind: 'agent_routed',
-    agentId: agent.agentId,
-    agentName: agent.agentName || 'agent',
-    description: agent.description,
-    agentType: agent.agentType,
-    summary: t('chat.status.routedTo', { name: agent.agentName || 'agent' }),
-  }
-}
-
-function createAgentMessageStatusPayload(t: any, message: {
-  id: string
-  from: string
-  to: string
-  summary: string
-  teamId?: string
-}): PersistedAgentMessagePayload {
-  return {
-    kind: 'agent_message',
-    id: message.id,
-    from: message.from || 'unknown',
-    to: message.to || '*',
-    summary: message.summary || t('chat.status.collabMessage', { name: message.from || 'Agent' }),
-    teamId: message.teamId,
-  }
-}
-
-function createAsyncAgentStatusPayload(t: any, agent: {
-  agentId: string
-  agentName: string
-  description: string
-  agentType: string
-  parentAgentId: string
-  status: AsyncAgentState['status']
-  durationMs?: number
-  errorType?: string
-  errorMessage?: string
-}): PersistedAsyncAgentStatusPayload {
-  const summary = agent.status === 'running'
-    ? t('chat.status.agentStarted', { name: agent.agentName || 'agent' })
-    : agent.status === 'idle'
-      ? t('chat.status.agentWaiting', { name: agent.agentName || 'agent' })
-      : agent.status === 'completed'
-        ? t('chat.status.agentDone', { name: agent.agentName || 'agent' })
-        : t('chat.status.agentFailed', { name: agent.agentName || 'agent' })
-
-  return {
-    kind: 'async_agent_event',
-    agentId: agent.agentId,
-    agentName: agent.agentName || 'agent',
-    description: agent.description,
-    agentType: agent.agentType,
-    parentAgentId: agent.parentAgentId,
-    status: agent.status,
-    durationMs: agent.durationMs,
-    errorType: agent.errorType,
-    errorMessage: agent.errorMessage,
-    summary: agent.errorMessage ? `${summary} · ${agent.errorMessage}` : summary,
-  }
-}
-
-function createTeamStatusPayload(t: any, team: {
-  teamId: string
-  teamName?: string
-  members: string[]
-  lastEvent: TeamState['lastEvent']
-  memberName?: string
-  memberType?: string
-}): PersistedTeamStatusPayload {
-  const resolvedName = team.teamName || team.teamId
-  const summary = team.lastEvent === 'member_join'
-    ? t('chat.status.memberJoined', { name: team.memberName || t('chat.status.newMember'), team: resolvedName })
-    : team.lastEvent === 'member_left'
-      ? t('chat.status.memberLeft', { name: team.memberName || t('chat.status.member'), team: resolvedName })
-      : team.lastEvent === 'deleted'
-        ? t('chat.status.teamArchived', { team: resolvedName })
-        : t('chat.status.teamCreated', { team: resolvedName })
-
-  return {
-    kind: 'team_event',
-    teamId: team.teamId,
-    teamName: team.teamName,
-    members: team.members,
-    lastEvent: team.lastEvent,
-    memberName: team.memberName,
-    memberType: team.memberType,
-    summary,
-  }
-}
-
-function parseTaskStatusPayload(raw: string): PersistedTaskStatusPayload | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed || parsed.kind !== 'task_event') return null
-  const taskId = typeof parsed.taskId === 'string' ? parsed.taskId : ''
-  const subject = typeof parsed.subject === 'string' ? parsed.subject : ''
-  const summary = typeof parsed.summary === 'string' ? parsed.summary : ''
-  if (!taskId || !subject || !summary) return null
-  const status = parsed.status === 'in_progress' || parsed.status === 'completed' || parsed.status === 'deleted'
-    ? parsed.status
-    : 'pending'
-  return {
-    kind: 'task_event',
-    taskId,
-    subject,
-    status,
-    owner: typeof parsed.owner === 'string' ? parsed.owner : undefined,
-    activeForm: typeof parsed.activeForm === 'string' ? parsed.activeForm : undefined,
-    scopeId: typeof parsed.scopeId === 'string' ? parsed.scopeId : undefined,
-    summary,
-  }
-}
-
-function parsePersistedCollaborationStatusPayload(raw: string): PersistedCollaborationStatusPayload | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed || typeof parsed.kind !== 'string') return null
-
-  if (parsed.kind === 'task_event') {
-    return parseTaskStatusPayload(raw)
-  }
-
-  if (parsed.kind === 'agent_routed') {
-    const agentId = typeof parsed.agentId === 'string' ? parsed.agentId : ''
-    const agentName = typeof parsed.agentName === 'string' ? parsed.agentName : ''
-    const summary = typeof parsed.summary === 'string' ? parsed.summary : ''
-    if (!agentId || !agentName || !summary) return null
-    return {
-      kind: 'agent_routed',
-      agentId,
-      agentName,
-      description: typeof parsed.description === 'string' ? parsed.description : undefined,
-      agentType: typeof parsed.agentType === 'string' ? parsed.agentType : undefined,
-      summary,
-    }
-  }
-
-  if (parsed.kind === 'agent_message') {
-    const id = typeof parsed.id === 'string' ? parsed.id : ''
-    const from = typeof parsed.from === 'string' ? parsed.from : ''
-    const to = typeof parsed.to === 'string' ? parsed.to : ''
-    const summary = typeof parsed.summary === 'string' ? parsed.summary : ''
-    if (!id || !from || !to || !summary) return null
-    return {
-      kind: 'agent_message',
-      id,
-      from,
-      to,
-      summary,
-      teamId: typeof parsed.teamId === 'string' ? parsed.teamId : undefined,
-    }
-  }
-
-  if (parsed.kind === 'async_agent_event') {
-    const agentId = typeof parsed.agentId === 'string' ? parsed.agentId : ''
-    const agentName = typeof parsed.agentName === 'string' ? parsed.agentName : ''
-    const description = typeof parsed.description === 'string' ? parsed.description : ''
-    const agentType = typeof parsed.agentType === 'string' ? parsed.agentType : 'async'
-    const parentAgentId = typeof parsed.parentAgentId === 'string' ? parsed.parentAgentId : 'main'
-    const summary = typeof parsed.summary === 'string' ? parsed.summary : ''
-    const status = parsed.status === 'running' || parsed.status === 'idle' || parsed.status === 'completed' || parsed.status === 'failed'
-      ? parsed.status
-      : null
-    if (!agentId || !agentName || !status || !summary) return null
-    return {
-      kind: 'async_agent_event',
-      agentId,
-      agentName,
-      description,
-      agentType,
-      parentAgentId,
-      status,
-      durationMs: typeof parsed.durationMs === 'number' ? parsed.durationMs : undefined,
-      errorType: typeof parsed.errorType === 'string' ? parsed.errorType : undefined,
-      errorMessage: typeof parsed.errorMessage === 'string' ? parsed.errorMessage : undefined,
-      summary,
-    }
-  }
-
-  if (parsed.kind === 'team_event') {
-    const teamId = typeof parsed.teamId === 'string' ? parsed.teamId : ''
-    const summary = typeof parsed.summary === 'string' ? parsed.summary : ''
-    const lastEvent = parsed.lastEvent === 'created' || parsed.lastEvent === 'member_join' || parsed.lastEvent === 'member_left' || parsed.lastEvent === 'deleted'
-      ? parsed.lastEvent
-      : null
-    if (!teamId || !lastEvent || !summary) return null
-    return {
-      kind: 'team_event',
-      teamId,
-      teamName: typeof parsed.teamName === 'string' ? parsed.teamName : undefined,
-      members: asStringArray(parsed.members),
-      lastEvent,
-      memberName: typeof parsed.memberName === 'string' ? parsed.memberName : undefined,
-      memberType: typeof parsed.memberType === 'string' ? parsed.memberType : undefined,
-      summary,
-    }
-  }
-
-  return null
-}
-
-function applyPersistedCollaborationStatus(
-  collaboration: CollaborationState,
-  payload: PersistedCollaborationStatusPayload,
-  timestamp: number,
-) {
-  if (payload.kind === 'task_event') {
-    collaboration.capabilities.tasks = true
-    if (payload.status === 'deleted') {
-      delete collaboration.tasks[payload.taskId]
-      return
-    }
-
-    collaboration.tasks[payload.taskId] = {
-      taskId: payload.taskId,
-      subject: payload.subject,
-      status: payload.status,
-      owner: payload.owner,
-      activeForm: payload.activeForm,
-      scopeId: payload.scopeId,
-      updatedAt: timestamp,
-    }
-    return
-  }
-
-  if (payload.kind === 'agent_routed') {
-    collaboration.routedAgent = {
-      agentId: payload.agentId,
-      agentName: payload.agentName,
-      description: payload.description || '',
-      agentType: payload.agentType || '',
-      updatedAt: timestamp,
-    }
-    return
-  }
-
-  if (payload.kind === 'agent_message') {
-    collaboration.capabilities.messaging = true
-    collaboration.agentMessages = [
-      ...collaboration.agentMessages,
-      {
-        id: payload.id,
-        from: payload.from,
-        to: payload.to,
-        summary: payload.summary,
-        teamId: payload.teamId,
-        ts: timestamp,
-      },
-    ].slice(-8)
-    return
-  }
-
-  if (payload.kind === 'async_agent_event') {
-    collaboration.capabilities.asyncAgent = true
-    collaboration.asyncAgents[payload.agentId] = {
-      agentId: payload.agentId,
-      agentName: payload.agentName,
-      description: payload.description,
-      agentType: payload.agentType,
-      parentAgentId: payload.parentAgentId,
-      status: payload.status,
-      durationMs: payload.durationMs,
-      errorType: payload.errorType,
-      errorMessage: payload.errorMessage,
-      updatedAt: timestamp,
-    }
-    return
-  }
-
-  collaboration.capabilities.teams = true
-  if (payload.lastEvent === 'deleted') {
-    delete collaboration.teams[payload.teamId]
-    return
-  }
-
-  const previous = collaboration.teams[payload.teamId]
-  collaboration.teams[payload.teamId] = {
-    teamId: payload.teamId,
-    teamName: payload.teamName || previous?.teamName || payload.teamId,
-    members: payload.members.length > 0 ? payload.members : previous?.members || [],
-    lastEvent: payload.lastEvent,
-    memberName: payload.memberName,
-    memberType: payload.memberType,
-    updatedAt: timestamp,
-  }
-}
-
-function inferLegacyCollaborationFromMessages(messages: Message[]): CollaborationState {
-  const collaboration = createEmptyCollaborationState()
-  let currentTeamId = ''
-
-  for (const message of messages) {
-    for (const tool of message.tools || []) {
-      if (tool.type !== 'call' && tool.type !== 'result') continue
-
-      if (tool.name === 'TeamCreate') {
-        const args = tool.type === 'call' ? parseJsonObject(tool.content) : null
-        const fromResult = tool.type === 'result'
-          ? tool.content.match(/team "([^"]+)"/)?.[1]
-          : ''
-        const teamName = typeof args?.team_name === 'string' && args.team_name.trim()
-          ? args.team_name.trim()
-          : fromResult || 'Agent Team'
-        const teamId = `legacy-team:${teamName}`
-        const existing = collaboration.teams[teamId]
-
-        currentTeamId = teamId
-        collaboration.capabilities.teams = true
-        collaboration.teams[teamId] = {
-          teamId,
-          teamName,
-          members: existing?.members || [],
-          lastEvent: 'created',
-          updatedAt: tool.ts,
-        }
-        continue
-      }
-
-      if (tool.name === 'Agent' && tool.type === 'call') {
-        const args = parseJsonObject(tool.content)
-        const agentName = typeof args?.name === 'string' && args.name.trim()
-          ? args.name.trim()
-          : typeof args?.description === 'string' && args.description.trim()
-            ? args.description.trim()
-            : 'agent'
-        const teamId = currentTeamId || Object.keys(collaboration.teams)[0] || 'legacy-team:Agent Team'
-        const previous = collaboration.teams[teamId]
-        const teamName = previous?.teamName || (teamId.startsWith('legacy-team:') ? teamId.slice('legacy-team:'.length) : 'Agent Team')
-        const members = previous?.members ? [...previous.members] : []
-
-        if (!members.includes(agentName)) {
-          members.push(agentName)
-        }
-
-        collaboration.capabilities.teams = true
-        collaboration.teams[teamId] = {
-          teamId,
-          teamName,
-          members,
-          lastEvent: 'member_join',
-          memberName: agentName,
-          memberType: typeof args?.subagent_type === 'string' ? args.subagent_type : undefined,
-          updatedAt: tool.ts,
-        }
-      }
-    }
-  }
-
-  return collaboration
-}
-
-function mergeLegacyCollaborationFallback(
-  collaboration: CollaborationState,
-  messages: Message[],
-): CollaborationState {
-  if (Object.keys(collaboration.teams).length > 0) {
-    return collaboration
-  }
-
-  const legacy = inferLegacyCollaborationFromMessages(messages)
-  if (Object.keys(legacy.teams).length === 0) {
-    return collaboration
-  }
-
-  return {
-    ...collaboration,
-    capabilities: {
-      ...collaboration.capabilities,
-      teams: collaboration.capabilities.teams || legacy.capabilities.teams,
-    },
-    teams: legacy.teams,
-  }
-}
-
-function getPersistedStatusTone(payload: PersistedCollaborationStatusPayload): 'error' | 'running' | 'neutral' | 'done' {
-  if (payload.kind === 'task_event') {
-    if (payload.status === 'in_progress') return 'running'
-    if (payload.status === 'deleted' || payload.status === 'pending') return 'neutral'
-    return 'done'
-  }
-
-  if (payload.kind === 'async_agent_event') {
-    if (payload.status === 'failed') return 'error'
-    if (payload.status === 'running') return 'running'
-    if (payload.status === 'idle') return 'neutral'
-    return 'done'
-  }
-
-  if (payload.kind === 'team_event') {
-    return payload.lastEvent === 'deleted' ? 'neutral' : 'done'
-  }
-
-  return 'done'
-}
-
-function inferCollaborationFromMessages(messages: Message[]): CollaborationState {
-  const collaboration = createEmptyCollaborationState()
-  const statusTools = messages
-    .flatMap((message) => message.tools || [])
-    .filter((tool) => tool.type === 'status')
-    .sort((left, right) => left.ts - right.ts)
-
-  for (const tool of statusTools) {
-    const payload = parsePersistedCollaborationStatusPayload(tool.content)
-    if (!payload) continue
-    applyPersistedCollaborationStatus(collaboration, payload, tool.ts)
-  }
-
-  return collaboration
-}
-
-function buildErrorHint(t: (key: string) => string, reason: string, message: string): string | undefined {
-  if (reason === 'model_error' && message.toLowerCase().includes('not supported')) {
-    return t('chat.errors.accountIssue')
-  }
-  if (message.toLowerCase().includes('websocket')) {
-    return t('chat.errors.serviceIssue')
-  }
-  return undefined
-}
-
-function buildSystemErrorNotice(t: (key: string) => string, raw: unknown): SystemNoticeData {
-  const root = typeof raw === 'string'
-    ? (parseJsonObject(raw) || raw)
-    : raw
-  const payload = isRecord(root) && isRecord(root.payload) ? root.payload : root
-  const record = isRecord(payload) ? payload : {}
-  const fallbackContent = isRecord(root) && typeof root.content === 'string' ? root.content : ''
-  // Prefer the engine-provided `user_message` over the raw `message` —
-  // upstream already localizes / softens the user-facing wording (e.g.
-  // engine emits `{type:"user_aborted", message:"Cancelled by user",
-  // user_message:"已取消"}` on user cancel). Falling back to `message`
-  // keeps older / non-localized errors working unchanged.
-  const userMessage = typeof record.user_message === 'string' ? record.user_message : ''
-  const rawMessage = typeof record.message === 'string' ? record.message : ''
-  const message = userMessage
-    || rawMessage
-    || fallbackContent
-    || (typeof root === 'string' ? root : t('chat.errors.requestFailed'))
-  // Engine v2 emits `error.type` (eg `user_aborted`); legacy frames use
-  // `reason`. Try both so the renderer can branch on either shape.
-  const reason = typeof record.reason === 'string'
-    ? record.reason
-    : typeof record.type === 'string'
-      ? record.type
-      : isRecord(root) && typeof root.reason === 'string'
-        ? root.reason
-        : undefined
-  const sessionId = typeof record.session_id === 'string'
-    ? record.session_id
-    : isRecord(root) && typeof root.session_id === 'string'
-      ? root.session_id
-      : undefined
-
-  // User-initiated cancellations aren't really "request failed" — show a
-  // dedicated "用户取消 / Cancelled" title + localized body instead of the
-  // generic red "请求失败: Cancelled by user" treatment. Detection key is
-  // `user_aborted` (engine v2) plus a defensive substring match for older
-  // frames that only carry the English text.
-  const isUserCancelled = reason === 'user_aborted'
-    || /cancelled by user/i.test(rawMessage)
-  if (isUserCancelled) {
-    return {
-      kind: 'error',
-      title: t('chat.errors.userCancelledTitle'),
-      message: userMessage || t('chat.errors.userCancelled'),
-      reason,
-      sessionId,
-    }
-  }
-
-  return {
-    kind: 'error',
-    title: t('chat.errors.requestFailedTitle'),
-    message: message.trim() || t('chat.errors.requestFailed'),
-    reason,
-    sessionId,
-    hint: buildErrorHint(t, reason || '', message),
-  }
-}
-
-function getHarnessclawEventSessionId(event: Record<string, unknown>): string {
-  if (typeof event.session_id === 'string' && event.session_id) {
-    return event.session_id
-  }
-
-  if (isRecord(event.payload) && typeof event.payload.session_id === 'string' && event.payload.session_id) {
-    return event.payload.session_id
-  }
-
-  if (isRecord(event.error) && typeof event.error.session_id === 'string' && event.error.session_id) {
-    return event.error.session_id
-  }
-
-  return ''
-}
-
-function getFileName(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const parts = normalized.split('/')
-  return parts[parts.length - 1] || path
-}
-
-function getFileLanguage(ext: string): string {
-  const map: Record<string, string> = {
-    ts: 'TypeScript', tsx: 'TypeScript (JSX)', js: 'JavaScript', jsx: 'JavaScript (JSX)',
-    py: 'Python', rb: 'Ruby', go: 'Go', rs: 'Rust', java: 'Java', kt: 'Kotlin',
-    swift: 'Swift', c: 'C', cpp: 'C++', h: 'C Header', hpp: 'C++ Header',
-    cs: 'C#', php: 'PHP', lua: 'Lua', sh: 'Shell', bash: 'Bash', zsh: 'Zsh',
-    sql: 'SQL', html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
-    json: 'JSON', yaml: 'YAML', yml: 'YAML', toml: 'TOML', xml: 'XML',
-    md: 'Markdown', mdx: 'MDX', txt: 'Text', csv: 'CSV',
-    vue: 'Vue', svelte: 'Svelte', dart: 'Dart', r: 'R',
-    dockerfile: 'Dockerfile', makefile: 'Makefile',
-    graphql: 'GraphQL', proto: 'Protobuf', prisma: 'Prisma',
-  }
-  return map[ext] || ''
-}
-
-function formatMessageTime(lang: string, timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatTeamUpdateTime(timestamp: number): string {
-  const target = new Date(timestamp)
-  const now = new Date()
-  const isSameDay = target.toDateString() === now.toDateString()
-  return target.toLocaleString('zh-CN', isSameDay
-    ? { hour: '2-digit', minute: '2-digit' }
-    : { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
-function findAttachableAssistantMessageIndex(
-  messages: Message[],
-  referenceTs: number,
-  preferredId?: string | null,
-): number {
-  if (preferredId) {
-    const preferredIndex = messages.findIndex((message) => message.id === preferredId)
-    if (preferredIndex >= 0) return preferredIndex
-  }
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message.role === 'user') break
-    if (message.role !== 'assistant') continue
-    if (referenceTs - message.timestamp > ERROR_ATTACH_WINDOW_MS) break
-    return index
-  }
-
-  return -1
-}
-
-function isVisualErrorOnlyAssistantMessage(message: Message): boolean {
-  return message.role === 'assistant'
-    && !!message.systemNotice
-    && !message.content.trim()
-    && !message.attachments?.length
-    && !message.tools?.length
-    && !(message.contentSegments || []).some((segment) => segment.text.trim())
-}
-
-function isLegacyCodexApprovalAdapterNotice(notice?: SystemNoticeData, content = ''): boolean {
-  const text = `${notice?.message || ''}\n${notice?.hint || ''}\n${content}`.toLowerCase()
-  return text.includes(LEGACY_CODEX_APPROVAL_ADAPTER_ERROR.toLowerCase())
-}
-
-function isLegacyCodexApprovalAdapterMessage(message: Message): boolean {
-  return isLegacyCodexApprovalAdapterNotice(message.systemNotice, message.content)
-}
-
-function stripLegacyCodexApprovalAdapterNotice(message: Message): Message | null {
-  if (!isLegacyCodexApprovalAdapterMessage(message)) return message
-  if (isVisualErrorOnlyAssistantMessage(message)) return null
-  return { ...message, systemNotice: undefined }
-}
-
-function compactMessagesForDisplay(messages: Message[]): Message[] {
-  const compacted: Message[] = []
-
-  for (const originalMessage of messages) {
-    const message = stripLegacyCodexApprovalAdapterNotice(originalMessage)
-    if (!message) continue
-
-    if (isVisualErrorOnlyAssistantMessage(message) && compacted.length > 0) {
-      const previous = compacted[compacted.length - 1]
-      if (
-        previous.role === 'assistant'
-        && message.timestamp - previous.timestamp <= ERROR_ATTACH_WINDOW_MS
-      ) {
-        compacted[compacted.length - 1] = {
-          ...previous,
-          systemNotice: message.systemNotice,
-          timestamp: message.timestamp,
-          isStreaming: false,
-        }
-        continue
-      }
-    }
-
-    compacted.push(message)
-  }
-
-  return compacted
-}
-
-function repairRecoveredTurnOrder(messages: Message[]): Message[] {
-  const firstTurnIndex = messages.findIndex((message) => message.role === 'user' || message.role === 'assistant')
-  if (firstTurnIndex < 0 || messages[firstTurnIndex]?.role !== 'assistant') return messages
-
-  const repaired: Message[] = []
-  for (let index = 0; index < messages.length; index += 1) {
-    const current = messages[index]
-    const next = messages[index + 1]
-    if (
-      current.role === 'assistant'
-      && next?.role === 'user'
-      && current.timestamp <= next.timestamp
-      && next.timestamp - current.timestamp <= 5_000
-    ) {
-      repaired.push(next, current)
-      index += 1
-      continue
-    }
-
-    repaired.push(current)
-  }
-
-  return repaired
-}
-
-function extractFilePreviewData(call: ToolActivity, result?: ToolActivity): FilePreviewData | null {
-  if (call.type !== 'call') return null
-  if (call.name !== 'read_file' && call.name !== 'write_file' && call.name !== 'Read' && call.name !== 'Write') return null
-
-  const args = parseJsonObject(call.content)
-  const path = typeof args?.path === 'string'
-    ? args.path
-    : result?.filePath || ''
-  if (!path) return null
-
-  const directContent = typeof args?.content === 'string' ? args.content : ''
-  const limit = typeof args?.limit === 'number' ? args.limit : undefined
-  const content = call.name === 'write_file' || call.name === 'Write'
-    ? (directContent || result?.content || '')
-    : (result?.content || '')
-
-  return {
-    path,
-    fileName: getFileName(path),
-    operation: call.name === 'read_file' || call.name === 'Read' ? 'read_file' : 'write_file',
-    content,
-    limit,
-  }
-}
-
-function parsePermissionRequestData(raw: string): PermissionRequestData | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed) return null
-  const toolInput = typeof parsed.tool_input === 'string' ? parsed.tool_input : ''
-  const parsedToolInput = toolInput ? parseJsonObject(toolInput) : null
-  return {
-    toolInput,
-    message: typeof parsed.message === 'string' ? parsed.message : '',
-    isReadOnly: parsed.is_read_only === true,
-    command: typeof parsedToolInput?.command === 'string' ? parsedToolInput.command : undefined,
-    description: typeof parsedToolInput?.description === 'string' ? parsedToolInput.description : undefined,
-    options: Array.isArray(parsed.options)
-      ? parsed.options.flatMap((option) => {
-          if (!option || typeof option !== 'object' || Array.isArray(option)) return []
-          const candidate = option as { label?: unknown; scope?: unknown; allow?: unknown }
-          const label = typeof candidate.label === 'string' ? candidate.label : ''
-          const scope = candidate.scope === 'session' ? 'session' : 'once'
-          const allow = candidate.allow === true
-          return label ? [{ label, scope, allow }] : []
-        })
-      : [],
-  }
-}
-
-function parsePermissionResultData(raw: string): PermissionResultData | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed) return null
-  return {
-    approved: parsed.approved === true,
-    scope: parsed.scope === 'session' ? 'session' : 'once',
-    message: typeof parsed.message === 'string' ? parsed.message : '',
-  }
-}
-
-function parseAskQuestionRequestData(raw: string): AskQuestionRequestData | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed) return null
-  const options = Array.isArray(parsed.options)
-    ? parsed.options.flatMap((option) => {
-        if (!option || typeof option !== 'object' || Array.isArray(option)) return []
-        const candidate = option as { label?: unknown; description?: unknown }
-        const label = typeof candidate.label === 'string' ? candidate.label : ''
-        if (!label) return []
-        const description = typeof candidate.description === 'string' ? candidate.description : undefined
-        return [description ? { label, description } : { label }]
-      })
-    : []
-  return {
-    question: typeof parsed.question === 'string' ? parsed.question : '',
-    options,
-    multi: parsed.multi === true,
-    allowCustom: parsed.allow_custom !== false, // default true
-  }
-}
-
-function parseAskQuestionResultData(raw: string): AskQuestionResultData | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed) return null
-  const status = parsed.status === 'cancelled' ? 'cancelled' : 'success'
-  return {
-    status,
-    output: typeof parsed.output === 'string' ? parsed.output : '',
-    errorMessage: typeof parsed.error_message === 'string' ? parsed.error_message : undefined,
-  }
-}
-
-function parseStepDecisionRequestData(raw: string): StepDecisionRequestData | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed) return null
-  return {
-    scope: parsed.scope === 'plan' ? 'plan' : 'step',
-    stepId: typeof parsed.step_id === 'string' ? parsed.step_id : '',
-    stepDescription: typeof parsed.step_description === 'string' ? parsed.step_description : '',
-    reason: typeof parsed.reason === 'string' ? parsed.reason : '',
-    attempts: typeof parsed.attempts === 'number' ? parsed.attempts : 0,
-    allowRetry: parsed.allow_retry === true,
-  }
-}
-
-function parseStepDecisionResultData(raw: string): StepDecisionResultData | null {
-  const parsed = parseJsonObject(raw)
-  if (!parsed) return null
-  const decision = parsed.decision === 'continue' || parsed.decision === 'retry' || parsed.decision === 'cancel'
-    ? parsed.decision
-    : 'cancel'
-  return {
-    decision,
-    note: typeof parsed.note === 'string' ? parsed.note : undefined,
-  }
-}
-
-function getConversationLabel(t: (key: string) => string, title = '', firstMessage = ''): string {
-  const raw = title.trim() || firstMessage.trim() || t('chat.newChat')
-  return raw.length > 24 ? `${raw.slice(0, 24)}...` : raw
-}
-
-function getToolDisplayName(t: (key: string) => string, name?: string): string {
-  const toolLabels: Record<string, string> = {
-    Bash: t('chat.tools.Bash'),
-    Read: t('chat.tools.Read'),
-    Edit: t('chat.tools.Edit'),
-    Write: t('chat.tools.Write'),
-    Grep: t('chat.tools.Grep'),
-    Glob: t('chat.tools.Glob'),
-    WebFetch: t('chat.tools.WebFetch'),
-    WebSearch: t('chat.tools.WebSearch'),
-    TavilySearch: t('chat.tools.TavilySearch'),
-    Agent: t('chat.tools.Agent'),
-    Skill: t('chat.tools.Skill'),
-    TaskCreate: t('chat.tools.TaskCreate'),
-    TaskGet: t('chat.tools.TaskGet'),
-    TaskUpdate: t('chat.tools.TaskUpdate'),
-    TaskList: t('chat.tools.TaskList'),
-    SendMessage: t('chat.tools.SendMessage'),
-    TeamCreate: t('chat.tools.TeamCreate'),
-    TeamDelete: t('chat.tools.TeamDelete'),
-    image_generate: t('chat.tools.ImageGenerate'),
-    read_file: t('chat.tools.Read'),
-    write_file: t('chat.tools.Write'),
-    search_query: t('chat.tools.WebSearch'),
-  }
-
-  if (!name) return t('chat.defaultToolName')
-  return toolLabels[name] || name.replace(/_/g, ' ')
-}
-
-function getPermissionOptionLabel(t: (key: string) => string, label: string): string {
-  const normalized = label.trim().toLowerCase()
-  if (normalized === 'allow once') return t('chat.permissions.allowOnce')
-  if (normalized === 'always allow in this session') return t('chat.permissions.alwaysAllow')
-  if (normalized === 'deny') return t('chat.permissions.deny')
-  return label
-}
-
-function formatDurationMs(durationMs?: number): string {
-  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs <= 0) return ''
-  if (durationMs < 1000) return `${Math.round(durationMs)}ms`
-  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`
-  const minutes = Math.floor(durationMs / 60_000)
-  const seconds = Math.round((durationMs % 60_000) / 1000)
-  return `${minutes}m ${seconds}s`
-}
-
-function getToolRenderHintLabel(t: (key: string) => string, renderHint?: string): string {
-  const labels: Record<string, string> = {
-    terminal: t('chat.toolRenderHint.terminal'),
-    code: t('chat.toolRenderHint.code'),
-    diff: t('chat.toolRenderHint.diff'),
-    file_info: t('chat.toolRenderHint.fileInfo'),
-    search: t('chat.toolRenderHint.search'),
-    markdown: t('chat.toolRenderHint.markdown'),
-    agent: t('chat.toolRenderHint.agent'),
-    skill: t('chat.toolRenderHint.skill'),
-    task: t('chat.toolRenderHint.task'),
-    message: t('chat.toolRenderHint.message'),
-    team: t('chat.toolRenderHint.team'),
-    plain: t('chat.toolRenderHint.plain'),
-  }
-  if (!renderHint) return t('chat.toolRenderHint.default')
-  return labels[renderHint] || renderHint
-}
-
-function getToolResultSummary(t: (key: string) => string, call: ToolActivity, result?: ToolActivity, filePreview?: FilePreviewData | null): string {
-  if (!result) return t('chat.toolResult.executing')
-  // v2 §6.5 — status routing. `cancelled` / `skipped` are NOT errors;
-  // surface a neutral message instead of the red error string. For
-  // `failed` we always prefer the engine's user-facing message
-  // (sourced from error.user_message via the main-process tool_result
-  // event) over any heuristic hint, so categorized errors like rate
-  // limits or contract failures get accurate copy.
-  if (result.status === 'cancelled') return t('chat.toolResult.cancelled')
-  if (result.status === 'skipped') return t('chat.toolResult.skipped')
-  if (result.status === 'failed' || result.isError) {
-    if (result.content) return result.content
-    return t('chat.toolResult.failed')
-  }
-  if (filePreview) return t('chat.toolResult.fileInvolved', { name: filePreview.fileName })
-  if (result.filePath) return t('chat.toolResult.fileAssociated', { name: getFileName(result.filePath) })
-  if (result.renderHint === 'search') return t('chat.toolResult.searchSummary')
-  if (result.renderHint === 'markdown') return t('chat.toolResult.markdownSummary')
-  if (result.renderHint === 'terminal') return t('chat.toolResult.terminalSummary')
-  if (result.renderHint === 'agent') return t('chat.toolResult.agentSummary')
-  if (call.name === 'Write' || call.name === 'write_file') return t('chat.toolResult.writeSummary')
-  if (call.name === 'Edit') return t('chat.toolResult.editSummary')
-  return t('chat.toolResult.stepCompleted')
-}
-
-interface BrowserSessionCardState {
-  session_id: string
-  visible: boolean
-  closed?: boolean
-}
-
-function normalizeBrowserSession(raw: unknown): BrowserSessionCardState | undefined {
-  if (!raw || typeof raw !== 'object') return undefined
-  const candidate = raw as Record<string, unknown>
-  const sessionID = typeof candidate.session_id === 'string' ? candidate.session_id.trim() : ''
-  if (!sessionID) return undefined
-  return {
-    session_id: sessionID,
-    visible: candidate.visible === true,
-    closed: candidate.closed === true,
-  }
-}
-
-function extractBrowserSessionID(call: ToolActivity, result?: ToolActivity): string {
-  if ((call.name || '').toLowerCase() !== 'browser_session_create') return ''
-  const metadataSessionID = typeof result?.metadata?.session_id === 'string' ? result.metadata.session_id.trim() : ''
-  if (metadataSessionID) return metadataSessionID
-  if (!result?.content) return ''
-  try {
-    const parsed = JSON.parse(result.content) as Record<string, unknown>
-    return typeof parsed.session_id === 'string' ? parsed.session_id.trim() : ''
-  } catch {
-    return ''
-  }
-}
-
-function extractBrowserSessionIDs(messages: Message[]): string[] {
-  const seen = new Set<string>()
-  const ids: string[] = []
-  for (const message of messages) {
-    const tools = message.tools || []
-    const results = tools.filter((tool) => tool.type === 'result')
-    for (const tool of tools) {
-      if (tool.type !== 'call') continue
-      const result = results.find((candidate) => candidate.callId === tool.callId)
-      const sessionID = extractBrowserSessionID(tool, result)
-      if (!sessionID || seen.has(sessionID)) continue
-      seen.add(sessionID)
-      ids.push(sessionID)
-    }
-  }
-  return ids
-}
-
-function normalizeBrowserSessionIDs(sessionIDs: string[]): string[] {
-  const seen = new Set<string>()
-  const next: string[] = []
-  for (const raw of sessionIDs) {
-    const sessionID = typeof raw === 'string' ? raw.trim() : ''
-    if (!sessionID || seen.has(sessionID)) continue
-    seen.add(sessionID)
-    next.push(sessionID)
-  }
-  return next
-}
-
-async function closeBrowserSessionIDs(sessionIDs: string[]): Promise<boolean> {
-  if (!window.browserAgent) return false
-  const targetIDs = normalizeBrowserSessionIDs(sessionIDs)
-  if (targetIDs.length === 0) return true
-  const res = await window.browserAgent.closeSessions(targetIDs)
-  return res.ok
-}
-
-function upsertBrowserSession(
-  sessions: BrowserSessionCardState[],
-  incoming: BrowserSessionCardState,
-): BrowserSessionCardState[] {
-  if (incoming.closed) {
-    return sessions.filter((session) => session.session_id !== incoming.session_id)
-  }
-  const index = sessions.findIndex((session) => session.session_id === incoming.session_id)
-  if (index === -1) return [...sessions, incoming]
-  const next = sessions.slice()
-  next[index] = incoming
-  return next
-}
-
-function selectBrowserSession(sessions: BrowserSessionCardState[]): BrowserSessionCardState | undefined {
-  const active = sessions.filter((session) => !session.closed)
-  for (let index = active.length - 1; index >= 0; index -= 1) {
-    if (active[index].visible) return active[index]
-  }
-  return active[active.length - 1]
-}
-
 function useBrowserSessionIndicator(sessionIDs: string[]): {
   session?: BrowserSessionCardState
   busy: boolean
@@ -3123,216 +1277,6 @@ function BrowserSessionIndicatorButton({
  * via `getToolErrorPresentation`. The renderer must never throw on an
  * unknown type and must never render the raw enum string to the user.
  */
-function getToolErrorPresentation(t: (key: string) => string, errorType?: string): { icon: string; label: string; color: 'amber' | 'orange' | 'red' | 'gray' } {
-  const presentations: Record<string, { icon: string; label: string; color: 'amber' | 'orange' | 'red' | 'gray' }> = {
-    invalid_input:     { icon: '📋', label: t('chat.toolError.invalidInput'),  color: 'amber'  },
-    permission_denied: { icon: '🔒', label: t('chat.toolError.permissionDenied'), color: 'amber'  },
-    tool_timeout:      { icon: '⏱', label: t('chat.toolError.timeout'),      color: 'orange' },
-    user_aborted:      { icon: '✋', label: t('chat.toolError.aborted'),    color: 'gray'   },
-    rate_limit:        { icon: '🌐', label: t('chat.toolError.rateLimit'),  color: 'orange' },
-    overloaded:        { icon: '🌐', label: t('chat.toolError.overloaded'),  color: 'orange' },
-    model_error:       { icon: '🤖', label: t('chat.toolError.modelError'),  color: 'orange' },
-    contract_fail:     { icon: '📋', label: t('chat.toolError.contractFail'),  color: 'amber'  },
-    dependency_fail:   { icon: '🔗', label: t('chat.toolError.dependencyFail'), color: 'orange' },
-    internal:          { icon: '⚠️', label: t('chat.toolError.internal'),  color: 'red'    },
-    unsupported_modality: { icon: '🖼', label: t('chat.toolError.unsupportedModality'), color: 'amber' },
-  }
-
-  if (errorType && Object.prototype.hasOwnProperty.call(presentations, errorType)) {
-    return presentations[errorType]
-  }
-  return presentations.internal
-}
-
-function getToolErrorColorClasses(color: 'amber' | 'orange' | 'red' | 'gray'): { badge: string; icon: string; text: string } {
-  switch (color) {
-    case 'amber':
-      return {
-        badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300',
-        icon: 'text-amber-500',
-        text: 'text-amber-600 dark:text-amber-400',
-      }
-    case 'orange':
-      return {
-        badge: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/40 dark:bg-orange-950/30 dark:text-orange-300',
-        icon: 'text-orange-500',
-        text: 'text-orange-600 dark:text-orange-400',
-      }
-    case 'gray':
-      return {
-        badge: 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300',
-        icon: 'text-slate-500',
-        text: 'text-slate-600 dark:text-slate-300',
-      }
-    case 'red':
-    default:
-      return {
-        badge: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300',
-        icon: 'text-red-500',
-        text: 'text-red-600 dark:text-red-400',
-      }
-  }
-}
-
-/**
- * v2 §12 — read structured ErrorInfo back out of `metadata.errorInfo`.
- * Used by `dbRowsToMessages` so that after a restart / session resume
- * (when the activity is reconstructed from the SQLite `metadata_json`
- * column) the renderer still has access to the categorized error type,
- * retryable hint, recovery action, dev-only message, etc.
- *
- * The main process writes the same structure into both the top-level
- * compat-event fields AND `metadata.errorInfo`, so live tool_result
- * events and DB-restored activities end up with identical shape.
- */
-function extractErrorInfoFromMetadata(metadata?: Record<string, unknown>): {
-  status?: string
-  errorType?: string
-  errorCode?: string
-  retryable?: boolean
-  retryAfterMs?: number
-  recovery?: ToolErrorRecovery
-  devMessage?: string
-} {
-  if (!metadata) return {}
-  const raw = metadata.errorInfo
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const r = raw as Record<string, unknown>
-  const recoveryRaw = r.recovery
-  const recovery = recoveryRaw && typeof recoveryRaw === 'object' && !Array.isArray(recoveryRaw)
-    ? {
-        action: typeof (recoveryRaw as Record<string, unknown>).action === 'string'
-          ? ((recoveryRaw as Record<string, unknown>).action as string)
-          : undefined,
-        next_card_id: typeof (recoveryRaw as Record<string, unknown>).next_card_id === 'string'
-          ? ((recoveryRaw as Record<string, unknown>).next_card_id as string)
-          : undefined,
-      }
-    : undefined
-  return {
-    status: typeof r.status === 'string' ? r.status : undefined,
-    errorType: typeof r.type === 'string' ? r.type : undefined,
-    errorCode: typeof r.code === 'string' ? r.code : undefined,
-    retryable: typeof r.retryable === 'boolean' ? r.retryable : undefined,
-    retryAfterMs: typeof r.retry_after_ms === 'number' ? r.retry_after_ms : undefined,
-    recovery,
-    devMessage: typeof r.message === 'string' ? r.message : undefined,
-  }
-}
-
-function getTaskStatusLabel(t: (key: string) => string, status: CollaborationTask['status']): string {
-  if (status === 'in_progress') return t('chat.taskStatus.inProgress')
-  if (status === 'completed') return t('chat.taskStatus.completed')
-  if (status === 'deleted') return t('chat.taskStatus.deleted')
-  return t('chat.taskStatus.pending')
-}
-
-function getTaskStatusClasses(status: CollaborationTask['status']): string {
-  if (status === 'in_progress') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-  if (status === 'completed') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-  if (status === 'deleted') return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-  return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-}
-
-function getSyncAgentStatusLabel(t: (key: string) => string, status: SyncAgentState['status']): string {
-  if (status === 'running') return t('chat.syncAgentStatus.running')
-  if (status === 'completed') return t('chat.syncAgentStatus.completed')
-  if (status === 'max_turns') return t('chat.syncAgentStatus.maxTurns')
-  if (status === 'model_error') return t('chat.syncAgentStatus.modelError')
-  if (status === 'aborted') return t('chat.syncAgentStatus.aborted')
-  if (status === 'timeout') return t('chat.syncAgentStatus.timeout')
-  return t('chat.syncAgentStatus.failed')
-}
-
-function getSyncAgentStatusClasses(status: SyncAgentState['status']): string {
-  if (status === 'running') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-  if (status === 'completed') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-  return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-}
-
-function getSyncAgentToolStatusClasses(status?: SyncAgentState['activeToolStatus']): string {
-  if (status === 'running') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-  if (status === 'completed') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-  if (status === 'error') return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-  return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-}
-
-function getAsyncAgentStatusLabel(t: (key: string) => string, status: AsyncAgentState['status']): string {
-  if (status === 'running') return t('chat.asyncAgentStatus.running')
-  if (status === 'idle') return t('chat.asyncAgentStatus.idle')
-  if (status === 'completed') return t('chat.asyncAgentStatus.completed')
-  return t('chat.asyncAgentStatus.failed')
-}
-
-function getAsyncAgentStatusClasses(status: AsyncAgentState['status']): string {
-  if (status === 'running') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-  if (status === 'idle') return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-  if (status === 'completed') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-  return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-}
-
-function getSubagentVisualStatus(status?: string): 'running' | 'completed' | 'failed' {
-  if (status === 'running') return 'running'
-  if (status === 'completed' || status === 'ok' || status === 'success') return 'completed'
-  return 'failed'
-}
-
-function getTeamEventLabel(t: (key: string) => string, team: TeamState): string {
-  if (team.lastEvent === 'member_join') return t('chat.teamEvent.memberJoin')
-  if (team.lastEvent === 'member_left') return t('chat.teamEvent.memberLeft')
-  if (team.lastEvent === 'deleted') return t('chat.teamEvent.deleted')
-  return t('chat.teamEvent.created')
-}
-
-function getTeamEventSummary(t: (key: string) => string, team: TeamState): string {
-  if (team.memberName) {
-    return team.lastEvent === 'member_left'
-      ? t('chat.teamEvent.memberLeftDesc', { name: team.memberName })
-      : team.lastEvent === 'member_join'
-        ? t('chat.teamEvent.memberJoined', { name: team.memberName })
-        : t('chat.teamEvent.memberChange', { name: team.memberName })
-  }
-  if (team.lastEvent === 'deleted') return t('chat.teamEvent.archivedDesc')
-  return t('chat.teamEvent.defaultDesc')
-}
-
-// ─── v1.13 Artifact helpers ────────────────────────────────────────────────
-
-/**
- * Pull `ArtifactRef[]` out of a tool result's metadata. Main process embeds
- * the engine-provided `artifacts` field inside metadata so the existing
- * metadata_json DB column round-trips it without a schema change.
- */
-function extractArtifactsFromActivity(activity: ToolActivity): ArtifactRef[] {
-  const raw = activity.metadata?.artifacts
-  if (!Array.isArray(raw)) return []
-  const refs: ArtifactRef[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const r = item as Record<string, unknown>
-    const id = typeof r.artifact_id === 'string' ? r.artifact_id : ''
-    if (!id) continue
-    refs.push({
-      artifact_id: id,
-      name: typeof r.name === 'string' ? r.name : undefined,
-      type: typeof r.type === 'string' ? r.type : undefined,
-      mime_type: typeof r.mime_type === 'string' ? r.mime_type : undefined,
-      size_bytes: typeof r.size_bytes === 'number' ? r.size_bytes : undefined,
-      description: typeof r.description === 'string' ? r.description : undefined,
-      preview_text: typeof r.preview_text === 'string' ? r.preview_text : undefined,
-      uri: typeof r.uri === 'string' ? r.uri : undefined,
-      role: typeof r.role === 'string' ? r.role : undefined,
-    })
-  }
-  return refs
-}
-
-function formatArtifactSize(size?: number): string {
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) return ''
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size >= 10 * 1024 ? 0 : 1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`
-}
 
 /**
  * Top-bar button that lists every artifact produced in the current session.
@@ -5144,7 +3088,13 @@ export function ChatPage() {
     })
   }, [sessionMap, sessions, dbSessions])
   const activeSessionMeta = displayedSessions.find((session) => session.key === activeSessionId)
-  const activeSessionPromptRaw = activeSessionMeta?.title || activeSessionMeta?.firstMsg || t('chat.newChat')
+  // 标题优先用首条用户消息「全文」（剥离附件/项目上下文块标记），这样横向拉宽能持续
+  // 显示更多内容，放不下的再单行省略；数据库 title 常被引擎截成第一句，故仅在没有本地
+  // 消息时才回退到它。
+  const activeFirstMsgClean = activeSessionMeta?.firstMsg
+    ? stripProjectContextBlock(extractAttachments(activeSessionMeta.firstMsg).content).trim()
+    : ''
+  const activeSessionPromptRaw = activeFirstMsgClean || activeSessionMeta?.title || t('chat.newChat')
   const activeSessionPrompt = activeSessionPromptRaw.replace(/\n/g, ' ').trim()
   const activeProjectContext = activeSessionId ? sessionProjectContexts[activeSessionId] : routeProjectContext
   const activeSessionDbRow = activeSessionId ? dbSessions.find((session) => session.session_id === activeSessionId) : null
@@ -5291,6 +3241,20 @@ export function ChatPage() {
         attempts: typeof body.attempts === 'number' ? body.attempts : 0,
         allowRetry: body.allow_retry === true,
       }
+    }
+    return null
+  }, [pendingAssistantMessage])
+
+  // 授权(permission)与 step_decision 同属"必须用户回应的交互"，改为在输入框
+  // 上方以 banner 形式展示（而非对话流内），这里挑出当前回合尚未回应的授权请求。
+  const pendingPermission = useMemo(() => {
+    const tools = pendingAssistantMessage?.tools
+    if (!tools || tools.length === 0) return null
+    for (const tool of tools) {
+      if (tool.type !== 'permission') continue
+      const answered = tools.some((r) => r.type === 'permission_result' && r.callId === tool.callId)
+      if (answered) continue
+      return tool
     }
     return null
   }, [pendingAssistantMessage])
@@ -8408,6 +6372,18 @@ export function ChatPage() {
                   </div>
                 )}
 
+                {/* 授权卡：设计稿是卡片最底部藏到输入框后面（故上圆角、平底）。
+                    用负 margin 让下方输入框上移、盖住卡片下沿；输入框是 relative +
+                    不透明 bg-card，会自然覆盖非定位的卡片。18px 可按需微调。 */}
+                {pendingPermission && (
+                  <div className="-mb-[26px]">
+                    <PermissionRequestCard
+                      request={pendingPermission}
+                      onRespondPermission={respondPermission}
+                    />
+                  </div>
+                )}
+
                 <div
                   className={cn(
                     'chat-composer-shell relative overflow-hidden rounded-[28px] border bg-card shadow-[0_12px_36px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow]',
@@ -9480,14 +7456,8 @@ function MessageBubble({
                   }
                   // Permission, question, step_decision always show (user interaction needed)
                   if (item.kind === 'permission') {
-                    return (
-                      <PermissionRequestCard
-                        key={item.request.callId || `${i}-${itemIndex}`}
-                        request={item.request}
-                        result={item.result}
-                        onRespondPermission={onRespondPermission}
-                      />
-                    )
+                    // 授权改到输入框上方的 banner 展示，对话流内不再渲染。
+                    return null
                   }
                   if (item.kind === 'question') {
                     return (
@@ -9653,14 +7623,8 @@ function MessageBubble({
                           }
                           // Permission, question, step_decision always show
                           if (item.kind === 'permission') {
-                            return (
-                              <PermissionRequestCard
-                                key={item.request.callId || `sub-perm-${i}-${agentIdx}-${itemIndex}`}
-                                request={item.request}
-                                result={item.result}
-                                onRespondPermission={onRespondPermission}
-                              />
-                            )
+                            // 授权改到输入框上方的 banner 展示，对话流内不再渲染。
+                            return null
                           }
                           if (item.kind === 'question') {
                             return (
@@ -10128,15 +8092,8 @@ function AgentTeamPanel({
                     }
 
                     if (item.kind === 'permission') {
-                      return (
-                        <div key={itemKey} className="subagent-stream-item" data-live={itemIsLive ? 'true' : undefined}>
-                          <PermissionRequestCard
-                            request={item.request}
-                            result={item.result}
-                            onRespondPermission={onRespondPermission}
-                          />
-                        </div>
-                      )
+                      // 授权改到输入框上方的 banner 展示，对话流内不再渲染。
+                      return null
                     }
 
                     if (item.kind === 'question') {
@@ -10682,7 +8639,9 @@ function PermissionRequestCard({
   const contentId = useId()
   const requestData = parsePermissionRequestData(request.content)
   const resultData = result ? parsePermissionResultData(result.content) : null
-  const isResolved = !!resultData
+
+  // 授权完成后（用户已选择），对话中不再展示授权过程 —— 卡片直接消失。
+  if (resultData) return null
 
   const handleRespond = async (approved: boolean, scope: 'once' | 'session', label: string) => {
     if (!request.callId || submitting) return
@@ -10702,116 +8661,93 @@ function PermissionRequestCard({
         { label: t('chat.permissions.deny'), scope: 'once' as const, allow: false },
       ]
 
-  const resultLabel = resultData
-    ? resultData.approved
-      ? resultData.scope === 'session' ? t('chat.permissions.sessionAllowed') : t('chat.permissions.onceAllowed')
-      : t('chat.permissions.denied')
-    : t('chat.permissions.waiting')
+  const hasDetails = !!(requestData?.command || requestData?.toolInput)
+
+  // 详情文案：引擎消息若不含中文（多为英文样板），回退到本地化说明，保证中英各自成句。
+  const rawDetail = (requestData?.message || requestData?.description || '').trim()
+  const permissionDetail = /[一-鿿]/.test(rawDetail)
+    ? rawDetail
+    : requestData?.isReadOnly
+      ? t('chat.permissions.readOnlyDetail')
+      : t('chat.permissions.writeDetail')
 
   return (
-    <div className="mb-1.5">
-      <div className="overflow-hidden rounded-xl border border-amber-200/80 bg-amber-50/80 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
-        <div className="flex items-start gap-2 px-3 py-2">
-          {isResolved ? (
-            resultData?.approved ? (
-              <Check size={12} className="mt-0.5 flex-shrink-0 text-green-600" />
-            ) : (
-              <AlertCircle size={12} className="mt-0.5 flex-shrink-0 text-red-500" />
-            )
-          ) : (
-            <AlertCircle size={12} className="mt-0.5 flex-shrink-0 text-amber-600" />
+    <div>
+      {/* 容器规格参考设计稿：暖橙浅底 + 上圆角 + 12px 竖向间距，紧贴输入框顶部 */}
+      <div
+        className="flex flex-col gap-3 rounded-t-[18px] border border-[#DA9F67]/50 bg-[#DA9F67]/[0.08] px-3 pt-4 pb-[38px]"
+        style={{ fontFamily: 'Source Han Sans CN' }}
+      >
+        {/* 标题 + 详情为一组：组内 6px（详情 top:26 = 标题底 20 + 6px），与按钮组保持卡片的 12px 间距 */}
+        <div className="flex flex-col gap-1.5">
+        {/* 标题行 */}
+        <div className="flex items-center gap-1">
+          <img src={permissionIcon} alt="" aria-hidden="true" className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className="flex-1 truncate text-[12px] font-medium leading-5 text-black/88">
+            {t('chat.permissions.needsConfirmation')}
+          </span>
+          {hasDetails && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-black/30 transition-colors hover:bg-black/5"
+              aria-label={expanded ? t('chat.permissions.collapseDetails') : t('chat.permissions.expandDetails')}
+              aria-expanded={expanded}
+              aria-controls={contentId}
+            >
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
           )}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="flex-1 truncate text-xs font-medium text-foreground">
-                {t('chat.permissions.needsConfirmation')}
-              </span>
-              <span className={cn(
-                'flex-shrink-0 text-[10px]',
-                isResolved
-                  ? resultData?.approved ? 'text-green-600' : 'text-red-500'
-                  : 'text-amber-700 dark:text-amber-300'
-              )}>
-                {resultLabel}
-              </span>
-            </div>
-            <div className="mt-1 rounded-lg border border-amber-200/70 bg-white/70 px-2.5 py-2 dark:border-amber-900/30 dark:bg-background/80">
-              {requestData?.command ? (
-                <pre className="max-h-[132px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-black/[0.04] px-2 py-1.5 text-[11px] leading-5 font-mono text-foreground/90 dark:bg-white/[0.05]">
-                  {requestData.command}
-                </pre>
-              ) : (
-                <p className="max-h-[120px] overflow-y-auto break-all text-[11px] leading-5 text-foreground/90">
-                  {requestData?.message || t('chat.permissions.defaultMessage')}
-                </p>
-              )}
-              {!requestData?.command && requestData?.description && (
-                <p className="mt-1 max-h-[120px] overflow-y-auto break-all text-[10px] leading-5 text-muted-foreground">
-                  {requestData.description}
-                </p>
-              )}
-            </div>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span>{requestData?.isReadOnly ? t('chat.permissions.readOnly') : t('chat.permissions.modifiesEnv')}</span>
-              {request.name && <span>{getToolDisplayName(t, request.name)}</span>}
-            </div>
-            {!requestData?.command && requestData?.message && requestData.description && (
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {requestData.message}
-              </p>
-            )}
-
-            {!isResolved && (
-              <div className="mt-2 flex items-center gap-2">
-                {options.map((option) => (
-                  <button
-                    key={`${option.label}-${option.scope}-${String(option.allow)}`}
-                    onClick={() => void handleRespond(option.allow, option.scope, option.label)}
-                    disabled={!!submitting}
-                    className={cn(
-                      'min-h-11 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-                      option.allow
-                        ? option.scope === 'session'
-                          ? 'bg-blue-600 text-white hover:bg-blue-700'
-                          : 'bg-green-600 text-white hover:bg-green-700'
-                        : 'border border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:bg-[#191f2c] dark:text-red-300 dark:hover:bg-red-950/30'
-                    )}
-                  >
-                    {submitting === option.label ? t('chat.permissions.submitting') : getPermissionOptionLabel(t, option.label)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
-            aria-label={expanded ? t('chat.permissions.collapseDetails') : t('chat.permissions.expandDetails')}
-            aria-expanded={expanded}
-            aria-controls={contentId}
-          >
-            {expanded ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
-          </button>
         </div>
 
-        <div id={contentId} hidden={!expanded} className="space-y-2 border-t border-amber-200/70 px-3 py-2 dark:border-amber-900/30">
-          {requestData?.toolInput && (
-            <div>
-              <p className="mb-1 text-[10px] text-muted-foreground">{t('chat.permissions.detailsLabel')}</p>
-              <pre className="max-h-[136px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background/80 p-2 text-[11px] leading-5 font-mono text-foreground/80">
+        {/* 授权详情 */}
+        <p className="whitespace-pre-wrap break-words text-[12px] font-normal leading-5 text-black/45">
+          {t('chat.permissions.detailPrefix')}
+          {permissionDetail}
+        </p>
+        </div>
+
+        {/* 展开：完整命令 / 参数 */}
+        {hasDetails && (
+          <div id={contentId} hidden={!expanded} className="space-y-2">
+            {requestData?.command && (
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-black/[0.04] px-2.5 py-2 text-[11px] font-mono text-black/70">
+                {requestData.command}
+              </pre>
+            )}
+            {requestData?.toolInput && (
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/[0.04] px-2.5 py-2 text-[11px] font-mono text-black/70">
                 {requestData.toolInput}
               </pre>
-            </div>
-          )}
-          {resultData?.message && (
-            <div>
-              <p className="mb-1 text-[10px] text-muted-foreground">{t('chat.permissions.resultLabel')}</p>
-              <pre className="max-h-[136px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background/80 p-2 text-[11px] leading-5 font-mono text-foreground/80">
-                {resultData.message}
-              </pre>
-            </div>
-          )}
+            )}
+          </div>
+        )}
+
+        {/* 按钮：右下角对齐（严格按设计图）。文案按语义固定，忽略服务端原始标签
+            （如 "Always allow browser_agent in this session"）。允许=#21496B 文字按钮，
+            拒绝=#21496B 深色胶囊。 */}
+        <div className="flex items-center justify-end gap-3">
+          {options.map((option) => {
+            const optionLabel = !option.allow
+              ? t('chat.permissions.deny')
+              : option.scope === 'session'
+                ? t('chat.permissions.alwaysAllow')
+                : t('chat.permissions.allowOnce')
+            return (
+              <button
+                key={`${option.label}-${option.scope}-${String(option.allow)}`}
+                onClick={() => void handleRespond(option.allow, option.scope, option.label)}
+                disabled={!!submitting}
+                className={cn(
+                  'text-[12px] font-normal leading-5 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                  option.allow
+                    ? 'rounded-full bg-white px-1.5 py-px text-[#21496B] hover:bg-gray-50'
+                    : 'rounded-full bg-[#21496B] px-1.5 py-px text-white hover:bg-[#21496B]/90'
+                )}
+              >
+                {submitting === option.label ? t('chat.permissions.submitting') : optionLabel}
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>
@@ -10933,10 +8869,10 @@ function AskUserQuestionCard({
         {/* 浅灰面板 */}
         <div className="m-2 rounded-lg bg-[#F7F7F7] px-4 py-3">
           {/* 标题 + 问题文本 */}
-          <p className="text-[13px] font-medium text-black/88">
+          <p className="text-sm font-medium text-black/88">
             {t('chat.ask.choosePrompt')}
           </p>
-          <p className="mt-1.5 whitespace-pre-wrap break-words text-[12px] leading-5 text-black/45">
+          <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-black/45">
             {requestData?.question || t('chat.ask.defaultQuestion')}
           </p>
 
@@ -10959,7 +8895,7 @@ function AskUserQuestionCard({
                           disabled={optionDisabled}
                           className="flex w-full items-center justify-between py-2.5 text-left transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <span className="text-[12px] text-black/45">
+                          <span className="text-sm text-black/45">
                             {option.label}
                           </span>
                           {/* 右侧选中标记 */}
@@ -10994,7 +8930,7 @@ function AskUserQuestionCard({
                     onKeyDown={handleKeyDown}
                     disabled={submitting || selected.size > 0}
                     placeholder={t('chat.ask.otherPlaceholder')}
-                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] text-black/88 placeholder:text-black/15 focus:outline-none focus:ring-2 focus:ring-[#FF8F1F]/40 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-black/88 placeholder:text-black/15 focus:outline-none focus:ring-2 focus:ring-[#FF8F1F]/40 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                 </div>
               )}

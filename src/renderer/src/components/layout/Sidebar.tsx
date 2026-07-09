@@ -883,7 +883,9 @@ export function Sidebar() {
         aria-label={t('sidebar.mainNavigationAria')}
         style={expanded ? { width: `${sidebarWidth}px` } : undefined}
         className={cn(
-          'relative flex-shrink-0 bg-card border-r border-border flex flex-col pt-8 pb-3 select-none overflow-hidden',
+          'relative flex-shrink-0 bg-card flex flex-col pt-8 pb-3 select-none overflow-hidden',
+          // 主页侧边栏与右侧暖色背景直接相接，不要灰色竖分割线（设计稿）；其余页面保留。
+          location.pathname !== '/' && 'border-r border-border',
           !isResizing && 'transition-[width] duration-200',
           expanded ? 'items-start px-2' : 'w-[78px] items-center'
         )}
@@ -1207,8 +1209,8 @@ export function Sidebar() {
                           className={cn(
                             'group rounded-xl px-1 py-0.5 transition-colors',
                           selectedRecentSessionId === item.id
-                            ? 'bg-accent text-[#222529] dark:bg-[#20283b] dark:text-[#eef2ff]'
-                            : 'text-[#222529] hover:bg-accent dark:text-[#c3cad8] dark:hover:bg-[#1b2130] dark:hover:text-[#f4f7fb]'
+                            ? 'bg-[rgba(226,226,226,0.46)] text-[#222529]'
+                            : 'text-[#222529] hover:bg-[rgba(226,226,226,0.2)]'
                         )}
                       >
                         <div className="flex items-center gap-1">
@@ -1293,8 +1295,8 @@ export function Sidebar() {
               className={cn(
                 'flex flex-1 items-center gap-1.5 rounded-lg px-3 py-2 transition-colors',
                 isActive('/settings')
-                  ? 'bg-accent text-foreground'
-                  : 'text-foreground/78 hover:text-foreground hover:bg-accent'
+                  ? 'bg-[rgba(226,226,226,0.46)] text-foreground'
+                  : 'text-foreground/78 hover:text-foreground hover:bg-[rgba(226,226,226,0.2)]'
               )}
             >
               <img src={iconSettings} alt="" className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />

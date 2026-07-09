@@ -17,8 +17,11 @@ type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 const MIN_W = 960
 const MIN_H = 650
 
-const EDGE = 6 // px thickness of the edge strips
-const CORNER = 14 // px size of the corner squares
+// 主窗口内容内缩 12px 承载投影(见 AppLayout 的 m-3)。若命中区只贴窗口最外沿，用户在
+// 「可视卡片边缘」就无法缩放，得把鼠标移到阴影外沿才行。把命中区加厚到覆盖这圈留白
+// (12px)并略进入卡片，让缩放从可视边界即可触发。若改动 AppLayout 的 m-3，这里同步。
+const EDGE = 16 // px thickness of the edge strips
+const CORNER = 22 // px size of the corner squares
 
 export function WindowResizeHandles() {
   const maximized = useWindowMaximized()

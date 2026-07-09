@@ -1242,10 +1242,10 @@ export function HomePage() {
                     <button
                       key={caseItem.id}
                       onClick={() => handleCaseClick(caseItem)}
-                      className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-md min-h-[120px]"
+                      className="group flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-all hover:shadow-md min-h-[120px]"
                     >
                       {/* 标题 */}
-                      <h3 className="text-base font-medium text-foreground group-hover:text-primary transition-colors">
+                      <h3 className="text-base font-medium text-foreground">
                         {t(`home.cases.${caseItem.id}.title`)}
                       </h3>
 

@@ -6561,7 +6561,7 @@ function UpdateSection() {
               {status === 'not-available' && t('updates.notAvailable')}
               {status === 'downloading' && t('updates.downloading')}
               {status === 'downloaded' && t('updates.downloaded')}
-              {status === 'error' && t('updates.error')}
+              {status === 'error' && t('updates.error', { message })}
             </p>
             {version && <p className="mt-0.5 text-xs text-muted-foreground">{t('updates.version', { version })}</p>}
           </div>
@@ -7897,7 +7897,7 @@ export function SettingsPage() {
       <nav className="w-48 flex-shrink-0 border-r border-border bg-card flex flex-col py-4 gap-0.5 px-2">
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 px-2 py-1.5 mb-2 rounded-lg text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex items-center gap-1.5 px-2 py-1.5 mb-2 rounded-lg text-sm text-muted-foreground transition-colors hover:bg-[rgba(226,226,226,0.2)] hover:text-foreground"
         >
           <ArrowLeft size={16} className="flex-shrink-0" />
           {t('settings.back')}
@@ -7919,8 +7919,8 @@ export function SettingsPage() {
                 className={cn(
                   'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left',
                   active === key
-                    ? 'bg-accent text-foreground font-medium'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    ? 'bg-[rgba(226,226,226,0.46)] text-foreground font-medium'
+                    : 'text-muted-foreground hover:bg-[rgba(226,226,226,0.2)] hover:text-foreground'
                 )}
               >
                 <Icon size={15} className="flex-shrink-0" />
