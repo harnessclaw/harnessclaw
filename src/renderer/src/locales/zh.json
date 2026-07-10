@@ -33,10 +33,10 @@
   },
   "sidebar": {
     "home": "首页",
-    "newTask": "新任务",
-    "scheduler": "定时任务",
+    "newTask": "新对话",
+    "scheduler": "已安排",
     "xLab": "X·LAB",
-    "skills": "技能",
+    "skills": "插件",
     "chat": "对话",
     "projects": "项目",
     "team": "团队",
@@ -45,6 +45,12 @@
     "noRecent": "没有对话",
     "untitledSession": "未命名对话",
     "noProjects": "没有项目",
+    "pinned": "置顶",
+    "noPinned": "暂无置顶",
+    "pinnedExpandAria": "展开置顶",
+    "pinnedCollapseAria": "收起置顶",
+    "userPlan": "本地版",
+    "userName": "本地用户",
     "showMore": "展开显示",
     "newProjectConversation": "在 {{name}} 中新建对话",
     "ageMinutes": "{{count}} 分钟",
@@ -328,6 +334,10 @@
   "xlab": {
     "title": "X·LAB",
     "description": "实验场。即将上线的实验性功能与早期预览会陆续在这里出现，敬请期待。"
+  },
+  "scheduler": {
+    "title": "已安排",
+    "description": "定时任务。你安排的自动化任务会出现在这里，功能开发中。"
   },
   "skills": {
     "title": "技能",

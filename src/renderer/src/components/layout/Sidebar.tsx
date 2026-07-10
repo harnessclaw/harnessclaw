@@ -169,15 +169,20 @@ export function Sidebar() {
     {
       items: [
         { icon: Plus, path: '/', label: t('sidebar.newTask') },
-        // 暂隐藏(功能未完成,保留代码勿删):定时任务 / 团队
-        // { icon: Clock, path: '/scheduler', label: t('sidebar.scheduler') },
+        // 搜索按钮由 renderSearchButton() 紧跟在这一项后面渲染
+      ],
+    },
+    {
+      items: [
+        { icon: Clock, path: '/scheduler', label: t('sidebar.scheduler') },
+        { icon: Puzzle, path: '/skills', label: t('sidebar.skills') },
         // 暂隐藏(保留代码勿删):对话导航入口
         // { icon: MessageSquareText, path: '/sessions', label: t('sidebar.chat') },
-        { icon: Puzzle, path: '/skills', label: t('sidebar.skills') },
         // 暂隐藏(保留代码勿删):项目导航入口
         // { icon: FolderKanban, path: '/projects', label: t('sidebar.projects') },
         // { icon: Users, path: '/team', label: t('sidebar.team') },
-        { icon: FlaskConical, path: '/x-lab', label: t('sidebar.xLab') },
+        // 暂隐藏(设计图未包含,保留代码勿删):X·LAB 入口
+        // { icon: FlaskConical, path: '/x-lab', label: t('sidebar.xLab') },
       ],
     },
   ], [t])
@@ -194,6 +199,7 @@ export function Sidebar() {
   })
   const [isResizing, setIsResizing] = useState(false)
   const [recentExpanded, setRecentExpanded] = useState(() => localStorage.getItem('sidebar-recent-expanded') !== 'false')
+  const [pinnedExpanded, setPinnedExpanded] = useState(() => localStorage.getItem('sidebar-pinned-expanded') !== 'false')
   const [recentSessions, setRecentSessions] = useState<RecentSessionItem[]>([])
   const [menuState, setMenuState] = useState<FloatingMenuState | null>(null)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
@@ -363,6 +369,12 @@ export function Sidebar() {
     const next = !recentExpanded
     setRecentExpanded(next)
     localStorage.setItem('sidebar-recent-expanded', String(next))
+  }
+
+  const togglePinnedExpanded = () => {
+    const next = !pinnedExpanded
+    setPinnedExpanded(next)
+    localStorage.setItem('sidebar-pinned-expanded', String(next))
   }
 
   const toggleProjectsExpanded = () => {
@@ -744,11 +756,12 @@ export function Sidebar() {
     }
   }
 
+  // border-transparent 在未选中态也占位,避免选中瞬间因多出 1px 边框而抖动
   const itemCls = (active: boolean) => cn(
-    'flex items-center transition-colors flex-shrink-0',
+    'flex items-center transition-colors flex-shrink-0 border border-transparent',
     expanded ? 'w-full gap-2.5 px-3 py-2.5 rounded-lg' : 'h-10 w-8 justify-center rounded-[10px]',
     active
-      ? 'bg-[rgba(226,226,226,0.46)] text-[#222529] dark:bg-[#20283b] dark:text-[#eef2ff]'
+      ? 'border-border bg-[rgba(226,226,226,0.46)] text-[#222529] dark:bg-[#20283b] dark:text-[#eef2ff]'
       : 'text-[#222529]/78 hover:bg-[rgba(226,226,226,0.20)] hover:text-[#222529] dark:text-[#c3cad8]/85 dark:hover:bg-[#1b2130] dark:hover:text-[#f4f7fb]'
   )
 
@@ -907,7 +920,9 @@ export function Sidebar() {
             {navGroups.map((group, index) => (
               <div
                 key={index}
-                className={cn('mt-4 flex w-full flex-col gap-2', !expanded && 'items-center')}
+                // mt-4 只用来和顶部 logo 拉开距离。组间距离由父容器的 gap-4 提供,
+                // 再叠一层 mt-4 会让「搜索 → 已安排」比组内行距多出 24px。
+                className={cn('flex w-full flex-col gap-2', index === 0 && 'mt-4', !expanded && 'items-center')}
               >
                 {group.items.map((item, itemIndex) => (
                   <div key={item.path} className={cn('flex w-full flex-col gap-2', !expanded && 'items-center')}>
@@ -971,6 +986,46 @@ export function Sidebar() {
 
           {expanded && (
             <div className="mt-6 flex min-h-0 w-full flex-1 flex-col gap-3 pb-3">
+              {/* 「置顶」分组。置顶数据源尚未落库(sessions/projects 表还没有
+                  pinned_at 字段),这里先按设计图占好位置,恒定渲染空态。
+                  接入后把 pinnedItems 换成真实列表即可。 */}
+              <section className="flex min-h-0 flex-shrink-0 flex-col">
+                <div
+                  className="group/module mb-2 flex max-w-full items-center justify-start gap-2 rounded-lg px-3 py-1.5 text-xs font-normal text-[#767676] transition-colors hover:bg-accent/50 hover:text-[#767676] dark:text-[#9aa4b2] dark:hover:bg-[#1b2130] dark:hover:text-[#d7deea]"
+                  style={{ lineHeight: '24px' }}
+                >
+                  <button
+                    onClick={togglePinnedExpanded}
+                    className="flex min-w-0 items-center gap-2 text-left"
+                    aria-expanded={pinnedExpanded}
+                    aria-label={pinnedExpanded ? t('sidebar.pinnedCollapseAria') : t('sidebar.pinnedExpandAria')}
+                  >
+                    <span className="text-left">{t('sidebar.pinned')}</span>
+                  </button>
+                  <SidebarTooltip label={pinnedExpanded ? t('common.collapse') : t('common.expand')}>
+                    <button
+                      type="button"
+                      onClick={togglePinnedExpanded}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-md transition-all duration-200 hover:bg-background/80"
+                      aria-expanded={pinnedExpanded}
+                      aria-label={pinnedExpanded ? t('sidebar.pinnedCollapseAria') : t('sidebar.pinnedExpandAria')}
+                    >
+                      <img
+                        src={iconRecentArrow}
+                        alt=""
+                        aria-hidden="true"
+                        className={cn('transition-transform duration-200', pinnedExpanded ? 'rotate-180' : 'rotate-90')}
+                      />
+                    </button>
+                  </SidebarTooltip>
+                </div>
+                {pinnedExpanded && (
+                  <div className="px-3 py-2 text-xs leading-5 text-[#767676] dark:text-[#9aa4b2]">
+                    {t('sidebar.noPinned')}
+                  </div>
+                )}
+              </section>
+
               <section className="flex max-h-[46%] min-h-0 flex-col">
                 <div
                   className="group/module mb-2 flex max-w-full items-center justify-start gap-2 rounded-lg px-3 py-1.5 text-xs font-normal text-[#767676] transition-colors hover:bg-accent/50 hover:text-[#767676] dark:text-[#9aa4b2] dark:hover:bg-[#1b2130] dark:hover:text-[#d7deea]"
@@ -982,14 +1037,13 @@ export function Sidebar() {
                     aria-expanded={projectsExpanded}
                     aria-label={projectsExpanded ? t('sidebar.projectsCollapseAria') : t('sidebar.projectsExpandAria')}
                   >
-                    <FolderKanban size={13} />
                     <span className="text-left">{t('sidebar.projects')}</span>
                   </button>
                   <SidebarTooltip label={projectsExpanded ? t('common.collapse') : t('common.expand')}>
                     <button
                       type="button"
                       onClick={toggleProjectsExpanded}
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-md opacity-0 transition-all duration-200 hover:bg-background/80 group-hover/module:opacity-100 focus-visible:opacity-100"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-md transition-all duration-200 hover:bg-background/80"
                       aria-expanded={projectsExpanded}
                       aria-label={projectsExpanded ? t('sidebar.projectsCollapseAria') : t('sidebar.projectsExpandAria')}
                     >
@@ -997,7 +1051,7 @@ export function Sidebar() {
                         src={iconRecentArrow}
                         alt=""
                         aria-hidden="true"
-                        className={cn('transition-transform duration-200', !projectsExpanded && 'rotate-180')}
+                        className={cn('transition-transform duration-200', projectsExpanded ? 'rotate-180' : 'rotate-90')}
                       />
                     </button>
                   </SidebarTooltip>
@@ -1168,7 +1222,7 @@ export function Sidebar() {
                     <button
                       type="button"
                       onClick={toggleRecentExpanded}
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-md opacity-0 transition-all duration-200 hover:bg-background/80 group-hover/module:opacity-100 focus-visible:opacity-100"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-md transition-all duration-200 hover:bg-background/80"
                       aria-expanded={recentExpanded}
                       aria-label={recentExpanded ? t('sidebar.recentCollapseAria') : t('sidebar.recentExpandAria')}
                     >
@@ -1176,7 +1230,7 @@ export function Sidebar() {
                         src={iconRecentArrow}
                         alt=""
                         aria-hidden="true"
-                        className={cn('transition-transform duration-200', !recentExpanded && 'rotate-180')}
+                        className={cn('transition-transform duration-200', recentExpanded ? 'rotate-180' : 'rotate-90')}
                       />
                     </button>
                   </SidebarTooltip>
@@ -1332,6 +1386,25 @@ export function Sidebar() {
             >
               <img src={iconSettings} alt="" className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />
             </button>
+          </div>
+        )}
+
+        {/* 底部用户卡。客户端目前没有账号体系,姓名与套餐是占位文案 ——
+            接入登录后换成真实用户信息。折叠态不渲染:顶部已有一枚头像。 */}
+        {expanded && (
+          <div className="mt-1.5 flex w-full items-center gap-2 rounded-lg px-2 py-2">
+            <img
+              src={sidebarAvatar}
+              alt=""
+              aria-hidden="true"
+              className="h-8 w-8 flex-shrink-0 rounded-full object-cover"
+            />
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-sm leading-5 text-foreground">{t('sidebar.userName')}</span>
+              <span className="truncate text-xs leading-4 text-[#767676] dark:text-[#9aa4b2]">
+                {t('sidebar.userPlan')}
+              </span>
+            </div>
           </div>
         )}
 

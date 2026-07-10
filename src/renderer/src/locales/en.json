@@ -33,10 +33,10 @@
   },
   "sidebar": {
     "home": "Home",
-    "newTask": "New Task",
-    "scheduler": "Scheduler",
+    "newTask": "New chat",
+    "scheduler": "Scheduled",
     "xLab": "X·LAB",
-    "skills": "Skills",
+    "skills": "Plugins",
     "chat": "Chat",
     "projects": "Projects",
     "team": "Team",
@@ -45,6 +45,12 @@
     "noRecent": "No conversations",
     "untitledSession": "Untitled conversation",
     "noProjects": "No projects",
+    "pinned": "Pinned",
+    "noPinned": "Nothing pinned",
+    "pinnedExpandAria": "Expand pinned",
+    "pinnedCollapseAria": "Collapse pinned",
+    "userPlan": "Local",
+    "userName": "Local user",
     "showMore": "Show more",
     "newProjectConversation": "New conversation in {{name}}",
     "ageMinutes": "{{count}}m",
@@ -328,6 +334,10 @@
   "xlab": {
     "title": "X·LAB",
     "description": "Experimental field. Upcoming experimental features and early previews will appear here. Stay tuned."
+  },
+  "scheduler": {
+    "title": "Scheduled",
+    "description": "Scheduled tasks. Automations you set up will show up here. Under development."
   },
   "skills": {
     "title": "Skills",
