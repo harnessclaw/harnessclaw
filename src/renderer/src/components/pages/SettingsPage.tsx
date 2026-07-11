@@ -6340,7 +6340,7 @@ function UISection() {
           <Segment options={[{ label: t('settings.ui.fontSizeSmall'), value: 'small' }, { label: t('settings.ui.fontSizeMedium'), value: 'medium' }, { label: t('settings.ui.fontSizeLarge'), value: 'large' }]} value={fontSize} onChange={(v) => updateUi({ fontSize: v })} />
         </SettingRow>
         <SettingRow label={t('settings.ui.language')} description={t('settings.ui.languageDesc')}>
-          <SelectInput value={language} onChange={(v) => updateUi({ language: v })} options={[{ label: t('settings.ui.languageZh'), value: 'zh' }, { label: t('settings.ui.languageEn'), value: 'en' }]} />
+          <SelectInput value={language} onChange={(v) => updateUi({ language: v })} options={[{ label: t('settings.ui.languageZh'), value: 'zh' }, { label: t('settings.ui.languageEn'), value: 'en' }, { label: t('settings.ui.languageKo'), value: 'ko' }]} />
         </SettingRow>
       </GroupCard>
 

@@ -1437,6 +1437,7 @@
       "languageDesc": "界面显示语言",
       "languageZh": "中文",
       "languageEn": "English",
+      "languageKo": "한국어",
       "editor": "代码编辑器",
       "codeTheme": "代码主题",
       "codeThemeDesc": "代码块的语法高亮风格",

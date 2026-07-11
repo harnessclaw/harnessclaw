@@ -1431,6 +1431,7 @@
       "languageDesc": "Interface display language",
       "languageZh": "中文",
       "languageEn": "English",
+      "languageKo": "한국어",
       "editor": "Code Editor",
       "codeTheme": "Code Theme",
       "codeThemeDesc": "Syntax highlighting style for code blocks",
