@@ -64,7 +64,7 @@
     "recentExpandAria": "최근 항목 펼치기",
     "recentCollapseAria": "최근 항목 접기",
     "switchToEnglish": "영어로 전환",
-    "switchToChinese": "切换为中文",
+    "switchToChinese": "중국어로 전환",
     "switchDark": "다크 모드",
     "switchLight": "라이트 모드",
     "switchDarkAria": "다크 모드로 전환",
@@ -1098,12 +1098,12 @@
         "title": "로깅",
         "level": "로그 레벨",
         "levelDesc": "로그의 최소 레벨입니다. 낮은 레벨일수록 더 상세합니다 (fatal이 가장 적고, trace가 가장 많습니다).",
-        "fatal": "Fatal",
-        "error": "Error",
-        "warn": "Warn",
-        "info": "Info",
-        "debug": "Debug",
-        "trace": "Trace"
+        "fatal": "치명적",
+        "error": "오류",
+        "warn": "경고",
+        "info": "정보",
+        "debug": "디버그",
+        "trace": "추적"
       },
       "telemetry": {
         "title": "사용 통계",
@@ -1521,12 +1521,12 @@
       "copy": "복사",
       "copied": "복사됨",
       "levels": {
-        "fatal": "Fatal",
-        "error": "Error",
-        "warn": "Warn",
-        "info": "Info",
-        "debug": "Debug",
-        "trace": "Trace"
+        "fatal": "치명적",
+        "error": "오류",
+        "warn": "경고",
+        "info": "정보",
+        "debug": "디버그",
+        "trace": "추적"
       },
       "viewModes": {
         "parsed": "파싱됨",
