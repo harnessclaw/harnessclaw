@@ -1,0 +1,2135 @@
+{
+  "common": {
+    "loading": "로딩 중...",
+    "loadFailed": "불러오기 실패",
+    "saving": "저장 중...",
+    "saved": "저장됨",
+    "error": "오류",
+    "seconds": "초",
+    "locale": "ko-KR",
+    "confirm": "확인",
+    "cancel": "취소",
+    "save": "저장",
+    "delete": "삭제",
+    "edit": "편집",
+    "close": "닫기",
+    "refresh": "새로고침",
+    "search": "검색",
+    "advanced": "고급",
+    "collapse": "접기",
+    "and": "및",
+    "docs": "문서",
+    "forMoreDetails": "자세한 내용 보기",
+    "manage": "관리",
+    "add": "추가",
+    "confirmDelete": "삭제하시겠습니까?",
+    "processing": "처리 중...",
+    "actions": {
+      "more": "더보기"
+    },
+    "config": "설정",
+    "view": "보기"
+  },
+  "sidebar": {
+    "home": "홈",
+    "newTask": "새 작업",
+    "scheduler": "스케줄러",
+    "xLab": "X·LAB",
+    "skills": "스킬",
+    "chat": "채팅",
+    "projects": "프로젝트",
+    "team": "팀",
+    "settings": "설정",
+    "recent": "최근",
+    "noRecent": "최근 대화가 없습니다",
+    "rename": "이름 바꾸기",
+    "delete": "삭제",
+    "exitProject": "프로젝트 나가기",
+    "joinProject": "프로젝트 참여",
+    "search": "검색",
+    "more": "더보기",
+    "awaitingReply": "답변을 기다리는 중",
+    "status": {
+      "connected": "연결됨",
+      "connecting": "연결 중",
+      "disconnected": "연결 끊김",
+      "connectedAria": "현재 상태: 연결됨",
+      "connectingAria": "현재 상태: 연결 중",
+      "disconnectedAria": "현재 상태: 연결 끊김"
+    },
+    "expandAria": "사이드바 펼치기",
+    "mainNavigationAria": "주 내비게이션",
+    "mainContentAria": "주 콘텐츠 영역",
+    "collapseAria": "사이드바 접기",
+    "recentExpandAria": "최근 항목 펼치기",
+    "recentCollapseAria": "최근 항목 접기",
+    "switchToEnglish": "영어로 전환",
+    "switchToChinese": "切换为中文",
+    "switchDark": "다크 모드",
+    "switchLight": "라이트 모드",
+    "switchDarkAria": "다크 모드로 전환",
+    "switchLightAria": "라이트 모드로 전환",
+    "resizeTitle": "드래그하여 크기 조절 (더블클릭으로 초기화)",
+    "resizeAria": "드래그하여 사이드바 너비 조절"
+  },
+  "search": {
+    "placeholder": "작업 또는 최근 대화 검색...",
+    "searchConversations": "대화 검색",
+    "quickActions": "빠른 작업",
+    "newSession": "새 세션",
+    "newConversation": "새 대화",
+    "newSessionDesc": "홈으로 이동해 새 작업을 시작합니다.",
+    "recent": "최근",
+    "recentConversations": "최근 대화",
+    "noRecent": "일치하는 최근 대화가 없습니다",
+    "noMatchActions": "일치하는 작업이 없습니다",
+    "close": "검색 닫기"
+  },
+  "models": {
+    "title": "모델",
+    "subtitle": "공급자, API 키, 엔드포인트를 관리하세요",
+    "primaryProvider": "기본 공급자",
+    "jumpToSettings": "설정으로 이동",
+    "fallbackEnabled": "공급자 폴백",
+    "fallbackEnabledDesc": "기본 모델을 사용할 수 없을 때 자동 폴백 체인 적용",
+    "searchPlaceholder": "공급자 검색...",
+    "noMatch": "일치하는 공급자가 없습니다",
+    "select": "선택해 주세요...",
+    "unrecognized": "인식할 수 없는 노드: {{name}}",
+    "visitOfficialSite": "공식 사이트 방문",
+    "protocols": {
+      "openai": "OpenAI 프로토콜",
+      "anthropic": "Anthropic 프로토콜",
+      "gemini": "Gemini 프로토콜"
+    },
+    "protocolLabel": "프로토콜 호환성",
+    "protocolDesc": "커스텀 공급자를 llm.providers에 기록할 때 사용하는 형식",
+    "apiKeyLabel": "API 키",
+    "apiKeyPlaceholder": "API 키",
+    "apiKeyHint": "여러 개의 키는 쉼표로 구분하세요",
+    "getApiKey": "여기를 클릭해 키 발급받기",
+    "test": {
+      "testing": "테스트 중",
+      "ok": "사용 가능",
+      "fail": "실패",
+      "normal": "테스트"
+    },
+    "apiBaseLabel": "API 기본 URL",
+    "apiBaseInvalid": "올바른 URL을 입력하세요. 예: https://api.example.com",
+    "protocolType": "프로토콜 유형",
+    "previewLabel": "미리보기: ",
+    "modelsLabel": "모델",
+    "searchModels": "모델 검색...",
+    "noModels": "아직 모델이 없습니다. 새로고침하거나 아래에서 추가하세요.",
+    "syncOk": "{{total}}개 모델 동기화, {{added}}개 신규 추가",
+    "syncOkNoAdded": "{{total}}개 모델 동기화 완료",
+    "syncFailed": "모델 동기화 실패: {{reason}}",
+    "addModelId": "모델 ID를 입력해 주세요",
+    "modelExists": "모델 ID가 이미 존재합니다",
+    "modelAlreadyExists": "이미 존재하는 모델입니다",
+    "engineError": "엔진에 연결할 수 없습니다. 콘솔 포트가 활성화되어 있는지 확인하세요.",
+    "timeout": "요청이 시간 초과되었습니다",
+    "requestFailed": "요청 실패: {{error}}",
+    "noModelsInRegistry": "현재 공급자가 반환한 모델이 없습니다",
+    "noModelsForProvider": "{{name}}에서 반환된 모델이 없습니다",
+    "apiNotFound": "관리 API를 찾을 수 없습니다 (엔진 버전이 2026-05-14 이상인지 확인하세요)",
+    "editModel": "모델 편집",
+    "addModel": "모델 추가",
+    "modelIdLabel": "모델 ID",
+    "modelIdHint": "모델의 고유 식별자입니다. 필수 항목입니다",
+    "modelIdPlaceholder": "필수, 예: gpt-3.5-turbo",
+    "modelNameLabel": "모델 이름",
+    "modelNameHint": "표시용 이름입니다. 선택 사항입니다",
+    "modelNamePlaceholder": "예: GPT-4",
+    "modelGroupLabel": "그룹 이름",
+    "modelGroupHint": "논리적 그룹 이름입니다. 선택 사항입니다",
+    "modelGroupPlaceholder": "예: ChatGPT",
+    "modelTagsLabel": "기능 (태그)",
+    "goToAgents": "에이전트 LLM 노드 설정",
+    "hotReloadError": "{{label}} 실패 ({{detail}})",
+    "hotReloadLabels": {
+      "apiKey": "자격 증명 업데이트",
+      "create": "공급자 생성",
+      "modelCreate": "모델 생성",
+      "list": "공급자 조회",
+      "enable": "모델 활성화",
+      "disable": "모델 비활성화",
+      "update": "링크 업데이트",
+      "delete": "모델 삭제",
+      "modelUpdate": "모델 업데이트",
+      "protocol": "프로토콜 전환"
+    },
+    "validation": {
+      "apiKey": "API 키",
+      "apiBase": "API 기본 URL",
+      "models": "모델 선택",
+      "missingKey": "{{name}}에 API 키가 없습니다",
+      "missingBase": "{{name}}에 API 기본 URL이 없습니다",
+      "noModels": "{{name}}에 최소 하나의 모델을 추가해야 합니다",
+      "noneSelected": "{{name}}에서 최소 하나의 모델을 선택해야 합니다",
+      "providerDisabledModelSaved": "{{name}} 공급자가 아직 활성화되지 않았습니다. 선택한 모델은 저장되며 {{name}}을(를) 활성화하면 적용됩니다."
+    },
+    "protocol": {
+      "label": "프로토콜 호환성",
+      "desc": "커스텀 공급자를 llm.providers에 기록할 때 사용하는 프로토콜 형식",
+      "openai": "OpenAI 프로토콜",
+      "anthropic": "Anthropic 프로토콜"
+    },
+    "actions": {
+      "visitSite": "공식 사이트 방문",
+      "advanced": "고급 설정",
+      "refresh": "새로고침",
+      "delete": "삭제",
+      "edit": "편집",
+      "add": "추가",
+      "enable": "활성화",
+      "disable": "비활성화"
+    },
+    "persist": {
+      "readFailed": "모델 설정을 읽지 못했습니다",
+      "saving": "UI 환경설정 저장 중...",
+      "saveFailed": "모델 설정 저장에 실패했습니다"
+    },
+    "status": {
+      "healthy": "정상",
+      "tripped": "차단됨",
+      "ready_to_probe": "점검 준비됨",
+      "unknown": "알 수 없음"
+    },
+    "capabilities": {
+      "vision": "비전",
+      "image_generation": "이미지 생성",
+      "search": "웹",
+      "reasoning": "추론",
+      "tools": "도구",
+      "visionHint": "모델이 이미지 입력(스크린샷, 사진, PDF)을 받을 수 있습니다.",
+      "image_generationHint": "모델이 이미지 API를 통해 이미지를 생성하거나 편집할 수 있습니다.",
+      "searchHint": "모델이 외부 정보를 위해 웹을 검색할 수 있습니다.",
+      "reasoningHint": "모델이 확장된 사고 사슬(chain-of-thought)/씽킹 모드를 지원합니다.",
+      "toolsHint": "모델이 도구 사용/함수 호출을 지원합니다."
+    },
+    "pricing": {
+      "currency": "통화",
+      "inputPrice": "입력 가격",
+      "outputPrice": "출력 가격",
+      "perMillionTokens": "/ 백만 토큰"
+    },
+    "addModal": {
+      "namePlaceholder": "그룹 검색 또는 생성",
+      "tagsLabel": "기능 (태그)",
+      "tagsHint": "신중히 확인하세요 — 잘못 선택하면 모델이 정상 동작하지 않을 수 있습니다."
+    }
+  },
+  "agents": {
+    "title": "에이전트 설정",
+    "subtitle": "새 에이전트의 기본 매개변수",
+    "searchPlaceholder": "에이전트 검색...",
+    "newAgent": "에이전트 생성",
+    "empty": "아직 에이전트가 없습니다",
+    "emptyDesc": "첫 에이전트를 생성하세요",
+    "model": "모델 노드",
+    "generation": "생성",
+    "reasoningEffort": "추론 강도 (O1/O3)",
+    "reasoningDefault": "자동",
+    "style": "응답 스타일",
+    "stylePrecise": "정밀",
+    "stylePreciseFull": "정밀 모드",
+    "stylePreciseDesc": "안정적이고 재현 가능한 답변으로, 거의 항상 동일한 결과를 제공합니다.",
+    "styleBalanced": "균형",
+    "styleBalancedFull": "균형 모드",
+    "styleBalancedDesc": "정확성에 중점을 두고 자연스러운 표현을 제공하며, 일상적인 사용에 적합합니다.",
+    "styleFlexible": "유연",
+    "styleFlexibleFull": "유연 모드",
+    "styleFlexibleDesc": "폭넓게 사고하며 다양한 관점의 답변을 제공합니다.",
+    "styleCreative": "창의",
+    "styleCreativeFull": "창의 모드",
+    "styleCreativeDesc": "과감하고 발산적이며, 매번 새로운 놀라움을 선사합니다.",
+    "morePrecise": "더 정밀하게",
+    "moreCreative": "더 창의적으로",
+    "recommended": "추천",
+    "suitableScenarios": "적합한 시나리오:",
+    "params": "에이전트 매개변수",
+    "maxTokens": "응답당 최대 토큰 수 (0 = 엔드포인트 기본값)",
+    "contextBudget": "컨텍스트 예산 (토큰, 0 = 무제한)",
+    "toolsAndWorkspace": "도구 및 작업 공간",
+    "maxToolIterations": "최대 도구 반복 횟수",
+    "workspace": "작업 공간 경로",
+    "workspaceDesc": "에이전트 파일 작업의 기본 디렉터리 (~ 경로 지원)",
+    "apiNotFoundHint": "관리 API를 찾을 수 없습니다 (엔진 버전이 2026-05-14 이상인지 확인하세요)",
+    "styleTitle": "응답 스타일",
+    "fallback": {
+      "chainTitle": "폴백 체인",
+      "addNode": "노드 추가",
+      "noNodes": "사용 가능한 백업 노드가 없습니다",
+      "empty": "아직 백업 노드가 없습니다",
+      "remove": "제거",
+      "removeNode": "노드 제거"
+    },
+    "actions": {
+      "edit": "편집",
+      "archive": "보관",
+      "delete": "삭제"
+    },
+    "dialog": {
+      "title": "에이전트 생성",
+      "name": "이름",
+      "namePlaceholder": "에이전트 이름",
+      "emoji": "이모지",
+      "workspace": "작업 공간",
+      "cancel": "취소",
+      "create": "생성"
+    },
+    "scenarios": {
+      "precise": {
+        "s1": "코드",
+        "s2": "추출",
+        "s3": "수학",
+        "s4": "사실 확인"
+      },
+      "balanced": {
+        "s1": "질의응답",
+        "s2": "요약",
+        "s3": "일상 대화",
+        "s4": "계획 수립"
+      },
+      "flexible": {
+        "s1": "다시 쓰기",
+        "s2": "번역",
+        "s3": "조언",
+        "s4": "탐색"
+      },
+      "creative": {
+        "s1": "글쓰기",
+        "s2": "이름 짓기",
+        "s3": "스토리텔링",
+        "s4": "브레인스토밍"
+      }
+    }
+  },
+  "xlab": {
+    "title": "X·LAB",
+    "description": "실험적인 공간입니다. 앞으로 실험적인 기능과 얼리 프리뷰가 이곳에 공개됩니다. 많은 기대 바랍니다."
+  },
+  "skills": {
+    "title": "스킬",
+    "market": {
+      "title": "스킬 마켓",
+      "back": "스킬로 돌아가기",
+      "refreshStartFailed": "새로고침 작업을 시작하지 못했습니다",
+      "refreshProgress": "새로고침 완료: {{success}}/{{total}} 저장소 성공, {{error}} 실패",
+      "refreshSuccess": "탐색 결과 새로고침 완료: 저장소 {{repos}}개, 스킬 {{skills}}개",
+      "refreshFailed": "백그라운드 새로고침에 실패했습니다",
+      "installed": "설치됨",
+      "discovered": "발견됨",
+      "saveRepoFailed": "저장소 저장에 실패했습니다",
+      "repoSaved": "저장소가 저장되었습니다. 탐색 결과는 캐시에서 유지됩니다",
+      "repoRemoved": "저장소가 제거되었습니다. 탐색 결과는 캐시에서 유지됩니다",
+      "skillDeleted": "{{name}} 삭제됨",
+      "skillInstalled": "{{name}} 설치됨",
+      "skillReinstalled": "{{name}} 재설치됨",
+      "installFailed": "설치에 실패했습니다",
+      "deleteFailed": "삭제에 실패했습니다",
+      "enterUrlFirst": "먼저 GitHub 저장소 URL을 입력해 주세요",
+      "closeMarket": "스킬 마켓 닫기"
+    },
+    "back": "스킬로 돌아가기",
+    "manage": "저장소 관리",
+    "refresh": "탐색 새로고침",
+    "searchPlaceholder": "검색...",
+    "searchAriaLabel": "스킬 검색",
+    "noMatch": "일치하는 스킬이 없습니다",
+    "empty": "아직 설치된 스킬이 없습니다",
+    "emptyDesc": "스킬 마켓에서 필요한 기능을 선택하세요. 설치 즉시 이곳에 표시됩니다. 첫 번째 스킬을 설치하면 HarnessClaw의 활용 범위가 넓어집니다.",
+    "goToMarket": "스킬 마켓으로 이동",
+    "autoAppear": "선택 및 설치 후 이곳에 표시됩니다",
+    "usageHint": "채팅에서 스킬을 호출하려면 입력창에 \"/\"를 입력하고 자동완성 목록에서 선택하세요 — 슬래시 텍스트를 직접 입력하면 스킬 프롬프트가 적용되지 않고 일반 텍스트로 전송됩니다.",
+    "confirm": "확인",
+    "cancel": "취소",
+    "delete": "삭제",
+    "deleteAriaLabel": "스킬 삭제",
+    "noContent": "내용 없음",
+    "closeDetail": "세부 정보 닫기",
+    "deleting": "삭제 중...",
+    "confirmDelete": "삭제 확인",
+    "failed": "작업에 실패했습니다",
+    "installed": "설치됨",
+    "notInstalled": "설치되지 않음",
+    "reinstall": "재설치",
+    "installToLocal": "로컬에 설치",
+    "refs": "참조",
+    "templates": "템플릿",
+    "noDiscovered": "아직 발견된 스킬이 없습니다",
+    "noReposDesc": "먼저 GitHub 저장소를 추가한 뒤 탐색을 새로고침하세요.",
+    "checkRepoDesc": "저장소 URL, 브랜치, 스캔 경로를 확인한 뒤 다시 새로고침하세요.",
+    "repoConfigured": "저장소 설정됨",
+    "noSkillFoundDesc": "아직 발견된 스킬이 없습니다. 브랜치, 스캔 경로를 확인하거나 '탐색 새로고침'을 클릭해 최신 콘텐츠를 가져오세요.",
+    "skillUnit": "개 스킬",
+    "canInstallUnit": "설치 가능",
+    "allRepos": "모든 저장소",
+    "onlyInstallable": "설치 가능만 보기",
+    "enabledRepos": "활성화된 저장소",
+    "discoveredCount": "발견된 스킬",
+    "searchMarketPlaceholder": "스킬 마켓 검색...",
+    "repo": {
+      "title": "스킬 저장소",
+      "desc": "활성화된 저장소만 탐색에 참여합니다. 새로고침은 원격 인덱스만 갱신하며 원본 저장소는 변경하지 않습니다. 범위를 제한하려면 스캔 경로를 입력하세요. 프록시는 가져오기 및 새로고침에만 영향을 줍니다.",
+      "close": "닫기",
+      "add": "저장소 추가",
+      "addDesc": "메인 입력란 하나만 채우면 추가를 시작할 수 있습니다. 브랜치, 표시 이름, 스캔 경로, 프록시는 고급 설정에 있습니다.",
+      "url": "Git URL",
+      "advanced": "고급",
+      "update": "저장소 업데이트",
+      "branch": "브랜치",
+      "branchDesc": "기본값은 `main`이며 사용자 지정 브랜치도 지원합니다.",
+      "name": "표시 이름",
+      "namePlaceholder": "선택 사항",
+      "path": "스캔 경로",
+      "pathPlaceholder": "선택 사항, 예: skills",
+      "proxy": "프록시 다운로드",
+      "proxyDesc": "활성화하면 clone, fetch, ls-remote가 이 프록시 주소를 사용합니다.",
+      "proxyProtocol": "프로토콜",
+      "proxyHost": "호스트",
+      "proxyPort": "포트",
+      "list": "저장소 목록",
+      "unit": "개 저장소",
+      "noRepos": "아직 설정된 스킬 저장소가 없습니다.",
+      "refresh": "저장소 새로고침",
+      "enabled": "활성화됨",
+      "disabled": "비활성화됨",
+      "lastUpdate": "업데이트됨",
+      "neverUpdated": "업데이트한 적 없음",
+      "proxyLabel": "프록시",
+      "branchLabel": "브랜치: ",
+      "pathLabel": "스캔 경로",
+      "manage": "저장소 관리",
+      "refreshDiscovery": "탐색 새로고침",
+      "browseByRepo": "저장소별로 찾아보기",
+      "browseByRepoDesc": "저장소별로 찾아보며, 기본적으로 현재 CLI에 바로 설치됩니다"
+    },
+    "composer": {
+      "noDescription": "설명 없음",
+      "noMatching": "일치하는 스킬이 없습니다",
+      "selectionHint": "↑↓ 선택",
+      "confirmHint": "Enter로 확인",
+      "shortcutHint": "{{key}} + 1-9로 빠르게 선택",
+      "removeAria": "{{name}} 스킬 제거"
+    }
+  },
+  "sessions": {
+    "title": "세션",
+    "subtitle": "이력을 보거나 최근 컨텍스트를 이어서 진행하세요.",
+    "searchPlaceholder": "세션 검색...",
+    "exitMultiSelect": "다중 선택 종료",
+    "enterMultiSelect": "다중 선택",
+    "newSession": "새 세션",
+    "loading": "세션 불러오는 중...",
+    "noHistory": "아직 세션 이력이 없습니다",
+    "noHistoryDesc": "새 대화를 시작하면 이곳에 표시됩니다.",
+    "noMatch": "일치하는 세션이 없습니다",
+    "noMatchDesc": "다른 키워드로 다시 검색해 보세요.",
+    "sessionLabel": "세션",
+    "header": {
+      "select": "선택",
+      "selectedSession": "선택됨",
+      "session": "세션",
+      "project": "프로젝트",
+      "lastUpdated": "마지막 업데이트",
+      "actions": "작업"
+    },
+    "messageCount": "메시지 {{n}}개",
+    "multiSelect": {
+      "selectedCount": "{{n}}개 세션 선택됨",
+      "copy": "복사",
+      "delete": "삭제",
+      "close": "닫기",
+      "copyTooltip": "선택한 세션 복사",
+      "deleteTooltip": "선택한 세션 삭제",
+      "closeTooltip": "다중 선택 모드 종료",
+      "deleteConfirm": "선택한 {{n}}개 세션의 모든 메시지와 기록이 영구적으로 삭제되며 복구할 수 없습니다.",
+      "ariaTimeRegion": "{{name}}의 시간 범위 선택"
+    },
+    "actions": {
+      "more": "추가 작업",
+      "rename": "이름 바꾸기",
+      "exitProject": "프로젝트 나가기",
+      "joinProject": "프로젝트 참여",
+      "delete": "삭제"
+    },
+    "delete": {
+      "title": "삭제 확인",
+      "desc": "\"{{title}}\"을(를) 삭제하려고 합니다. 이 작업은 되돌릴 수 없습니다.",
+      "cancel": "취소",
+      "confirm": "삭제"
+    },
+    "assignProject": {
+      "title": "프로젝트 참여",
+      "desc": "이 세션에 지정할 프로젝트를 선택하세요",
+      "noProjects": "사용 가능한 프로젝트가 없습니다",
+      "current": "현재",
+      "join": "프로젝트 참여",
+      "exit": "프로젝트 나가기",
+      "subtitle": "이 세션을 프로젝트에 지정합니다"
+    },
+    "deleteConfirm": {
+      "batchDesc": "선택한 {{count}}개 세션의 모든 메시지와 기록이 영구적으로 삭제되며 복구할 수 없습니다."
+    }
+  },
+  "projects": {
+    "title": "프로젝트",
+    "newProject": "새 프로젝트",
+    "allProjects": "모든 프로젝트",
+    "loading": "프로젝트 불러오는 중...",
+    "empty": "아직 프로젝트가 없습니다",
+    "emptyDesc": "세션과 산출물을 하나의 작업 공간으로 모으려면 프로젝트를 생성하세요.",
+    "selectProject": "프로젝트 선택",
+    "noProjects": "사용 가능한 프로젝트가 없습니다",
+    "current": "현재",
+    "actions": {
+      "deleting": "삭제 중",
+      "openAria": "{{name}} 프로젝트 작업 열기"
+    },
+    "errors": {
+      "nameRequired": "프로젝트 이름을 입력해 주세요.",
+      "nameTooLong": "프로젝트 이름은 40자 이내여야 합니다.",
+      "nameConflict": "같은 이름의 프로젝트가 이미 존재합니다.",
+      "createFailed": "프로젝트 생성에 실패했습니다. 나중에 다시 시도해 주세요.",
+      "deleteFailed": "프로젝트 삭제에 실패했습니다. 나중에 다시 시도해 주세요."
+    },
+    "dialog": {
+      "title": "새 프로젝트",
+      "closeAria": "새 프로젝트 대화상자 닫기",
+      "name": "프로젝트 이름",
+      "namePlaceholder": "예: v0.1.0 릴리스 준비",
+      "desc": "설명",
+      "descPlaceholder": "이 프로젝트의 목적을 간단히 설명하세요...",
+      "defaultDesc": "아직 설명이 없습니다. 나중에 목표와 배경을 추가할 수 있습니다.",
+      "cancel": "취소",
+      "create": "프로젝트 생성"
+    },
+    "defaults": {
+      "release009": {
+        "name": "v0.0.9 릴리스 마무리",
+        "description": "릴리스 노트, 회귀 검증, 버그 수정을 한곳에 모아 컨텍스트와 산출물을 유지합니다."
+      },
+      "sidebarRefine": {
+        "name": "사이드바 상호작용 개선",
+        "description": "다중 선택 대화, 클릭 영역, 오버플로 문제를 한곳에서 처리해 페이지 간 이동을 줄입니다."
+      },
+      "skillsOnboarding": {
+        "name": "스킬 온보딩 정리",
+        "description": "첫 실행 안내, 저장소 진입점, 기본 흐름을 다듬어 신규 사용자가 다음 단계를 더 빨리 이해할 수 있게 합니다."
+      }
+    },
+    "workspace": {
+      "back": "프로젝트로 돌아가기",
+      "allProjects": "모든 프로젝트",
+      "notExist": "프로젝트를 찾을 수 없습니다",
+      "notExistDesc": "이 프로젝트가 삭제되었거나 링크에 데이터가 없을 수 있습니다.",
+      "inputPlaceholder": "+ 질문, 목표, 다음 단계를 입력하면 제가 처리하겠습니다.",
+      "addFile": "파일 추가",
+      "send": "전송",
+      "noSessions": "아직 대화가 없습니다. 위 입력창에서 첫 채팅을 시작하세요.",
+      "unnamedSession": "이름 없는 채팅 {{id}}",
+      "deleteSessionError": "채팅 삭제에 실패했습니다. 나중에 다시 시도해 주세요.",
+      "panels": {
+        "constraints": "프로젝트 제약 조건",
+        "addConstraint": "설명 추가",
+        "noDescription": "설명 없음",
+        "files": "파일",
+        "addFile": "파일 추가",
+        "usage": "LLM 사용량",
+        "usageTrend": "토큰 추이 (최근 14일)",
+        "todayUsage": "오늘 사용량",
+        "usageDetail": "사용량 상세 보기",
+        "agents": "에이전트",
+        "addAgent": "에이전트 추가"
+      }
+    }
+  },
+  "chat": {
+    "greetings": {
+      "night": {
+        "tone": "늦은 밤",
+        "title": "흩어진 생각을 정리해 보세요",
+        "detail": "질문하거나 파일을 첨부하거나 복잡한 작업을 HarnessClaw에게 나눠 맡겨보세요."
+      },
+      "morning": {
+        "tone": "좋은 아침입니다",
+        "title": "명확한 질문으로 하루를 시작하세요",
+        "detail": "새 채팅은 컨텍스트, 파일, 승인 내용을 그대로 유지하여 어떤 작업에도 바로 대응합니다."
+      },
+      "afternoon": {
+        "tone": "좋은 오후입니다",
+        "title": "이 세션에서 작업을 이어가세요",
+        "detail": "배경 정보를 추가하고 파일을 첨부한 뒤 나머지는 에이전트에게 맡기세요."
+      },
+      "evening": {
+        "tone": "좋은 저녁입니다",
+        "title": "조용한 대화로 하루를 마무리하세요",
+        "detail": "질문, 첨부 파일, 진행 상황이 나중에 볼 수 있도록 이곳에 남아있습니다."
+      }
+    },
+    "tools": {
+      "Bash": "Bash",
+      "Read": "읽기",
+      "Edit": "편집",
+      "Write": "쓰기",
+      "Grep": "Grep",
+      "Glob": "Glob",
+      "WebFetch": "웹 가져오기",
+      "WebSearch": "웹 검색",
+      "TavilySearch": "Tavily 검색",
+      "Agent": "하위 에이전트",
+      "Skill": "스킬",
+      "TaskCreate": "작업 생성",
+      "TaskGet": "작업 조회",
+      "TaskUpdate": "작업 업데이트",
+      "TaskList": "작업 목록",
+      "SendMessage": "메시지 전송",
+      "TeamCreate": "팀 생성",
+      "TeamDelete": "팀 삭제",
+      "ImageGenerate": "이미지 생성"
+    },
+    "status": {
+      "executingSubAgent": "하위 에이전트 작업 실행 중",
+      "taskInProgress": "작업 진행 중 · {{subject}}",
+      "taskDone": "작업 완료 · {{subject}}",
+      "taskRemoved": "작업 제거됨 · {{subject}}",
+      "taskCreated": "작업 생성됨 · {{subject}}",
+      "routedTo": "@{{name}}에게 전달됨",
+      "collabMessage": "{{name}}로부터의 협업",
+      "agentStarted": "{{name}} 시작됨",
+      "agentWaiting": "{{name}} 대기 중",
+      "agentDone": "{{name}} 완료됨",
+      "agentFailed": "{{name}} 실패",
+      "memberJoined": "{{name}}이(가) {{team}}에 합류함",
+      "memberLeft": "{{name}}이(가) {{team}}에서 나감",
+      "teamArchived": "{{team}} 보관됨",
+      "teamCreated": "{{team}} 결성됨",
+      "preparingTool": "도구 준비 중",
+      "toolFailed": "도구 실행 실패",
+      "toolDone": "도구 실행 완료",
+      "subagentFailed": "하위 에이전트 실패",
+      "subagentDone": "하위 에이전트 완료",
+      "subagentStarted": "하위 작업 시작됨",
+      "subagentSummarizing": "요약 중",
+      "subagentCreated": "하위 작업 생성됨",
+      "waitingPermission": "권한 대기 중",
+      "lifecycleFailed": "하위 작업 수명주기가 실패로 종료됨",
+      "lifecycleEnded": "하위 작업 수명주기 종료됨",
+      "terminated": "(종료됨)",
+      "stoppingSession": "현재 세션 중지를 요청하는 중...",
+      "requestFailed": "요청 실패",
+      "serviceNotConnected": "메시지 전송 실패: 백엔드 서비스에 연결되지 않았습니다. 로컬 백엔드가 실행 중인지 확인하고 다시 시도하세요.",
+      "serviceNotConnectedHint": "로컬 서비스가 실행 중인지, 연결 설정이 올바른지 확인하세요.",
+      "unnamedTask": "이름 없는 작업",
+      "newMember": "새 멤버",
+      "member": "멤버",
+      "taskUpdated": "작업 업데이트됨",
+      "asyncCollab": "백그라운드 협업 작업",
+      "asyncAgents": "비동기 에이전트",
+      "routedToPrefix": "전달됨:",
+      "totalDuration": "총 소요 시간 {{time}}",
+      "allMembers": "전체 멤버",
+      "waitingResults": "추가 결과를 기다리는 중...",
+      "serviceContinuing": "서비스가 계속 진행 중입니다",
+      "processRecords": "처리 기록 {{n}}건",
+      "subagentCollab": "하위 에이전트 협업자",
+      "subagentDetails": "현재 하위 에이전트가 출력한 세부 정보 수",
+      "detailContent": "상세 내용",
+      "organizingAnswer": "에이전트가 답변을 정리하는 중",
+      "thinking": "생각 중…",
+      "executingPrefix": "실행 중:",
+      "failedSuffix": "실패",
+      "doneSuffix": "완료",
+      "supplementingProcess": "처리 세부 정보를 보완하는 중입니다.",
+      "subagentUnit": "개 하위 에이전트",
+      "records": "건",
+      "prevSubagentAria": "이전 하위 에이전트",
+      "nextSubagentAria": "다음 하위 에이전트",
+      "subagentSwitchProgress": "하위 에이전트 전환 진행 상황",
+      "closeSubagentDetails": "하위 에이전트 세부 정보 닫기",
+      "retrying": "재시도 중...",
+      "retryIn": "약 {{n}}초 후 재시도합니다...",
+      "autoRetrying": "자동 재시도 중...",
+      "fallbackToNext": "폴백으로 전환되었습니다. 다음 단계를 확인하세요.",
+      "fallbackUsed": "폴백 계획으로 전환되었습니다.",
+      "abortedAction": "이후 작업이 중단되었습니다.",
+      "subagentFailedShort": "하위 작업 실패",
+      "subagentDoneShort": "하위 작업 완료",
+      "subagentCreatedShort": "하위 작업 생성됨",
+      "subagentStartedShort": "하위 작업 시작됨",
+      "subagentEndFailed": "하위 작업 수명주기가 실패로 종료됨",
+      "subagentEnd": "하위 작업 수명주기 종료됨",
+      "loadFailed": "불러오기 실패",
+      "apiNotFound": "관리 API를 찾을 수 없습니다 (엔진 버전이 2026-05-14 이상인지 확인하세요)",
+      "subagentTask": "하위 에이전트 작업"
+    },
+    "tool": {
+      "nameLabel": "도구 이름",
+      "inputLabel": "입력 매개변수",
+      "associatedFiles": "관련 파일",
+      "searchResult": "검색 결과",
+      "diagnostics": "진단",
+      "searchResultPrefix": "검색: {{query}}",
+      "waitingReturn": "결과를 기다리는 중...",
+      "totalRecords": "총 {{n}}건"
+    },
+    "ask": {
+      "title": "빠른 질문",
+      "yourReply": "회원님의 답변",
+      "cancelled": "질문이 취소되었으며 세션은 계속됩니다.",
+      "submitFailedWithReason": "답변 전송 실패: {{reason}}. 질문이 만료되었을 수 있습니다(서버가 재시작되었을 수 있음). 새 세션을 시작하거나 새로고침 후 다시 시도하세요.",
+      "submitFailed": "답변 전송에 실패했습니다. 나중에 다시 시도해 주세요.",
+      "cancelFailedWithReason": "취소 실패: {{reason}}. 질문이 만료되었을 수 있습니다(서버가 재시작되었을 수 있음).",
+      "cancelFailed": "취소에 실패했습니다. 나중에 다시 시도해 주세요.",
+      "responded": "응답됨",
+      "cancelledStatus": "취소됨",
+      "waiting": "답변 대기 중",
+      "defaultQuestion": "계속 진행하려면 추가 정보가 필요합니다.",
+      "customPlaceholder": "또는 직접 답변을 입력하세요...",
+      "placeholder": "답변을 입력하세요...",
+      "cancel": "취소",
+      "sending": "전송 중...",
+      "send": "전송",
+      "choosePrompt": "선택해 주세요",
+      "otherPlaceholder": "기타",
+      "skip": "건너뛰기",
+      "confirm": "확인"
+    },
+    "file": {
+      "label": "파일",
+      "artifacts": "산출물",
+      "readLimit": "읽기 결과를 표시합니다. 제한은 {{n}}줄입니다",
+      "writeContent": "파일 쓰기에 제출된 내용을 표시합니다",
+      "noContent": "표시할 파일 내용이 없습니다",
+      "noContentDesc": "이 도구 호출은 미리 볼 수 있는 텍스트를 반환하지 않았습니다.",
+      "binaryTitle": "바이너리 파일이라 직접 미리 볼 수 없습니다",
+      "binaryDesc": "이 형식(예: .docx / .pdf / .xlsx)은 UTF-8 텍스트가 아닙니다. 우측 상단의 내보내기 기능으로 원본 파일을 저장하세요.",
+      "preview": "미리보기",
+      "viewRender": "렌더링",
+      "viewSource": "원본"
+    },
+    "web": {
+      "refresh": "새로고침",
+      "openExternal": "브라우저에서 열기",
+      "close": "웹 미리보기 닫기",
+      "loading": "로딩 중...",
+      "loadFailed": "페이지 로드 실패"
+    },
+    "actions": {
+      "copyMessage": "메시지 복사",
+      "thumbsUp": "좋아요",
+      "thumbsDown": "싫어요",
+      "copy": "복사",
+      "export": "내보내기",
+      "closePreview": "미리보기 닫기",
+      "copyFailed": "복사에 실패했습니다. 다시 시도해 주세요.",
+      "exportedTo": "내보내기 완료: {{path}}",
+      "exportFailed": "내보내기에 실패했습니다. 다시 시도해 주세요.",
+      "exportFailedWithReason": "내보내기 실패: {{reason}}",
+      "collapseArtifacts": "파일 목록 접기",
+      "expandArtifacts": "파일 목록 펼치기"
+    },
+    "errors": {
+      "accountIssue": "계정에서 사용 가능한 모델로 전환하거나 계정 유형을 확인해 주세요.",
+      "serviceIssue": "로컬 서비스가 실행 중인지, 연결 설정이 올바른지 확인하세요.",
+      "requestFailed": "요청에 실패했습니다. 나중에 다시 시도해 주세요.",
+      "requestFailedTitle": "요청 실패",
+      "userCancelledTitle": "취소됨",
+      "userCancelled": "회원님이 취소했습니다.",
+      "serviceNotConnected": "서비스에 연결되지 않음",
+      "tryingToConnect": "HarnessClaw에 연결을 시도하고 있습니다. 잠시 후 다시 시도하세요.",
+      "cannotConnect": "HarnessClaw에 연결할 수 없습니다. 로컬 서비스가 실행 중인지 확인하세요.",
+      "sendFailedNoService": "메시지 전송 실패: 서비스가 연결되지 않았습니다. 로컬 서비스가 실행 중인지 확인하세요."
+    },
+    "newChat": "새 채팅",
+    "team": {
+      "title": "팀",
+      "members": "멤버",
+      "details": "세부 정보",
+      "status": "현재 상태",
+      "size": "팀 규모",
+      "lastUpdate": "마지막 업데이트 {{time}}",
+      "closeDetails": "세부 정보 닫기",
+      "switchProgress": "팀 전환 진행 상황",
+      "membersLabel": "멤버",
+      "memberCount": "멤버 {{n}}명",
+      "prevTeamAria": "이전 팀",
+      "nextTeamAria": "다음 팀",
+      "switchTeamAria": "{{name}}(으)로 전환",
+      "switchToAria": "{{name}}(으)로 전환"
+    },
+    "chatQuickSwitch": "빠른 채팅 전환",
+    "jumpToChat": "채팅 {{n}}로 이동",
+    "chatIndex": "채팅 {{n}}",
+    "permissions": {
+      "allowOnce": "한 번만",
+      "alwaysAllow": "전체 허용",
+      "deny": "거부",
+      "sessionAllowed": "이번 세션에서 허용됨",
+      "onceAllowed": "한 번 허용됨",
+      "denied": "거부됨",
+      "waiting": "승인 대기 중",
+      "needsConfirmation": "승인 요청",
+      "defaultMessage": "이 작업에는 회원님의 확인이 필요합니다.",
+      "detailPrefix": "세부 정보: ",
+      "readOnlyDetail": "이 작업은 정보만 읽습니다. 확인 후 진행하세요",
+      "writeDetail": "이 작업은 명령을 실행하거나, 브라우저를 조작하거나, 파일을 변경할 수 있습니다. 확인 후 진행하세요",
+      "readOnly": "읽기 전용 접근",
+      "modifiesEnv": "파일 또는 환경을 변경할 수 있음",
+      "submitting": "제출 중...",
+      "expandDetails": "세부 정보 펼치기",
+      "collapseDetails": "세부 정보 접기",
+      "detailsLabel": "작업 세부 정보",
+      "resultLabel": "결과"
+    },
+    "toolRenderHint": {
+      "terminal": "터미널 출력",
+      "code": "코드 내용",
+      "diff": "변경 사항",
+      "fileInfo": "파일 결과",
+      "search": "검색 결과",
+      "markdown": "마크다운",
+      "agent": "에이전트 출력",
+      "skill": "스킬 결과",
+      "task": "작업 결과",
+      "message": "메시지 결과",
+      "team": "팀 결과",
+      "plain": "텍스트 결과",
+      "default": "텍스트 결과"
+    },
+    "toolResult": {
+      "executing": "에이전트가 이 단계를 실행 중입니다.",
+      "cancelled": "취소되었습니다.",
+      "skipped": "건너뛰었습니다.",
+      "failed": "이 단계는 정상적으로 완료되지 않았습니다.",
+      "fileInvolved": "파일 {{name}}과 관련됨",
+      "fileAssociated": "관련 파일 {{name}}",
+      "searchSummary": "검색 결과 요약이 반환되었습니다.",
+      "markdownSummary": "가져와서 마크다운으로 정리했습니다.",
+      "terminalSummary": "명령 실행이 완료되었습니다.",
+      "agentSummary": "하위 에이전트 요약이 반환되었습니다.",
+      "imageGenerated": "이미지 {{n}}개를 생성했습니다.",
+      "writeSummary": "파일 쓰기가 완료되었습니다.",
+      "editSummary": "파일 변경 사항이 생성되었습니다.",
+      "stepCompleted": "이 단계가 완료되었습니다."
+    },
+    "defaultToolName": "도구 작업",
+    "toolError": {
+      "invalidInput": "잘못된 입력",
+      "permissionDenied": "권한 거부됨",
+      "timeout": "시간 초과",
+      "aborted": "취소됨",
+      "rateLimit": "요청 제한 초과",
+      "overloaded": "과부하 상태",
+      "modelError": "모델 오류",
+      "contractFail": "계약 실패",
+      "dependencyFail": "하위 작업 실패",
+      "internal": "내부 오류",
+      "unsupportedModality": "모델이 지원하지 않는 형식입니다"
+    },
+    "taskStatus": {
+      "inProgress": "진행 중",
+      "completed": "완료됨",
+      "deleted": "제거됨",
+      "pending": "대기 중"
+    },
+    "syncAgentStatus": {
+      "running": "실행 중",
+      "completed": "완료됨",
+      "maxTurns": "최대 턴 수 도달",
+      "modelError": "모델 오류",
+      "aborted": "중단됨",
+      "timeout": "시간 초과",
+      "failed": "실패"
+    },
+    "asyncAgentStatus": {
+      "running": "실행 중",
+      "idle": "대기 상태",
+      "completed": "완료됨",
+      "failed": "실패",
+      "aborted": "중단됨"
+    },
+    "teamEvent": {
+      "memberJoin": "멤버 합류",
+      "memberLeft": "멤버 나감",
+      "deleted": "팀 보관됨",
+      "created": "팀 결성됨",
+      "memberJoined": "{{name}}이(가) 합류함",
+      "memberLeftDesc": "{{name}}이(가) 나감",
+      "memberChange": "{{name}}이(가) 변경됨",
+      "archivedDesc": "이 팀은 더 이상 새로운 협업 메시지를 받지 않습니다.",
+      "defaultDesc": "팀 멤버는 현재 그룹에 남아 있습니다"
+    },
+    "header": {
+      "artifacts": "이 세션의 산출물",
+      "artifactsCount": "이 세션의 산출물 ({{n}}개)",
+      "workspace": "작업 공간",
+      "workspaceCount": "작업 공간 ({{n}}개)",
+      "workspaceLoading": "작업 공간 불러오는 중…",
+      "workspaceEmpty": "아직 파일이 없습니다",
+      "workspaceRefresh": "작업 공간 새로고침",
+      "workspaceOpenFolder": "파일 관리자에서 열기",
+      "workspacePreviewEmpty": "왼쪽에서 파일을 선택해 내용을 미리 보세요",
+      "workspaceBinaryHint": "이 파일 형식은 인라인으로 미리 볼 수 없습니다",
+      "quickSwitch": "빠른 전환",
+      "jumpToIndex": "채팅 {{n}}로 이동",
+      "chatIndex": "채팅 {{n}}",
+      "activeProject": "프로젝트: {{name}}",
+      "sessionMenu": "세션 메뉴"
+    },
+    "composer": {
+      "stopping": "현재 작업 중지 중",
+      "stoppingDesc": "중지 요청을 보냈습니다. 작업이 종료되면 새 내용을 입력할 수 있습니다.",
+      "confirm": "확인이 필요합니다",
+      "confirmDesc": "에이전트가 파일 또는 환경에 영향을 줄 수 있는 작업을 수행하려고 합니다. 승인하면 자동으로 계속 진행됩니다.",
+      "connecting": "HarnessClaw에 연결 중",
+      "connectingDesc": "먼저 질문을 정리해 두세요. 연결이 복구되면 계속 진행할 수 있습니다.",
+      "reconnect": "다시 연결",
+      "noConnection": "HarnessClaw에 연결되어 있지 않습니다",
+      "noConnectionDesc": "전송 시 자동으로 연결을 시도합니다. 수동으로 다시 시도할 수도 있습니다.",
+      "sendHint": "Enter로 전송, Shift + Enter로 줄바꿈",
+      "dropFiles": "여기에 파일을 끌어다 놓으세요",
+      "permissionHint": "민감한 작업은 확인이 필요합니다",
+      "placeholderConnected": "+ HarnessClaw가 무엇을 도와드릴까요?",
+      "placeholderDisconnected": "+ 질문을 작성하세요. 전송 시 연결됩니다.",
+      "addFilesAria": "파일 추가",
+      "browserVisible": "브라우저 표시됨",
+      "browserHidden": "브라우저 숨겨짐",
+      "browserShowAria": "브라우저 창 표시",
+      "browserHideAria": "브라우저 창 숨기기",
+      "browserCloseAllAria": "모든 브라우저 창 닫기",
+      "browserCloseAllConfirm": "현재 열려 있는 모든 브라우저 창을 닫습니다. 계속하시겠습니까?",
+      "stopAria": "현재 작업 중지",
+      "sendAria": "메시지 전송",
+      "aiDisclaimer": "이 콘텐츠는 AI가 생성했으며 부정확할 수 있습니다",
+      "dropToUpload": "이 세션에 업로드할 파일을 여기에 놓으세요",
+      "dropDesc": "첨부 파일은 현재 컨텍스트에 포함됩니다."
+    },
+    "welcome": {
+      "startNew": "새 채팅 시작",
+      "welcomeDesc": "질문, 첨부 파일, 진행 상황을 한곳에 보관하세요."
+    },
+    "scroll": {
+      "toBottom": "맨 아래로 스크롤"
+    },
+    "decision": {
+      "needsAction": "결정이 필요합니다: {{target}}",
+      "targetPlan": "전체 계획",
+      "targetStep": "{{id}}단계",
+      "retryCount": "{{n}}회 재시도 후 실패",
+      "failedReason": "실패 사유: {{reason}}",
+      "retryOnce": "한 번 더 재시도",
+      "skipStep": "건너뛰고 계속",
+      "abortTask": "작업 중단",
+      "stepLabel": "{{id}}단계",
+      "stepLabelPrefix": "단계: ",
+      "reasonLabel": "사유: ",
+      "attemptsLabel": "({{n}}회 시도)",
+      "remarkPlaceholder": "선택 사항: 폴백 요약에 남길 메모...",
+      "remarkLabel": "메모",
+      "submitFailedWithReason": "결정 전송 실패: {{reason}}. 나중에 다시 시도해 주세요.",
+      "submitFailed": "결정 전송에 실패했습니다. 나중에 다시 시도해 주세요.",
+      "noReason": "실패 사유가 제공되지 않았습니다",
+      "continued": "계속 진행을 선택함",
+      "retried": "재시도를 선택함",
+      "cancelled": "취소됨",
+      "waiting": "결정 대기 중",
+      "planFailed": "계획 실패 · 결정 대기 중",
+      "stepFailed": "단계 실패 · 결정 대기 중",
+      "sending": "전송 중...",
+      "cancel": "취소",
+      "retry": "재시도",
+      "continue": "계속",
+      "retryDisabledHint": "이 실패는 재시도를 지원하지 않습니다"
+    },
+    "task": {
+      "detailsLabel": "작업",
+      "viewDetails": "작업 세부 정보 보기",
+      "hideDetails": "작업 세부 정보 숨기기"
+    },
+    "sidePanel": {
+      "label": "대화 보조 패널",
+      "expandAria": "보조 패널 펼치기",
+      "collapseAria": "보조 패널 접기",
+      "tabsAria": "보조 패널 탭",
+      "tabPlan": "계획",
+      "tabLogs": "로그",
+      "tabArtifacts": "산출물",
+      "completedPrefix": "완료: ",
+      "completedTask": "작업 계획 수립 및 업무 조율을 완료했습니다",
+      "completedWork": "작업을 완료했습니다",
+      "completedBrowser": "브라우저 작업을 완료하고 웹페이지를 열어 스크린샷을 찍었습니다",
+      "completedResearch": "폴더 검색 및 정리를 완료했습니다",
+      "completedCoding": "코드 작성을 완료했습니다",
+      "completedFile": "파일 처리 작업을 완료했습니다",
+      "completedApp": "앱 관련 처리를 완료했습니다",
+      "allTasksCompleted": "모든 작업이 완료되었습니다",
+      "planningTask": "작업 계획 수립 중",
+      "working": "작업 중",
+      "unnamedStep": "이름 없는 단계",
+      "noLogs": "아직 로그가 없습니다",
+      "noLogsDesc": "실행 진행 상황이 이곳에 표시됩니다",
+      "noPlan": "아직 계획이 없습니다",
+      "noPlanDesc": "계획이 생성되면 이곳에 표시됩니다",
+      "noArtifacts": "아직 파일이 없습니다",
+      "noArtifactsDesc": "실행 중 생성된 파일이 이곳에 표시됩니다",
+      "artifactModeAria": "산출물 보기 모드",
+      "artifactModeGeneral": "일반",
+      "artifactModeDev": "개발자",
+      "artifactOpen": "열기",
+      "artifactOpenExternal": "브라우저에서 열기",
+      "artifactPreview": "미리보기",
+      "expand": "펼치기",
+      "collapse": "접기",
+      "duration": "소요 시간:",
+      "error": "오류:",
+      "query": "질의:",
+      "resultCount": "결과 수:",
+      "links": "링크",
+      "linksTruncated": " (전체 {{count}}개 중 처음 5개 표시)",
+      "relativeTime": {
+        "justNow": "방금 전",
+        "secondsAgo": "{{count}}초 전",
+        "minutesAgo": "{{count}}분 전",
+        "hoursAgo": "{{count}}시간 전",
+        "daysAgo": "{{count}}일 전"
+      },
+      "errorType": {
+        "invalid_input": "잘못된 입력",
+        "permission_denied": "권한 거부됨",
+        "tool_timeout": "도구 시간 초과",
+        "user_aborted": "사용자가 취소함",
+        "rate_limit": "요청 제한 초과",
+        "overloaded": "과부하 상태",
+        "model_error": "모델 오류",
+        "contract_fail": "계약 오류",
+        "dependency_fail": "종속 작업 실패",
+        "internal": "내부 오류"
+      }
+    }
+  },
+  "settings": {
+    "title": "설정",
+    "back": "뒤로",
+    "nav": {
+      "settings": "설정",
+      "connection": "연결",
+      "models": "모델",
+      "agents": "에이전트",
+      "search": "검색",
+      "tools": "도구",
+      "appConfig": "앱 설정",
+      "software": "소프트웨어",
+      "launcher": "빠른 실행기",
+      "logs": "로그",
+      "ui": "UI 설정",
+      "storage": "저장소",
+      "updates": "업데이트"
+    },
+    "connection": {
+      "title": "연결 설정",
+      "subtitle": "게이트웨이 연결 및 하트비트",
+      "gateway": {
+        "title": "게이트웨이 연결",
+        "host": "리스닝 주소",
+        "hostDesc": "게이트웨이 서버가 바인딩되는 호스트 주소",
+        "port": "포트",
+        "portDesc": "콘솔 API 포트, 기본값은 8090",
+        "probe": "테스트",
+        "probing": "테스트 중",
+        "connected": "연결됨",
+        "failed": "실패",
+        "probeFailed": "연결할 수 없습니다",
+        "requestFailed": "테스트 요청 실패",
+        "autoReconnect": "자동 재연결",
+        "autoReconnectDesc": "연결이 끊기면 자동으로 재연결을 시도합니다",
+        "reconnectInterval": "재연결 간격",
+        "reconnectIntervalDesc": "재연결 시도 사이의 대기 시간",
+        "timeout": "연결 시간 초과",
+        "timeoutDesc": "연결을 수립하기 위한 최대 대기 시간"
+      },
+      "heartbeat": {
+        "title": "하트비트",
+        "enabled": "하트비트 확인",
+        "enabledDesc": "연결을 유지하기 위해 주기적으로 ping을 전송합니다",
+        "interval": "하트비트 간격",
+        "intervalDesc": "하트비트 패킷 간의 시간 간격"
+      },
+      "seconds": "초"
+    },
+    "auth": {
+      "title": "인증 설정",
+      "subtitle": "로컬 설정, API 지원이 필요하지 않습니다",
+      "mode": {
+        "title": "인증 모드",
+        "label": "인증 방식",
+        "desc": "게이트웨이에 연결할 때 사용할 인증 프로토콜을 선택하세요",
+        "noneDesc": "인증 없이 게이트웨이에 직접 연결합니다. 로컬 개발용으로만 사용하세요.",
+        "proxyDesc": "신뢰할 수 있는 프록시를 통해 인증 정보를 전달하며, 인증은 프록시 계층에서 처리됩니다."
+      },
+      "token": {
+        "label": "토큰",
+        "desc": "연결에 사용되는 액세스 토큰",
+        "placeholder": "토큰 입력"
+      },
+      "password": {
+        "label": "비밀번호",
+        "desc": "연결에 사용되는 인증 비밀번호",
+        "placeholder": "비밀번호 입력"
+      },
+      "test": "연결 테스트",
+      "testing": "연결 중...",
+      "success": "연결에 성공했습니다",
+      "failed": "연결에 실패했습니다"
+    },
+    "software": {
+      "title": "소프트웨어 설정",
+      "subtitle": "앱 수준의 런타임 옵션",
+      "chatBehavior": {
+        "title": "채팅 동작",
+        "linkOpen": "링크 열기",
+        "linkOpenDesc": "채팅 메시지 내 링크를 여는 방식: 내장 드로어 또는 시스템 기본 브라우저",
+        "drawer": "내장 드로어",
+        "external": "시스템 브라우저"
+      },
+      "logging": {
+        "title": "로깅",
+        "level": "로그 레벨",
+        "levelDesc": "로그의 최소 레벨입니다. 낮은 레벨일수록 더 상세합니다 (fatal이 가장 적고, trace가 가장 많습니다).",
+        "fatal": "Fatal",
+        "error": "Error",
+        "warn": "Warn",
+        "info": "Info",
+        "debug": "Debug",
+        "trace": "Trace"
+      },
+      "telemetry": {
+        "title": "사용 통계",
+        "enabled": "익명 사용 데이터 전송",
+        "enabledDesc": "제품 개선에 도움을 주세요. 기능 사용 횟수와 익명 기기 ID만 수집되며, 대화 내용, 파일, 개인 정보는 수집되지 않습니다. 언제든지 끌 수 있습니다."
+      }
+    },
+    "models": {
+      "title": "모델",
+      "subtitle": "공급자, API 키, 엔드포인트를 관리하세요",
+      "primaryProvider": "기본 공급자",
+      "imageGenerationProvider": "이미지 생성 모델",
+      "imageGenerationProviderDesc": "image_generate에서 사용되며, 기본 응답 모델 및 폴백 체인과는 별개입니다",
+      "mediaCard": {
+        "apiKey": "API 키",
+        "apiBase": "API 기본 URL",
+        "imageApiBaseHint": "전체 이미지 생성 엔드포인트 URL, 예: {{url}}",
+        "videoApiBaseHint": "비워두면 기본 URL {{url}}을 사용합니다",
+        "endpoints": "엔드포인트",
+        "addEndpoint": "엔드포인트 추가",
+        "noEndpoints": "아직 엔드포인트가 없습니다. '엔드포인트 추가'를 클릭해 추가하세요."
+      },
+      "jumpToSettings": "설정으로 이동",
+      "fallbackEnabled": "공급자 폴백",
+      "fallbackEnabledDesc": "기본 모델을 사용할 수 없을 때 자동 폴백 체인 적용",
+      "searchPlaceholder": "공급자 검색...",
+      "noMatch": "일치하는 공급자가 없습니다",
+      "visitOfficialSite": "공식 사이트 방문",
+      "protocols": {
+        "openai": "OpenAI 프로토콜",
+        "anthropic": "Anthropic 프로토콜",
+        "gemini": "Gemini 프로토콜"
+      },
+      "protocolLabel": "프로토콜 호환성",
+      "protocolDesc": "커스텀 공급자를 llm.providers에 기록할 때 사용하는 형식",
+      "apiKeyLabel": "API 키",
+      "apiKeyPlaceholder": "API 키",
+      "apiKeyHint": "여러 개의 키는 쉼표로 구분하세요",
+      "getApiKey": "여기를 클릭해 키 발급받기",
+      "test": {
+        "testing": "테스트 중",
+        "ok": "사용 가능",
+        "fail": "실패",
+        "normal": "테스트"
+      },
+      "apiBaseLabel": "API 기본 URL",
+      "protocolType": "프로토콜 유형",
+      "previewLabel": "미리보기: ",
+      "modelsLabel": "모델",
+      "searchModels": "모델 검색...",
+      "noModels": "아직 모델이 없습니다. 새로고침하거나 아래에서 추가하세요.",
+      "syncOk": "{{total}}개 모델 동기화, {{added}}개 신규 추가",
+      "syncOkNoAdded": "{{total}}개 모델 동기화 완료",
+      "syncFailed": "모델 동기화 실패: {{reason}}",
+      "addModelId": "모델 ID를 입력해 주세요",
+      "modelExists": "모델 ID가 이미 존재합니다",
+      "modelAlreadyExists": "이미 존재하는 모델입니다",
+      "engineError": "엔진에 연결할 수 없습니다. 콘솔 포트가 활성화되어 있는지 확인하세요.",
+      "timeout": "요청이 시간 초과되었습니다",
+      "requestFailed": "요청 실패: {{error}}",
+      "noModelsInRegistry": "현재 공급자가 반환한 모델이 없습니다",
+      "noModelsForProvider": "{{name}}에서 반환된 모델이 없습니다",
+      "apiNotFound": "관리 API를 찾을 수 없습니다 (엔진 버전이 2026-05-14 이상인지 확인하세요)",
+      "editModel": "모델 편집",
+      "addModel": "모델 추가",
+      "modelIdLabel": "모델 ID",
+      "modelIdHint": "모델의 고유 식별자입니다. 필수 항목입니다",
+      "modelIdPlaceholder": "필수, 예: gpt-3.5-turbo",
+      "modelNameLabel": "모델 이름",
+      "modelNameHint": "표시용 이름입니다. 선택 사항입니다",
+      "modelNamePlaceholder": "예: GPT-4",
+      "modelGroupLabel": "그룹 이름",
+      "modelGroupHint": "논리적 그룹 이름입니다. 선택 사항입니다",
+      "modelGroupPlaceholder": "예: ChatGPT",
+      "modelTagsLabel": "기능 (태그)",
+      "goToAgents": "에이전트 LLM 노드 설정",
+      "hotReloadError": "{{label}} 실패 ({{detail}})",
+      "hotReloadLabels": {
+        "apiKey": "자격 증명 업데이트",
+        "create": "공급자 생성",
+        "modelCreate": "모델 생성",
+        "list": "공급자 조회",
+        "enable": "모델 활성화",
+        "disable": "모델 비활성화",
+        "update": "링크 업데이트",
+        "delete": "모델 삭제",
+        "modelUpdate": "모델 업데이트",
+        "protocol": "프로토콜 전환"
+      },
+      "validation": {
+        "missingKey": "{{name}}에 API 키가 없습니다",
+        "missingBase": "{{name}}에 API 기본 URL이 없습니다",
+        "noModels": "{{name}}에 최소 하나의 모델을 추가해야 합니다",
+        "noneSelected": "{{name}}에서 최소 하나의 모델을 선택해야 합니다",
+        "providerDisabledModelSaved": "{{name}} 공급자가 아직 활성화되지 않았습니다. 선택한 모델은 저장되며 {{name}}을(를) 활성화하면 적용됩니다."
+      },
+      "persist": {
+        "readFailed": "모델 설정을 읽지 못했습니다",
+        "saving": "UI 환경설정 저장 중...",
+        "saveFailed": "모델 설정 저장에 실패했습니다"
+      },
+      "capabilities": {
+        "vision": "비전",
+        "image_generation": "이미지 생성",
+        "web": "웹",
+        "reasoning": "추론",
+        "tools": "도구"
+      }
+    },
+    "channels": {
+      "title": "채널 설정",
+      "searchPlaceholder": "채널 검색...",
+      "sendProgress": "전송 진행 상황",
+      "sendToolHints": "도구 힌트",
+      "statusOn": "ON",
+      "noChannels": "채널을 찾을 수 없습니다",
+      "config": "설정",
+      "names": {
+        "dingtalk": "DingTalk",
+        "discord": "Discord",
+        "email": "이메일",
+        "feishu": "Feishu",
+        "mochat": "MoChat",
+        "qq": "QQ",
+        "slack": "Slack",
+        "telegram": "Telegram",
+        "wecom": "WeCom",
+        "whatsapp": "WhatsApp",
+        "harnessclaw": "Harnessclaw"
+      },
+      "labels": {
+        "enabled": "활성화됨",
+        "imapUsername": "IMAP 사용자 이름",
+        "imapPassword": "IMAP 비밀번호",
+        "imapMailbox": "IMAP 메일함",
+        "smtpUsername": "SMTP 사용자 이름",
+        "smtpPassword": "SMTP 비밀번호",
+        "fromAddress": "보내는 주소",
+        "autoReplyEnabled": "자동 응답",
+        "pollIntervalSeconds": "폴링 간격(초)",
+        "markSeen": "읽음 표시",
+        "maxBodyChars": "최대 본문 글자 수",
+        "subjectPrefix": "제목 접두어",
+        "groupPolicy": "그룹 정책",
+        "reactEmoji": "반응 이모지",
+        "replyToMessage": "메시지에 답장",
+        "replyInThread": "스레드로 답장",
+        "userTokenReadOnly": "사용자 토큰 읽기 전용",
+        "msgFormat": "메시지 형식",
+        "welcomeMessage": "환영 메시지",
+        "mode": "모드",
+        "consentGranted": "동의함",
+        "allowFrom": "허용 발신자",
+        "groupAllowFrom": "그룹 허용 발신자",
+        "host": "호스트",
+        "port": "포트",
+        "bridgeUrl": "브리지 URL",
+        "baseUrl": "기본 URL",
+        "socketUrl": "소켓 URL",
+        "socketPath": "소켓 경로",
+        "webhookPath": "웹훅 경로"
+      },
+      "hints": {
+        "commaSeparated": "여러 값은 쉼표로 구분하세요",
+        "noLimit": "비워두면 제한 없음"
+      }
+    },
+    "welcome": {
+      "greeting": "HarnessClaw에 오신 것을 환영합니다",
+      "saveError": "설정 저장에 실패했습니다",
+      "back": "뒤로",
+      "next": "다음",
+      "finish": "완료 및 실행",
+      "submitting": "초기화 중...",
+      "stages": {
+        "emma": "emma와의 첫 만남",
+        "emmaSubtitle": "올인원 스마트 어시스턴트",
+        "engine": "엔진 선택",
+        "engineSubtitle": "핵심 두뇌 역할을 할 기본 LLM 서비스를 선택하세요",
+        "connection": "연결 매개변수",
+        "profile": "프리셋 프로필"
+      },
+      "modelIdHint": "예: gpt-4o-mini, claude-sonnet-4 등.",
+      "engineOptions": {
+        "openaiDetail": "GPT-4o, GPT-4o-mini 등을 지원합니다. OpenAI 프로토콜 엔드포인트와 호환됩니다.",
+        "anthropicDetail": "Claude 3.5 Sonnet, Claude 3 Opus 등을 지원합니다. 네이티브 API입니다."
+      },
+      "profileOptions": {
+        "devTitle": "개발 전문가",
+        "devDetail": "코드, 디버깅, 아키텍처에 집중합니다. 기본적으로 높은 추론 강도를 사용합니다.",
+        "researchTitle": "리서치 어시스턴트",
+        "researchDetail": "데이터 수집, 요약, 논문 분석에 특화되어 있습니다. 균형 잡힌 전략을 사용합니다.",
+        "opsTitle": "운영 전문가",
+        "opsDetail": "일상 작업, 동기화, 데이터 정리를 빠르게 처리합니다. 가벼운 전략을 사용합니다."
+      },
+      "prompts": {
+        "categories": {
+          "dev": "개발",
+          "research": "리서치",
+          "writing": "작문",
+          "data": "데이터",
+          "life": "생활",
+          "daily": "일상"
+        },
+        "items": {
+          "dev1": "이 함수를 더 읽기 쉽게 리팩터링하고 단위 테스트를 추가해 주세요.",
+          "dev2": "이 오류 로그를 분석해 근본 원인을 찾고 해결 방법을 제시해 주세요.",
+          "dev3": "이 PR의 설계와 경계를 검토하고 잠재적 위험을 나열해 주세요.",
+          "dev4": "이 인터페이스에 속도 제한과 재시도를 추가하고 단위 테스트도 작성해 주세요.",
+          "res1": "지난 한 주간의 새로운 RAG 논문을 검색해 핵심 내용을 요약해 주세요.",
+          "res2": "주요 벡터 데이터베이스 3종의 아키텍처와 사용 사례를 비교해 주세요.",
+          "res3": "에이전트 평가 분야의 주요 벤치마크를 검토해 주세요.",
+          "res4": "이 저자가 지난 6개월간 발표한 모든 논문을 추적해 주세요.",
+          "wri1": "다음 주 제품 출시를 위한 300자 분량의 티저 글을 작성해 주세요.",
+          "wri2": "이 기술 문서를 비전문가 동료들이 이해하기 쉽게 다시 작성해 주세요.",
+          "wri3": "이 오픈소스 프로젝트를 위한 간결하고 강렬한 README를 작성해 주세요.",
+          "wri4": "이 회고 내용을 외부용 스토리 중심 글로 정리해 주세요.",
+          "dat1": "이 CSV의 주문 데이터를 분석해 유지율과 이상치를 찾아주세요.",
+          "dat2": "이 로그를 필드별로 파싱하고 시간대별 호출 추이 차트를 만들어 주세요.",
+          "dat3": "이 A/B 테스트 결과를 분석하고 통계적 유의성을 알려주세요.",
+          "dat4": "이 사용자 피드백들을 가장 주목할 만한 5개 주제로 클러스터링해 주세요.",
+          "lif1": "항저우 근교로 떠나는 1박 2일 가족 주말여행을 계획해 주세요.",
+          "lif2": "제 활동량과 식단을 바탕으로 다음 주를 위한 조언을 해주세요.",
+          "lif3": "이 두 항공권+호텔 패키지의 전체 가성비를 비교해 주세요.",
+          "lif4": "혼자 조용히 보내기 좋은 주말 저녁 활동 목록을 알려주세요.",
+          "dai1": "오늘 회의 메모를 To-do 목록과 다음 주 일정으로 정리해 주세요.",
+          "dai2": "오늘 Slack에서 언급된 모든 @멘션을 정리하고 답장이 필요한 항목을 표시해 주세요.",
+          "dai3": "이번 주 업무를 외부 공유용 주간 보고서 초안으로 정리해 주세요.",
+          "dai4": "오늘 꼭 처리해야 할 이메일 3건을 골라주세요."
+        }
+      }
+    },
+    "plan": {
+      "buttonLabel": "계획",
+      "dialogTitle": "실행 계획",
+      "taskPlan": "작업 계획",
+      "close": "닫기",
+      "noSteps": "단계 없음",
+      "dependsOn": "{{deps}}에 의존",
+      "status": {
+        "running": "실행 중",
+        "dispatched": "배정됨",
+        "completed": "완료됨",
+        "failed": "실패",
+        "skipped": "건너뜀",
+        "pending": "대기 중"
+      },
+      "summary": {
+        "completed": "계획 완료 · {{completed}}/{{total}} 단계 성공",
+        "failed": "계획 실패 · {{failed}}개 실패, {{skipped}}개 건너뜀",
+        "running": "실행 중 · {{completed}}/{{total}} 완료",
+        "progress": "{{completed}}/{{total}} 단계 완료",
+        "waiting": "계획이 승인되어 배정 대기 중 · 총 {{total}} 단계"
+      },
+      "draft": {
+        "title": "실행 계획 초안",
+        "goalLabel": "목표:",
+        "noSteps": "아직 단계가 없습니다. 아래 \"+ 단계 추가\"를 클릭해 보완하세요.",
+        "stepPlaceholder": "단계 설명",
+        "newStep": "새 단계",
+        "deleteStepAria": "단계 삭제",
+        "addStep": "단계 추가",
+        "regenerate": "다시 생성",
+        "reject": "거부",
+        "execute": "실행"
+      }
+    },
+    "stats": {
+      "title": "통계",
+      "dialogTitle": "세션 통계",
+      "refresh": "통계 새로고침",
+      "close": "닫기",
+      "noData": "아직 데이터가 없습니다 — 이 세션에서 LLM 호출이 발생하지 않았습니다.",
+      "fetchError": "통계를 가져오지 못했습니다: {{error}}",
+      "fetchErrorHint": "나중에 다시 시도해 주세요",
+      "contextWindow": "컨텍스트 윈도우",
+      "remaining": "남은 양",
+      "buckets": {
+        "input": "입력",
+        "cache": "캐시",
+        "output": "출력",
+        "thinking": "생각",
+        "includingCache": "캐시 {{n}} 포함",
+        "percentOfInput": "입력의 {{percent}}%"
+      },
+      "cards": {
+        "totalTokens": "총 토큰 수",
+        "inputTokens": "입력 토큰 수",
+        "outputTokens": "출력 토큰 수",
+        "avgLatency": "평균 지연 시간",
+        "cacheHit": "캐시 적중 {{percent}}%",
+        "includingThinking": "생각 {{n}} 포함",
+        "ttft": "TTFT {{latency}}",
+        "cacheSaved": "{{cost}} 절약"
+      },
+      "breakdown": {
+        "title": "에이전트별 내역",
+        "agent": "에이전트",
+        "input": "입력",
+        "output": "출력",
+        "contribution": "기여도",
+        "noSubagents": "하위 에이전트 데이터 없음",
+        "mainBadge": "메인"
+      }
+    },
+    "attachments": {
+      "removeAria": "파일 {{name}} 제거"
+    },
+    "pasted": {
+      "label": "붙여넣음",
+      "lines": "{{n}}줄",
+      "removeAria": "붙여넣은 내용 제거",
+      "previewTitle": "붙여넣은 내용 미리보기",
+      "closeAria": "미리보기 닫기"
+    },
+    "ui": {
+      "title": "UI 설정",
+      "subtitle": "인터페이스 환경설정",
+      "appearance": "모양",
+      "theme": "테마",
+      "themeDesc": "인터페이스 색상 테마를 선택하세요",
+      "themeLight": "라이트",
+      "themeDark": "다크",
+      "themeSystem": "시스템",
+      "fontSize": "글꼴 크기",
+      "fontSizeDesc": "인터페이스 텍스트 크기를 조정하세요",
+      "fontSizeSmall": "작게",
+      "fontSizeMedium": "보통",
+      "fontSizeLarge": "크게",
+      "language": "언어",
+      "languageDesc": "인터페이스 표시 언어",
+      "languageZh": "中文",
+      "languageEn": "English",
+      "languageKo": "한국어",
+      "editor": "코드 에디터",
+      "codeTheme": "코드 테마",
+      "codeThemeDesc": "코드 블록의 구문 강조 스타일",
+      "animation": "애니메이션",
+      "animationDesc": "인터페이스 전환 및 마이크로 인터랙션 애니메이션 사용",
+      "viewAvatar": "아바타 보기: {{name}}"
+    },
+    "tools": {
+      "title": "도구 설정",
+      "subtitle": "검색, 실행 및 MCP",
+      "iflySearch": {
+        "label": "iFly 검색 활성화",
+        "desc": "엔진의 tools.web_search 모듈과 동기화됨",
+        "apiKey": "API 키",
+        "apiSecret": "API 시크릿",
+        "appId": "앱 ID",
+        "host": "호스트",
+        "hostDesc": "iFly 검색 서비스 호스트",
+        "path": "경로",
+        "pathDesc": "iFly 검색 요청 경로",
+        "limit": "제한",
+        "limitDesc": "요청당 최대 결과 수"
+      },
+      "tavilySearch": {
+        "label": "Tavily 검색 활성화",
+        "desc": "엔진의 tools.tavily_search 모듈과 동기화됨",
+        "apiKey": "API 키",
+        "console": "Tavily 콘솔 열기",
+        "limit": "최대 결과 수",
+        "limitDesc": "Tavily 검색 요청당 최대 결과 수"
+      },
+      "exec": {
+        "title": "명령 실행",
+        "timeout": "시간 제한",
+        "timeoutDesc": "명령 실행의 최대 대기 시간(초)",
+        "pathAppend": "PATH 추가",
+        "pathAppendDesc": "PATH 환경 변수에 추가할 경로",
+        "restrictWorkspace": "작업 공간으로 제한",
+        "restrictWorkspaceDesc": "작업 공간 디렉터리 내에서만 명령 실행을 허용합니다"
+      },
+      "mcp": {
+        "title": "MCP 서버",
+        "noServers": "설정된 MCP 서버가 없습니다",
+        "configured": "{{count}}개 MCP 서버 설정됨"
+      }
+    },
+    "storage": {
+      "title": "데이터 및 저장소",
+      "subtitle": "로컬 파일 및 캐시 관리",
+      "dbPath": "데이터베이스 경로",
+      "dbPathDesc": "로컬 SQLite 데이터베이스 파일 위치",
+      "dbShowInFolder": "폴더에서 데이터베이스 파일 보기",
+      "logsPath": "로그 경로",
+      "logsPathDesc": "시스템 실행 로그 디렉터리",
+      "cacheSize": "캐시 크기",
+      "cacheSizeDesc": "애플리케이션 임시 캐시가 차지하는 디스크 공간",
+      "clearCache": "캐시 지우기",
+      "export": {
+        "title": "데이터 내보내기",
+        "db": "데이터베이스 내보내기",
+        "dbDesc": "모든 세션을 JSON 또는 마크다운으로 내보냅니다",
+        "logs": "로그 내보내기",
+        "logsDesc": "애플리케이션 실행 로그를 내보냅니다",
+        "config": "설정 내보내기",
+        "configDesc": "모든 설정을 설정 파일로 내보냅니다",
+        "success": "{{path}}로 내보내기 완료",
+        "failed": "내보내기 실패",
+        "openFailed": "디렉터리를 열지 못했습니다"
+      }
+    },
+    "logs": {
+      "title": "시스템 로그",
+      "subtitle": "latest.log의 통합 보기입니다. 레벨은 표시 필터링에만 사용되며 기록 레벨은 변경하지 않습니다 (\"소프트웨어 설정\"에서 조정하세요).",
+      "searchPlaceholder": "메시지, 모듈 또는 메타데이터 검색",
+      "followModeOn": "따라가기",
+      "followModeOff": "일시 정지됨",
+      "directoryLabel": "로그 디렉터리: {{path}}",
+      "openDirectory": "디렉터리 열기",
+      "exportLogs": "로그 내보내기",
+      "reset": "초기화",
+      "copy": "복사",
+      "copied": "복사됨",
+      "levels": {
+        "fatal": "Fatal",
+        "error": "Error",
+        "warn": "Warn",
+        "info": "Info",
+        "debug": "Debug",
+        "trace": "Trace"
+      },
+      "viewModes": {
+        "parsed": "파싱됨",
+        "raw": "원본",
+        "message": "메시지",
+        "metadata": "메타데이터"
+      },
+      "notices": {
+        "openDirSuccess": "로그 디렉터리를 열었습니다: {{path}}",
+        "openDirFailed": "로그 디렉터리를 열지 못했습니다.",
+        "exportSuccess": "로그를 내보냈습니다: {{path}}",
+        "exportFailed": "로그 내보내기에 실패했습니다."
+      }
+    },
+    "search": {
+      "errors": {
+        "loadFailed": "도구 설정을 불러오지 못했습니다",
+        "invalidConfig": "자격 증명이 불완전합니다. 활성화하기 전에 입력해 주세요.",
+        "notRegistered": "도구가 등록되지 않았습니다 — 엔진 버전이 호환되지 않을 수 있습니다.",
+        "hotReloadFailed": "핫 리로드에 실패했습니다. 나중에 다시 시도하거나 서비스를 재시작하세요.",
+        "persistFailed": "설정 파일 기록에 실패했습니다 — 메모리 상태가 롤백되었습니다.",
+        "registryMissing": "도구가 시작 시 등록되지 않았습니다. 서비스를 재시작해 주세요.",
+        "badRequest": "잘못된 요청 매개변수입니다.",
+        "networkError": "로컬 서비스에 연결할 수 없습니다. HarnessClaw가 실행 중인지 확인하세요.",
+        "timeout": "요청이 시간 초과되었습니다. 다시 시도해 주세요.",
+        "generic": "{{code}}: 작업 실패",
+        "requestFailed": "요청 실패: {{detail}}"
+      },
+      "toast": {
+        "enabled": "활성화됨",
+        "disabled": "비활성화됨",
+        "noChanges": "저장할 변경 사항이 없습니다",
+        "savedAndApplied": "저장 및 적용됨"
+      },
+      "ui": {
+        "reload": "다시 불러오기",
+        "searchPlaceholder": "서비스 검색...",
+        "pendingConfig": "대기 중",
+        "unsavedChanges": "저장되지 않은 변경 사항",
+        "noMatch": "일치하는 검색 서비스가 없습니다",
+        "effective": "활성",
+        "notEnabled": "비활성화됨",
+        "visitWebsite": "웹사이트 방문",
+        "saving": "저장 중",
+        "save": "저장"
+      },
+      "fields": {
+        "apiKey": "API 키",
+        "apiKeyPlaceholder": "API 키 입력",
+        "getKeyHere": "여기를 클릭해 키 발급받기",
+        "iflyConsoleHint": "iFlytek 오픈 플랫폼 콘솔 방문",
+        "tavilyConsoleHint": "Tavily 콘솔 방문",
+        "maxResults": "최대 결과 수",
+        "maxResultsDesc": "요청당 반환되는 최대 결과 수",
+        "tavilyMaxResultsDesc": "Tavily 검색 요청당 반환되는 최대 결과 수"
+      }
+    },
+    "launcher": {
+      "header": {
+        "title": "빠른 실행기",
+        "subtitle": "전역 단축키로 입력창을 불러와 질문으로 바로 새 채팅을 시작하세요"
+      },
+      "group": {
+        "basic": "기본"
+      },
+      "enabled": {
+        "label": "활성화",
+        "desc": "IME 또는 시스템 단축키와의 충돌을 피하기 위해 기본적으로 비활성화되어 있습니다. 활성화하면 전역 단축키로 빠른 실행기 입력창이 열리며, 질문을 입력해 바로 새 채팅으로 이동할 수 있습니다."
+      },
+      "hotkey": {
+        "label": "단축키",
+        "desc": "오른쪽 입력란을 클릭하고 키 조합을 눌러 업데이트하세요. 최소 하나의 보조 키(⌘/⌃/⌥/⇧)를 포함해야 합니다.",
+        "capturingAria": "단축키 기록 중, 키 조합을 누르세요",
+        "idleAria": "현재 단축키 {{value}}, 클릭하여 편집",
+        "unset": "설정되지 않음",
+        "pressKeys": "키 조합을 누르세요…"
+      }
+    }
+  },
+  "welcome": {
+    "greeting": "만나서 반갑습니다",
+    "stages": {
+      "emma": "Emma와의 첫 만남",
+      "emmaSubtitle": "대화도 하고 작업도 하는 에이전트 콘솔로 시작하세요.",
+      "engine": "추론 엔진 선택",
+      "engineSubtitle": "첫 연결에 사용할 모델 API 프로토콜을 결정하세요.",
+      "connection": "연결 설정",
+      "profile": "작업 프로필 선택"
+    },
+    "engineOptions": {
+      "openaiDetail": "OpenAI 공식 API 또는 그 모델 명명 및 게이트웨이 설정과 호환되는 계정에 연결합니다.",
+      "anthropicDetail": "Anthropic 공식 API에 연결합니다. Claude 시리즈 모델의 기본 진입점입니다.",
+      "xunfeiDetail": "iFlytek Spark에 연결합니다. 중국어 시나리오와 국내 개발자 생태계에 적합합니다.",
+      "gptImageDetail": "OpenAI 이미지 생성 모델입니다. 설정 > 모델에서 구성하세요.",
+      "googleDetail": "gemini 프로토콜을 통해 Gemini 계열 모델을 위한 Google Generative Language에 연결합니다.",
+      "deepseekDetail": "DeepSeek의 OpenAI 호환 API에 연결합니다 — 저렴한 비용으로 코드와 추론에 뛰어납니다.",
+      "zhipuDetail": "OpenAI 호환 게이트웨이를 통해 Zhipu GLM에 연결합니다. GLM-4 계열 모델을 지원합니다.",
+      "moonshotDetail": "OpenAI 호환 API를 통해 Moonshot Kimi에 연결합니다. 긴 컨텍스트 대화에 적합합니다.",
+      "minimaxDetail": "OpenAI 호환 API를 통해 MiniMax에 연결합니다. abab 시리즈를 지원합니다.",
+      "doubaoDetail": "Doubao Seedream 이미지 생성 모델입니다. 설정 > 모델에서 구성하세요.",
+      "customDetail": "직접 게이트웨이를 연결하세요 — 기본 URL, 키, 프로토콜(OpenAI 또는 Anthropic)을 직접 설정합니다."
+    },
+    "protocolLabel": "프로토콜",
+    "profileOptions": {
+      "devTitle": "R&D 및 자동화 운영",
+      "devDetail": "긴 체인 실행에 중점을 두며 기본적으로 더 높은 도구 반복 한도를 사용합니다.",
+      "researchTitle": "데이터 수집 및 리서치 분석",
+      "researchDetail": "다단계 검색과 정리에 중점을 두며 중간 수준의 추론 강도를 유지합니다.",
+      "opsTitle": "복잡한 일상 워크플로",
+      "opsDetail": "안정적인 협업과 배치 처리에 중점을 두며 간결한 기본값을 유지합니다.",
+      "optional": "선택 사항 — 프리셋을 선택해 적절한 기본값을 사용하거나, 건너뛰고 나중에 직접 조정하세요.",
+      "skip": "건너뛰기 — 현재 기본값 유지",
+      "editLater": "이는 설정 → 에이전트의 작업 공간 / 최대 도구 반복 횟수 / 추론 강도에 매핑되며 언제든지 편집할 수 있습니다."
+    },
+    "modelIdHint": "공급자가 지원하는 모델 ID를 사용하세요. 예: gpt-4o-mini 또는 claude-sonnet-4.",
+    "intro": {
+      "heading": "안녕하세요, 저는 여러분의 개인 비서 Emma입니다. 이런 것들을 도와드릴 수 있어요",
+      "categories": {
+        "0": {
+          "label": "일상 업무",
+          "cards": [
+            {
+              "title": "이 블로그 글에 어울리는 눈길 끄는 제목을 지어주세요",
+              "description": [
+                "알겠습니다, 보스 — 먼저 블로그 내용을 살펴볼게요.",
+                "와, 정말 훌륭한 글이네요! 슈퍼팀 협업에 대한 관점이 정말 공감돼요. 제목으로 \"슈퍼팀 플레이북\"은 어떨까요?"
+              ]
+            }
+          ]
+        },
+        "1": {
+          "label": "코딩",
+          "cards": [
+            {
+              "title": "Python 웹 스크레이퍼를 작성해 주세요",
+              "description": "네 — 먼저 대상 사이트의 구조를 확인한 뒤, 적합한 라이브러리를 선택하겠습니다."
+            }
+          ]
+        },
+        "2": {
+          "label": "계획",
+          "cards": [
+            {
+              "title": "이번 주 업무 계획을 세워주세요",
+              "description": "네 — 먼저 캘린더와 할 일을 확인한 뒤 우선순위를 정하겠습니다."
+            }
+          ]
+        },
+        "3": {
+          "label": "문서 관리",
+          "cards": [
+            {
+              "title": "이 문서들을 정리해 주세요",
+              "description": "네 — 유형과 날짜별로 그룹화하겠습니다."
+            }
+          ]
+        },
+        "4": {
+          "label": "컴퓨터 제어",
+          "cards": [
+            {
+              "title": "VS Code를 열어주세요",
+              "description": "네, 지금 VS Code를 엽니다."
+            }
+          ]
+        }
+      }
+    },
+    "providerLabel": "모델",
+    "providerPlaceholder": "선택해 주세요",
+    "skip": "건너뛰기",
+    "prompts": {
+      "categories": {
+        "dev": "엔지니어링",
+        "research": "리서치",
+        "writing": "작문",
+        "data": "데이터",
+        "life": "생활",
+        "daily": "일상"
+      },
+      "items": {
+        "dev1": "이 코드의 성능 병목을 검토해 주세요",
+        "dev2": "이 Python 스크립트를 TypeScript로 이식해 주세요",
+        "dev3": "이 API에 대한 단위 테스트를 작성해 주세요",
+        "dev4": "최소한의 컨테이너화된 서비스를 배포해 주세요",
+        "res1": "지난 30일간의 최신 LLM 벤치마크 논문을 요약해 주세요",
+        "res2": "인기 있는 벡터 데이터베이스 3종을 비교해 주세요",
+        "res3": "경쟁 제품들의 주요 기능 차이를 나열해 주세요",
+        "res4": "이 회의록에서 핵심 내용을 추출해 주세요",
+        "wri1": "이 기술 게시글을 더 폭넓은 독자를 위해 다시 작성해 주세요",
+        "wri2": "제품 출시 발표 이메일 초안을 작성해 주세요",
+        "wri3": "이 블로그 글에 어울리는 눈길을 끄는 제목 세 가지를 제안해 주세요",
+        "wri4": "이 메모들을 200자 분량의 발표문으로 바꿔주세요",
+        "dat1": "이 CSV에서 이상치를 찾아주세요",
+        "dat2": "지난달 활성 사용자에 대한 SQL 쿼리를 작성해 주세요",
+        "dat3": "이 로그들을 집계해 시각화해 주세요",
+        "dat4": "이 데이터셋을 정리하고 결측값을 채워주세요",
+        "lif1": "우리 도시 근처로 떠나는 3일 여행을 계획해 주세요",
+        "lif2": "이번 주를 위한 건강한 아침 식사 아이디어를 제안해 주세요",
+        "lif3": "30분짜리 홈 트레이닝 루틴을 만들어 주세요",
+        "lif4": "평점이 높은 논픽션 책 몇 권을 추천해 주세요",
+        "dai1": "오늘 할 일을 시간대별로 정리해 주세요",
+        "dai2": "휴가 신청 이메일 초안을 작성해 주세요",
+        "dai3": "매주 금요일마다 프로젝트 진행 상황을 보관하도록 알려주세요",
+        "dai4": "이 음성 메모를 회의 요약으로 옮겨 적어 주세요"
+      }
+    },
+    "back": "뒤로",
+    "next": "다음",
+    "finish": "Emma와 만나기",
+    "submitting": "Emma가 준비 중입니다...",
+    "saveError": "설정 저장에 실패했습니다"
+  },
+  "home": {
+    "status": {
+      "connected": "연결됨",
+      "connectedDesc": "질문, 목표, 파일을 이곳에 놓고 바로 새 대화를 시작하세요.",
+      "connecting": "연결 중",
+      "connectingDesc": "연결을 수립하는 중입니다. 먼저 입력 내용을 정리해 두었다가 준비되면 전송하세요.",
+      "disconnected": "연결 끊김",
+      "disconnectedDesc": "먼저 생각을 적어두어도 괜찮습니다. 연결이 완료되면 계속 진행할 수 있습니다."
+    },
+    "dropToFiles": "파일을 추가하려면 여기에 놓으세요",
+    "inputPlaceholder": "작업을 입력하면 대신 처리해 드릴게요~",
+    "addFiles": "파일 추가",
+    "planMode": "계획 모드",
+    "planModeEnabled": "계획 모드가 활성화되었습니다: 이번 요청은 명시적인 단계로 실행됩니다",
+    "planModeDisabled": "계획 모드를 활성화하려면 클릭하세요 (다단계의 복잡한 작업에 권장)",
+    "shortcutHint": "Enter로 전송, Shift + Enter로 줄바꿈",
+    "send": "전송",
+    "title": "Emma는 정말 유용해요",
+    "welcomeHint": "질문, 목표, 파일을 이곳에 놓고 바로 새 대화를 시작하세요.",
+    "categories": {
+      "recommend": "추천",
+      "办公提效": "생산성",
+      "电脑设置": "PC 설정",
+      "学习助手": "학습 도우미",
+      "日常生活": "일상 생활",
+      "休息娱乐": "여가"
+    },
+    "cases": {
+      "meeting-notes": {
+        "title": "📝 회의록 도우미",
+        "content": "회의 녹음/스크립트를 구조화된 노트로 자동 정리"
+      },
+      "project-overview": {
+        "title": "🔍 프로젝트 빠른 개요",
+        "content": "새 프로젝트의 아키텍처, 모듈, 기술 스택을 빠르게 파악"
+      },
+      "competitor-research": {
+        "title": "📊 경쟁사 조사 보고서",
+        "content": "여러 제품 정보를 자동 수집해 비교 자료 생성"
+      },
+      "weekly-report": {
+        "title": "📅 개인 주간 보고서",
+        "content": "업무 기록을 자동 스캔해 구조화된 주간 보고서 생성"
+      },
+      "doc-batch": {
+        "title": "📄 이메일/문서 일괄 처리",
+        "content": "PDF/계약서에서 정보를 일괄 추출해 표로 요약"
+      },
+      "pc-checkup": {
+        "title": "🔧 PC 점검 및 최적화",
+        "content": "시스템 상태를 진단하고 최적화 방안 제안"
+      },
+      "study-coach": {
+        "title": "📚 학습 자료 코치",
+        "content": "맞춤 학습 경로를 짜고 양질의 자료를 모아드립니다"
+      },
+      "travel-planner": {
+        "title": "✈️ 여행 계획 도우미",
+        "content": "명소 추천부터 일정까지, 원스톱 여행 계획"
+      },
+      "ai-fortune": {
+        "title": "🔮 AI 운세",
+        "content": "타로/별자리/주역으로 맞춤 운세 결과 생성"
+      },
+      "mini-game": {
+        "title": "🎮 미니게임 생성기",
+        "content": "한 문장으로 플레이 가능한 웹 게임 생성"
+      }
+    }
+  },
+  "team": {
+    "title": "에이전트 팀",
+    "agents": "에이전트",
+    "teams": "에이전트 팀",
+    "newAgent": "새 에이전트",
+    "newTeam": "새 에이전트 팀",
+    "emptyAgents": "아직 에이전트가 없습니다",
+    "emptyAgentsDesc": "위에서 첫 에이전트를 생성해 나중에 팀에서 사용하세요.",
+    "agentsScopeBanner": {
+      "title": "커스텀 에이전트는 에이전트 팀 레지스트리에 있습니다",
+      "description": "여기서 생성한 에이전트는 에이전트 팀에 연결됩니다. 채팅 콘솔(Emma)은 여전히 스케줄러/프리랜서 같은 엔진 내장 역할을 사용합니다. 커스텀 에이전트를 호출하려면 팀에 추가하세요."
+    },
+    "emptyTeams": "아직 에이전트 팀이 없습니다",
+    "emptyTeamsDesc": "팀을 생성해 여러 에이전트를 고정된 협업 그룹으로 결합하세요.",
+    "previewBanner": {
+      "title": "에이전트 팀은 얼리 프리뷰 단계입니다",
+      "description": "워크플로 설계, 협업 설정, 테스트 단계는 아직 준비 중입니다. 게시된 팀은 이번 세션에만 유지되며 재시작 후에는 사라집니다."
+    },
+    "agentType": {
+      "sync": "sync (동기 하위 에이전트)",
+      "async": "async (비동기 하위 에이전트)",
+      "teammate": "teammate (협업자)",
+      "coordinator": "coordinator (오케스트레이터)",
+      "custom": "custom (커스텀)"
+    },
+    "profile": {
+      "full": "full (올인원)",
+      "explore": "explore (탐색 모드)",
+      "plan": "plan (계획 모드)"
+    },
+    "dialog": {
+      "createAgent": "새 에이전트",
+      "editAgent": "에이전트 편집",
+      "createDesc": "단독으로 사용하거나 에이전트 팀에서 사용할 에이전트를 생성하세요.",
+      "editDesc": "에이전트 설정을 수정하면 즉시 적용됩니다.",
+      "baseInfo": "기본 정보",
+      "name": "이름 *",
+      "nameDesc": "@ 멘션용 고유 식별자",
+      "displayName": "표시 이름",
+      "displayNameDesc": "UI 표시에 사용됩니다",
+      "type": "에이전트 유형",
+      "typeDesc": "도구 필터링 전략",
+      "template": "에이전트 프로필",
+      "templateDesc": "프리셋 프로필",
+      "desc": "설명",
+      "descDesc": "기능 설명",
+      "descPlaceholder": "예: 계획 수립, 작업 분해, 실행 흐름을 담당합니다.",
+      "systemPrompt": "시스템 프롬프트",
+      "systemPromptDesc": "사용자 지정 시스템 지침",
+      "systemPromptPlaceholder": "여러 줄의 텍스트로 에이전트의 동작, 경계, 스타일을 정의하세요.",
+      "advanced": "고급 설정",
+      "advancedDesc": "모델, 턴 수, 도구, 스킬, 자동 팀 프리셋",
+      "model": "모델",
+      "modelDesc": "비워두면 기본 모델을 상속합니다",
+      "maxTurns": "최대 턴 수",
+      "maxTurnsDesc": "1~25, 비워두면 자동",
+      "allowedTools": "허용된 도구",
+      "disallowedTools": "허용되지 않은 도구",
+      "tools": "도구",
+      "toolsDesc": "독립적인 도구 화이트리스트",
+      "skills": "스킬",
+      "skillsDesc": "스킬 화이트리스트",
+      "autoTeam": "자동 팀",
+      "subAgents": "하위 에이전트",
+      "subAgentsDesc": "자동 팀 활성화 시 하위 에이전트를 미리 정의합니다",
+      "noSubAgents": "먼저 에이전트를 생성한 뒤, 여기서 미리 정의된 하위 에이전트를 선택하세요.",
+      "save": "저장",
+      "saving": "저장 중...",
+      "cancel": "취소",
+      "delete": "삭제",
+      "errors": {
+        "nameRequired": "에이전트 식별자를 입력해 주세요.",
+        "nameInvalid": "식별자는 영문자, 숫자, _, -만 지원하며 선택적으로 @ 접두어를 붙일 수 있습니다.",
+        "conflict": "이미 존재하는 식별자입니다. 다른 이름을 선택하세요.",
+        "failed": "저장에 실패했습니다. 나중에 다시 시도해 주세요.",
+        "network": "네트워크 오류입니다. 엔진이 실행 중인지 확인하세요.",
+        "deleteFailed": "삭제에 실패했습니다."
+      }
+    },
+    "sop": {
+      "wizardTitle": "{{step}}단계: {{label}}",
+      "next": "다음: {{label}}",
+      "publish": "게시",
+      "cancel": "취소",
+      "prev": "이전",
+      "overview": "SOP 워크플로 개요",
+      "status": {
+        "done": "완료됨",
+        "doing": "진행 중",
+        "todo": "대기 중"
+      },
+      "steps": {
+        "target": {
+          "label": "목표 정의",
+          "desc": "AI 팀을 이끌 팀 목표와 취지를 설명하세요.",
+          "name": "팀 이름",
+          "namePlaceholder": "2~8자의 이름",
+          "objective": "팀 목표",
+          "objectivePlaceholder": "달성할 구체적인 목표를 설명하세요",
+          "scenario": "적용 시나리오",
+          "scenarioPlaceholder": "예: 코드 리뷰, 문서 생성, 프로젝트 관리",
+          "constraints": "경계 및 제약 (선택 사항)",
+          "constraintsPlaceholder": "예: 프로덕션 데이터에 접근하지 않음",
+          "error": "게시하기 전에 팀 이름을 입력해 주세요."
+        },
+        "members": {
+          "label": "멤버 선택",
+          "desc": "생성한 에이전트 중에서 팀에 참여할 멤버를 선택하세요.",
+          "empty": "사용 가능한 에이전트가 없습니다. '에이전트'로 전환해 먼저 생성하세요."
+        },
+        "workflow": {
+          "label": "워크플로 설계",
+          "desc": "내부 상호작용 흐름과 메시지 라우팅 규칙을 설계하세요."
+        },
+        "collaboration": {
+          "label": "협업 설정",
+          "desc": "팀 협업 전략과 공유 컨텍스트를 설정하세요."
+        },
+        "test": {
+          "label": "테스트 및 게시",
+          "desc": "팀 협업을 테스트하고 준비되면 게시하세요."
+        }
+      },
+      "items": {
+        "workflow": "상호작용 흐름",
+        "routing": "메시지 라우팅",
+        "conditions": "트리거 조건",
+        "context": "공유 컨텍스트",
+        "strategy": "협업 전략",
+        "conflict": "충돌 해결",
+        "test": "협업 테스트",
+        "optimization": "디버그 및 최적화",
+        "publish": "게시",
+        "targetDesc": [
+          "팀 이름 / 목표",
+          "시나리오",
+          "제약 조건"
+        ],
+        "membersDesc": [
+          "에이전트 중에서 선택",
+          "역할 배정",
+          "역량 매칭"
+        ],
+        "workflowDesc": [
+          "상호작용 흐름",
+          "메시지 라우팅",
+          "트리거 조건"
+        ],
+        "collaborationDesc": [
+          "공유 컨텍스트",
+          "협업 전략",
+          "충돌 해결"
+        ],
+        "testDesc": [
+          "팀 테스트",
+          "디버그 및 최적화",
+          "게시"
+        ]
+      },
+      "placeholder": "곧 공개 예정",
+      "example": "예시",
+      "output": "출력: 고품질 결과물"
+    },
+    "card": {
+      "noDesc": "설명이 없습니다.",
+      "noTeamDesc": "팀 설명이 없습니다.",
+      "turns": "{{n}}턴",
+      "autoTurns": "자동 턴",
+      "inheritModel": "기본 모델 상속",
+      "skills": "스킬",
+      "tools": "허용된 도구",
+      "members": "결합된 역할",
+      "unknownMember": "알 수 없는 에이전트",
+      "memberCount": "에이전트 {{n}}명"
+    }
+  },
+  "attachments": {
+    "removeAria": "첨부 파일 제거"
+  },
+  "pasted": {
+    "closeAria": "미리보기 닫기",
+    "label": "붙여넣은 텍스트",
+    "lines": "{{count}}줄",
+    "previewTitle": "붙여넣은 텍스트 미리보기",
+    "removeAria": "붙여넣은 텍스트 제거"
+  },
+  "plan": {
+    "buttonLabel": "계획",
+    "close": "닫기",
+    "dependsOn": "의존 대상",
+    "dialogTitle": "실행 계획",
+    "draft": {
+      "addStep": "단계 추가",
+      "deleteStepAria": "단계 삭제",
+      "execute": "계획 실행",
+      "goalLabel": "목표",
+      "newStep": "새 단계",
+      "noSteps": "아직 단계가 없습니다 — 하나를 추가해 시작하세요.",
+      "regenerate": "다시 생성",
+      "reject": "거부",
+      "stepPlaceholder": "이 단계를 설명하세요...",
+      "title": "계획 초안"
+    },
+    "noSteps": "단계 없음",
+    "status": {
+      "completed": "완료됨",
+      "dispatched": "배정됨",
+      "failed": "실패",
+      "pending": "대기 중",
+      "running": "실행 중",
+      "skipped": "건너뜀"
+    },
+    "summary": {
+      "completed": "계획 완료 · {{completed}}/{{total}} 단계 성공",
+      "failed": "계획 실패 · {{failed}}단계 실패, {{skipped}}단계 건너뜀",
+      "progress": "{{completed}}/{{total}} 단계 완료",
+      "running": "실행 중 · {{completed}}/{{total}} 완료",
+      "waiting": "계획 승인됨, 배정 대기 중 · 총 {{total}} 단계"
+    },
+    "taskPlan": "작업 계획"
+  },
+  "stats": {
+    "breakdown": {
+      "agent": "에이전트",
+      "contribution": "기여도",
+      "input": "입력",
+      "mainBadge": "메인",
+      "noSubagents": "하위 에이전트 활동 없음",
+      "output": "출력",
+      "title": "에이전트별 내역"
+    },
+    "buckets": {
+      "cache": "캐시",
+      "includingCache": "캐시 포함",
+      "input": "입력",
+      "output": "출력",
+      "percentOfInput": "입력 대비 %",
+      "thinking": "생각"
+    },
+    "cards": {
+      "avgLatency": "평균 지연 시간",
+      "cacheHit": "캐시 적중",
+      "cacheSaved": "캐시로 절약",
+      "includingThinking": "생각 포함",
+      "inputTokens": "입력 토큰",
+      "outputTokens": "출력 토큰",
+      "totalTokens": "총 토큰",
+      "ttft": "TTFT"
+    },
+    "close": "닫기",
+    "contextWindow": "컨텍스트 윈도우",
+    "dialogTitle": "세션 통계",
+    "fetchError": "통계를 가져오지 못했습니다",
+    "fetchErrorHint": "엔진이 실행 중인지 확인하세요.",
+    "noData": "아직 데이터가 없습니다",
+    "refresh": "새로고침",
+    "remaining": "남은 양",
+    "title": "통계"
+  },
+  "storage": {
+    "export": {
+      "config": "설정 내보내기",
+      "configDesc": "현재 앱 설정을 JSON으로 내보냅니다.",
+      "db": "데이터베이스 내보내기",
+      "dbDesc": "세션과 메시지를 SQLite 스냅샷으로 내보냅니다.",
+      "failed": "내보내기 실패",
+      "logs": "로그 내보내기",
+      "logsDesc": "런타임 로그를 하나의 아카이브로 묶습니다.",
+      "openFailed": "내보낸 파일을 열지 못했습니다",
+      "success": "{{path}}로 내보내기 완료",
+      "title": "데이터 내보내기"
+    }
+  },
+  "ui": {
+    "viewAvatar": "아바타 보기"
+  },
+  "updates": {
+    "autoCheckHint": "시작할 때 자동으로 업데이트를 확인합니다.",
+    "available": "업데이트 가능",
+    "check": "업데이트 확인",
+    "checkDesc": "GitHub에서 새로운 릴리스를 확인합니다.",
+    "checkFailed": "업데이트 확인에 실패했습니다",
+    "checking": "확인 중…",
+    "checkingSource": "릴리스 소스 확인 중…",
+    "checkingStatus": "상태: 확인 중",
+    "currentVersion": "현재 버전",
+    "currentVersionDesc": "현재 설치된 버전입니다.",
+    "downloadDeferred": "다운로드가 나중으로 연기됨 — {{version}}",
+    "downloadDeferredGeneric": "다운로드가 나중으로 연기되었습니다.",
+    "downloadDone": "다운로드 완료 — {{version}}",
+    "downloadDoneGeneric": "다운로드가 완료되었습니다.",
+    "downloadProgress": "{{version}} 다운로드 중… {{percent}}%",
+    "downloadProgressGeneric": "다운로드 중… {{percent}}%",
+    "downloadStarted": "다운로드 시작됨 — {{version}}",
+    "downloadStartedGeneric": "다운로드가 시작되었습니다.",
+    "downloaded": "업데이트 다운로드 완료 — 설치하려면 재시작하세요",
+    "downloading": "다운로드 중…",
+    "error": "업데이트 오류: {{message}}",
+    "foundNew": "새 버전 사용 가능 — {{version}}",
+    "foundNewGeneric": "새 버전을 사용할 수 있습니다.",
+    "idle": "대기 상태",
+    "latest": "이미 최신 버전입니다 — {{version}}",
+    "latestGeneric": "이미 최신 버전입니다.",
+    "notAvailable": "사용 가능한 업데이트가 없습니다",
+    "progress": "진행 상황",
+    "status": "업데이트 상태",
+    "statusDesc": "업데이트 확인기의 최근 결과입니다.",
+    "subtitle": "자동 업데이트를 관리하고 새 릴리스를 확인하세요.",
+    "title": "업데이트",
+    "version": "버전 {{version}}"
+  },
+  "updateModal": {
+    "title": "새 버전 사용 가능 V{{version}}",
+    "downloadCompleted": "업데이트 다운로드됨",
+    "updateNow": "지금 업데이트",
+    "backgroundUpdate": "백그라운드 업데이트",
+    "restartNow": "지금 재시작",
+    "downloadProgress": "다운로드 진행 상황",
+    "updateFailed": "업데이트 실패",
+    "retry": "다시 시도",
+    "errorMessage": "업데이트를 다운로드하는 중 오류가 발생했습니다. 나중에 다시 시도해 주세요."
+  }
+}
