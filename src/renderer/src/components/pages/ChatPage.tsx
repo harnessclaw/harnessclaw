@@ -7530,10 +7530,12 @@ function AgentTeamPanel({
   const dialogId = useId()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const tickerAgent = agents[activeIndex]
-  const tickerTask = tickerAgent?.items.reduce<SubagentInfo>(
-    (current, item) => item.subagent || current,
-    tickerAgent.task,
-  )
+  const tickerTask = tickerAgent
+    ? tickerAgent.items.reduce<SubagentInfo>(
+        (current, item) => item.subagent || current,
+        tickerAgent.task,
+      )
+    : undefined
   const liveNow = useSharedNowTicker(
     Boolean(tickerTask && getSubagentVisualStatus(tickerTask.status) === 'running'),
     250,
