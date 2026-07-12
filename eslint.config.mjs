@@ -23,7 +23,7 @@ export default tseslint.config(
       reportUnusedDisableDirectives: false
     },
     rules: {
-      ...reactHooks.configs['recommended-latest'].rules,
+      ...reactHooks.configs.recommended.rules,
       'no-undef': 'off',
       'no-unused-vars': 'off',
       'no-constant-condition': 'error',
