@@ -127,7 +127,7 @@ const YAML_RESERVED_KEYWORDS = new Set([
 // UI; user-typed model ids stay verbatim in the `model` field. Only
 // the endpoint *key* (which is renderer-controlled) gets normalized.
 function safeEndpointName(key: ManagedProviderKey, modelId: string): string {
-  const ok = /^[A-Za-z_][A-Za-z0-9_.\-]*$/.test(modelId)
+  const ok = /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(modelId)
     && !YAML_RESERVED_KEYWORDS.has(modelId.toLowerCase())
   return ok ? modelId : `${key}-${modelId}`
 }
@@ -828,4 +828,3 @@ function FormField({
     </label>
   )
 }
-

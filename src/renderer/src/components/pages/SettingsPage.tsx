@@ -2333,12 +2333,6 @@ function ModelTagBadge({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const badgeRef = useRef<HTMLSpanElement | null>(null)
 
-  const tag = MODEL_TAG_MAP[tagKey]
-  if (!tag) return null
-
-  const Icon = tag.icon
-  const label = t(tag.label)
-
   // Tooltip is rendered via a portal with `position: fixed`, so it escapes
   // the model list's overflow-y-auto container and isn't clipped at the
   // bottom edge. Coordinates are recomputed from the badge's bounding rect
@@ -2370,6 +2364,12 @@ function ModelTagBadge({
       if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [])
+
+  const tag = MODEL_TAG_MAP[tagKey]
+  if (!tag) return null
+
+  const Icon = tag.icon
+  const label = t(tag.label)
 
   return (
     <span

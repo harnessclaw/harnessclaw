@@ -7529,6 +7529,15 @@ function AgentTeamPanel({
   const [isSwitchAnimating, setIsSwitchAnimating] = useState(false)
   const dialogId = useId()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const tickerAgent = agents[activeIndex]
+  const tickerTask = tickerAgent?.items.reduce<SubagentInfo>(
+    (current, item) => item.subagent || current,
+    tickerAgent.task,
+  )
+  const liveNow = useSharedNowTicker(
+    Boolean(tickerTask && getSubagentVisualStatus(tickerTask.status) === 'running'),
+    250,
+  )
 
   useEffect(() => {
     if (agents.length === 0) {
@@ -7643,7 +7652,6 @@ function AgentTeamPanel({
   const activeVisibleItems = getVisibleItems(activeAgent)
   const activeLatestItemTs = activeAgent.items.reduce((latest, item) => Math.max(latest, item.ts), activeAgent.ts)
   const activeVisualStatus = getSubagentVisualStatus(latestActiveTask.status)
-  const liveNow = useSharedNowTicker(activeVisualStatus === 'running', 250)
   const hasLivePulse = activeVisualStatus === 'running' && liveNow - activeLatestItemTs < 1800
   const headingId = `${dialogId}-heading`
 
