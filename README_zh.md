@@ -70,6 +70,12 @@ yarn dist
 - 每个月第一天，GitHub Actions 会汇总上个月的 reward 标签，并发布一条 `statistic-YYYY-MM` 的统计 release。
 - 当前这两条 workflow 直接使用仓库默认的 `GITHUB_TOKEN`，不需要额外配置个人 access token。
 
+## 参与贡献
+
+我们欢迎任何形式的贡献 —— 代码、文档、Bug 反馈和想法都可以。第一次参与？可以从 [`good first issue`](https://github.com/harnessclaw/harnessclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) 入手，或者只是修一个错别字。完整流程 —— 环境搭建、第一个 PR、提交规范、以及带赏金的 Reward 任务 —— 都在 [CONTRIBUTING_zh.md](./CONTRIBUTING_zh.md)。
+
+如果 Harnessclaw 对你有帮助，欢迎 ⭐ **给仓库点个 Star** —— 这是新用户发现我们的主要途径。
+
 ## 📞 Support
 
 - 💬 Community Discussion: [GitHub Discussions](https://github.com/harnessclaw/harnessclaw/discussions)

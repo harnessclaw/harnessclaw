@@ -70,6 +70,12 @@ Commit, release, and changelog rules are documented in [docs/release-rules.md](.
 - On the first day of each month, GitHub Actions aggregates last month's reward tags and publishes a `statistic-YYYY-MM` release summary.
 - These automations use the default `GITHUB_TOKEN`; no extra personal access token is required for the current workflows.
 
+## Contributing
+
+We welcome contributions of every size — code, docs, bug reports, and ideas. New here? Start with a [`good first issue`](https://github.com/harnessclaw/harnessclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22), or just fix a typo. The full walkthrough — setup, first PR, commit rules, and paid reward tasks — is in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+If Harnessclaw is useful to you, please ⭐ **star the repo** — it is how new people find us.
+
 ## 📞 Support
 
 - 💬 Community Discussion: [GitHub Discussions](https://github.com/harnessclaw/harnessclaw/discussions)
