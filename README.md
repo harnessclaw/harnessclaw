@@ -4,10 +4,25 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
+[![Release](https://img.shields.io/github/v/release/harnessclaw/harnessclaw?include_prereleases)](https://github.com/harnessclaw/harnessclaw/releases)
+[![Downloads](https://img.shields.io/github/downloads/harnessclaw/harnessclaw/total)](https://github.com/harnessclaw/harnessclaw/releases)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 **Harnessclaw, your agent is ready.**
 
 Harnessclaw is a powerful, Electron-based desktop application designed to manage, chat with, and operate AI agents and skills seamlessly.
 
+## Download
+
+Ready-to-run builds are published on the [**Releases**](https://github.com/harnessclaw/harnessclaw/releases/latest) page:
+
+| Platform | File |
+|---|---|
+| macOS (Apple Silicon) | `HarnessClaw-<version>-mac-arm64.dmg` |
+| macOS (Intel) | `HarnessClaw-<version>-mac-x64.dmg` |
+| Windows (x64) | `HarnessClaw-<version>-win-x64.exe` |
+
+Installed builds update themselves - the app checks for new releases on start and
+installs them in the background, so you only need to download once.
 ## Features
 
 - 🤖 **Agent Management**: Easily manage and configure your AI agents.
@@ -24,6 +39,8 @@ Harnessclaw is a powerful, Electron-based desktop application designed to manage
 - **Database**: [Better SQLite3](https://github.com/JoshuaWise/better-sqlite3)
 
 ## Getting Started
+
+> Building from source is only needed for development. To just use the app, see [Download](#download).
 
 ### Prerequisites
 

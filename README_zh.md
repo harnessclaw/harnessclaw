@@ -4,10 +4,24 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
+[![Release](https://img.shields.io/github/v/release/harnessclaw/harnessclaw?include_prereleases)](https://github.com/harnessclaw/harnessclaw/releases)
+[![Downloads](https://img.shields.io/github/downloads/harnessclaw/harnessclaw/total)](https://github.com/harnessclaw/harnessclaw/releases)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 **Harnessclaw, your agent is ready. (你的专属智能体已就绪)**
 
 Harnessclaw 是一款基于 Electron 构建的强大桌面应用程序，旨在帮助用户无缝地管理、对话以及操作 AI 智能体（Agents）和技能（Skills）。
 
+## 下载安装
+
+开箱即用的安装包发布在 [**Releases**](https://github.com/harnessclaw/harnessclaw/releases/latest) 页面：
+
+| 平台 | 文件 |
+|---|---|
+| macOS（Apple 芯片） | `HarnessClaw-<version>-mac-arm64.dmg` |
+| macOS（Intel） | `HarnessClaw-<version>-mac-x64.dmg` |
+| Windows（x64） | `HarnessClaw-<version>-win-x64.exe` |
+
+安装后的版本会自动更新——应用启动时会检查新版本并在后台完成安装，因此只需下载一次。
 ## 主要功能
 
 - 🤖 **智能体管理**：轻松管理和配置你的 AI 智能体。
@@ -24,6 +38,8 @@ Harnessclaw 是一款基于 Electron 构建的强大桌面应用程序，旨在�
 - **数据库**: [Better SQLite3](https://github.com/JoshuaWise/better-sqlite3)
 
 ## 快速开始
+
+> 从源码构建仅用于开发。只想使用应用请见 [下载安装](#下载安装)。
 
 ### 环境要求
 
