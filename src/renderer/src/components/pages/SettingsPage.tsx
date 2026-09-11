@@ -26,6 +26,7 @@ import { NoticeToast } from '../common/NoticeToast'
 import { useAppConfig, useEngineConfig } from '@/hooks/useEngineConfig'
 import { defaultDbDisplayPath, defaultLogsDisplayPath } from '@/lib/runtimePaths'
 import {
+import { resolveLocale } from '@/lib/locale'
   ENGINE_TYPE_OPTIONS,
   MANAGED_PROVIDER_KEYS,
   PROVIDER_DEFAULT_BASES,
@@ -6340,7 +6341,7 @@ function UISection() {
           <Segment options={[{ label: t('settings.ui.fontSizeSmall'), value: 'small' }, { label: t('settings.ui.fontSizeMedium'), value: 'medium' }, { label: t('settings.ui.fontSizeLarge'), value: 'large' }]} value={fontSize} onChange={(v) => updateUi({ fontSize: v })} />
         </SettingRow>
         <SettingRow label={t('settings.ui.language')} description={t('settings.ui.languageDesc')}>
-          <SelectInput value={language} onChange={(v) => updateUi({ language: v })} options={[{ label: t('settings.ui.languageZh'), value: 'zh' }, { label: t('settings.ui.languageEn'), value: 'en' }]} />
+          <SelectInput value={language} onChange={(v) => updateUi({ language: v })} options={[{ label: t('settings.ui.languageZh'), value: 'zh' }, { label: t('settings.ui.languageEn'), value: 'en' }, { label: t('settings.ui.languageKo'), value: 'ko' }]} />
         </SettingRow>
       </GroupCard>
 
@@ -6657,8 +6658,8 @@ function getLogBadgeClass(level: LogEntry['level']): string {
   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
 }
 
-function formatLogTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
+function formatLogTime(timestamp: number, lang?: string): string {
+  return new Date(timestamp).toLocaleString(resolveLocale(lang), { hour12: false })
 }
 
 function summarizeLog(entry: LogEntry): string {
@@ -6684,7 +6685,7 @@ function mergeLogEntries(current: LogEntry[], incoming: LogEntry[]): LogEntry[] 
 }
 
 function LogsSection() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { loading } = useAppConfig()
 
   const [selectedLevel, setSelectedLevel] = useState<LogViewerLevel>('info')
@@ -6984,7 +6985,7 @@ function LogsSection() {
                               {expanded ? <ChevronDown size={15} className="mt-0.5 text-muted-foreground flex-shrink-0" /> : <ChevronRight size={15} className="mt-0.5 text-muted-foreground flex-shrink-0" />}
                               <div className="min-w-0">
                                 <p className="text-sm text-foreground break-words">{summarizeLog(entry)}</p>
-                                <p className="text-xs text-muted-foreground mt-1">{formatLogTime(entry.timestamp)}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{formatLogTime(entry.timestamp, i18n.language)}</p>
                               </div>
                             </div>
                           </div>

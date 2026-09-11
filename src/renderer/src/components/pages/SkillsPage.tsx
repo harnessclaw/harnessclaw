@@ -21,6 +21,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { NoticeToast, type NoticeTone } from '../common/NoticeToast'
+import { resolveLocale } from '@/lib/locale'
 
 interface NoticeState {
   tone: NoticeTone
@@ -161,7 +162,7 @@ function toPlainTextPreview(markdown: string): string {
 
 function formatTimestamp(value?: number, t?: (key: string) => string, i18n?: any): string {
   if (!value) return t ? t('skills.repo.neverUpdated') : ''
-  const locale = i18n?.language === 'en' ? 'en-US' : 'zh-CN'
+  const locale = resolveLocale(i18n?.language)
   return new Date(value).toLocaleString(locale, {
     month: '2-digit',
     day: '2-digit',

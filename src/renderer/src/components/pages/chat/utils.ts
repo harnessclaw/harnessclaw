@@ -7,6 +7,7 @@
 // No JSX, no hooks, no React here — just data transforms. All functions are
 // exported in a single block at the end so the original bodies stay untouched.
 import type {
+import { resolveLocale } from '@/lib/locale'
   ProjectContext, SubagentInfo, ToolActivity, Message, FilePreviewData,
   PermissionRequestData, PermissionResultData, AskQuestionRequestData, AskQuestionResultData,
   StepDecisionRequestData, StepDecisionResultData, SystemNoticeData,
@@ -935,14 +936,14 @@ function getFileLanguage(ext: string): string {
 }
 
 function formatMessageTime(lang: string, timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })
+  return new Date(timestamp).toLocaleTimeString(resolveLocale(lang), { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatTeamUpdateTime(timestamp: number): string {
+function formatTeamUpdateTime(timestamp: number, lang?: string): string {
   const target = new Date(timestamp)
   const now = new Date()
   const isSameDay = target.toDateString() === now.toDateString()
-  return target.toLocaleString('zh-CN', isSameDay
+  return target.toLocaleString(resolveLocale(lang), isSameDay
     ? { hour: '2-digit', minute: '2-digit' }
     : { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }

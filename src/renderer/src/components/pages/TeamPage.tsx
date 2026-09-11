@@ -29,6 +29,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { trackAgentCreated } from '../../lib/telemetry'
+import { resolveLocale } from '@/lib/locale'
 
 type TeamView = 'agents' | 'teams'
 type AgentTypeOption = 'sync' | 'async' | 'teammate' | 'coordinator' | 'custom'
@@ -241,7 +242,7 @@ function splitLineValues(value: string): string[] {
 }
 
 function formatRelativeDate(timestamp: number, language: string): string {
-  return new Date(timestamp).toLocaleDateString(language.startsWith('zh') ? 'zh-CN' : 'en-US', {
+  return new Date(timestamp).toLocaleDateString(resolveLocale(language), {
     month: '2-digit',
     day: '2-digit',
   })
