@@ -5,6 +5,7 @@ import { ArrowLeft, FilePlus2, FolderKanban, MoreHorizontal, Plus, SendHorizonta
 import { DangerConfirmMenu } from '../common/DangerConfirmMenu'
 import { cn } from '../../lib/utils'
 import { getProjectDisplayDescription, getProjectDisplayName } from '../../lib/projectDisplay'
+import { resolveLocale } from '@/lib/locale'
 
 const usageChartData = [
   { label: '04/09', value: 40.2 },
@@ -56,7 +57,7 @@ function getProjectSessionLabel(t: any, session: DbSessionRow): string {
 }
 
 export function ProjectWorkspacePage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
   const { projectId = '' } = useParams()
@@ -302,7 +303,7 @@ export function ProjectWorkspacePage() {
                   >
                     <p className="text-[0.98rem] font-medium text-foreground">{getProjectSessionLabel(t, session)}</p>
                     <p className="mt-0.5 text-[13px] text-muted-foreground">
-                      {new Date(session.updated_at).toLocaleString(t('common.locale'), {
+                      {new Date(session.updated_at).toLocaleString(resolveLocale(i18n.language), {
                         month: '2-digit',
                         day: '2-digit',
                         hour: '2-digit',

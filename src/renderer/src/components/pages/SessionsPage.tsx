@@ -6,6 +6,7 @@ import { Copy, FolderMinus, FolderPlus, MessageSquare, MoreHorizontal, Pencil, P
 import { cn } from '@/lib/utils'
 import { getProjectDisplayDescription, getProjectDisplayName } from '@/lib/projectDisplay'
 import { ConfirmDeleteSessionDialog } from '../common/ConfirmDeleteSessionDialog'
+import { resolveLocale } from '@/lib/locale'
 
 interface SessionRow extends DbSessionRow {
   messageCount: number
@@ -596,7 +597,7 @@ export function SessionsPage() {
                         style={{ fontSize: '14px', lineHeight: '24px' }}
                         aria-label={t('sessions.multiSelect.ariaTimeRegion', { name: getSessionLabel(session.title, session.session_id, t) })}
                       >
-                        {new Date(session.updated_at).toLocaleString('zh-CN', {
+                        {new Date(session.updated_at).toLocaleString(resolveLocale(i18n.language), {
                           year: 'numeric',
                           month: '2-digit',
                           day: '2-digit',
@@ -606,7 +607,7 @@ export function SessionsPage() {
                       </button>
                     ) : (
                       <div className="flex items-center text-muted-foreground" style={{ fontSize: '14px', lineHeight: '24px' }}>
-                        {new Date(session.updated_at).toLocaleString('zh-CN', {
+                        {new Date(session.updated_at).toLocaleString(resolveLocale(i18n.language), {
                           year: 'numeric',
                           month: '2-digit',
                           day: '2-digit',

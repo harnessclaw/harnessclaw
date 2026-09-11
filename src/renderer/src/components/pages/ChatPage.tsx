@@ -66,6 +66,7 @@ import type {
 // FilePreviewModal) keep resolving these from ChatPage unchanged.
 export type { ArtifactRef, FilePreviewData, LinkOpenBehavior } from './chat/types'
 import {
+import { resolveLocale } from '@/lib/locale'
   createEmptyCollaborationState, createSyncAgentState, createEmptySessionState, createPersistentSessionId,
   normalizeProjectContext, parseProjectContextJson, buildMessagePayload, stripProjectContextBlock,
   extractAttachments, normalizeSubagent, isSameSubagent, getModuleKey, parseJsonObject, isRecord,
@@ -811,7 +812,7 @@ const ConversationQuickNav = memo(function ConversationQuickNav({
 })
 
 function TeamStackDeck({ teams }: { teams: TeamState[] }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [activeIndex, setActiveIndex] = useState(0)
   const [detailOpen, setDetailOpen] = useState(false)
   const dialogId = useId()
@@ -941,7 +942,7 @@ function TeamStackDeck({ teams }: { teams: TeamState[] }) {
                 </div>
               </div>
               <div className="team-stack-card-foot">
-                <span>{t('chat.team.lastUpdate', { time: formatTeamUpdateTime(activeTeam.updatedAt) })}</span>
+                <span>{t('chat.team.lastUpdate', { time: formatTeamUpdateTime(activeTeam.updatedAt, i18n.language) })}</span>
                 <span className="inline-flex items-center gap-2">
                   <span>{t('chat.team.details')}</span>
                   <span className="team-stack-card-dot" />
@@ -1024,7 +1025,7 @@ function TeamStackDeck({ teams }: { teams: TeamState[] }) {
               <div className="team-stack-dialog-panel">
                 <p className="team-stack-dialog-label">{t('chat.team.size')}</p>
                 <p className="team-stack-dialog-stat">{activeTeam.members.length}</p>
-                <p className="team-stack-dialog-copy">{t('chat.team.lastUpdate', { time: formatTeamUpdateTime(activeTeam.updatedAt) })}</p>
+                <p className="team-stack-dialog-copy">{t('chat.team.lastUpdate', { time: formatTeamUpdateTime(activeTeam.updatedAt, i18n.language) })}</p>
               </div>
             </div>
 
@@ -3320,7 +3321,7 @@ export function ChatPage() {
     }
 
     setDbSessions(rows)
-    setSessions(rows.map((row) => ({ key: row.session_id, updatedAt: new Date(row.updated_at).toLocaleString('zh-CN') })))
+    setSessions(rows.map((row) => ({ key: row.session_id, updatedAt: new Date(row.updated_at).toLocaleString(resolveLocale(i18n.language)) })))
     setSessionProjectContexts((prev) => {
       const next = { ...prev }
       for (const row of rows) {

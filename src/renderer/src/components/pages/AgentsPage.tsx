@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Search, MoreHorizontal, Bot, Trash2, Pencil, Archive } from 'lucide-react'
+import { resolveLocale } from '@/lib/locale'
 
 interface Agent {
   id: string
@@ -150,7 +151,7 @@ function AgentCard({ agent }: { agent: Agent }) {
 
       {/* Created time */}
       <p className="text-xs text-muted-foreground mt-2">
-        {new Date(agent.createdAt).toLocaleDateString(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US')}
+        {new Date(agent.createdAt).toLocaleDateString(resolveLocale(i18n.language))}
       </p>
     </div>
   )
