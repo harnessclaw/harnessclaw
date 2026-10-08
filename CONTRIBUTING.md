@@ -28,7 +28,7 @@ yarn install
 yarn dev          # launches the app in development mode
 ```
 
-Requirements: Node.js v18+ and Yarn. If `yarn dev` starts and the window opens, you are ready.
+Requirements: Node.js v22.12+ and Yarn Classic (1.22). CI uses Node.js 22. If `yarn dev` starts and the window opens, you are ready.
 
 ### 2. Create a branch
 
@@ -39,7 +39,7 @@ git checkout -b fix/short-description
 ### 3. Make your change
 
 - Keep the change focused — one logical change per PR.
-- Match the surrounding code style. Run `yarn lint` before you commit.
+- Match the surrounding code style. Run `yarn test` before you commit.
 - If your change is user-visible, update the changelog (see [docs/release-rules.md](./docs/release-rules.md)).
 
 ### 4. Commit
@@ -59,6 +59,36 @@ git push origin fix/short-description
 ```
 
 Open the PR against `main`, fill in the template (summary, checklist, linked issue), and a maintainer will review it. Draft PRs are fine if you want early feedback.
+
+## Tests
+
+Run the build and automated regression tests before opening a pull request:
+
+```bash
+yarn install --frozen-lockfile
+yarn test
+```
+
+`yarn test` builds the main, preload, and renderer code, then runs every
+`scripts/*.test.cjs` file with Node's built-in test runner. The suite covers browser
+session isolation and lifecycle, engine configuration migration, markdown image
+URLs, and bundled runtime preparation. It uses mocked Electron windows and
+database storage; it does not require a running engine, credentials, or a GUI.
+CI runs this command on Linux, Windows, and macOS for pushes and pull requests.
+
+Add or update automated tests for new functionality and behavior changes. Include
+a regression test for each bug fix when practical. Keep tests deterministic and
+independent of external services. If a change cannot reasonably be automated,
+explain why in the PR and describe the manual checks you performed. UI, native
+module, and packaging changes also need a manual check of the affected app flow;
+the unit suite does not replace those checks.
+
+For build and unit tests only, `yarn install --frozen-lockfile --ignore-scripts`
+skips Electron downloads and native module rebuilds. Use the normal install
+command above before running the desktop app.
+
+For security issues, follow [SECURITY.md](./SECURITY.md) instead of opening a
+public issue.
 
 ## Commit & Changelog Rules
 

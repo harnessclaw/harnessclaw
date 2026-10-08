@@ -9,6 +9,7 @@
     "dev": "electron-vite dev",
     "dev:vscode": "yarn ensure:electron-native && yarn dev",
     "build": "electron-vite build",
+    "test": "yarn build && node --test scripts/*.test.cjs",
     "ensure:electron-native": "node scripts/ensure-electron-native.cjs",
     "postinstall": "electron-builder install-app-deps",
     "rebuild:electron-native": "electron-builder install-app-deps",

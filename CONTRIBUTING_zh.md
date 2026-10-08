@@ -28,7 +28,7 @@ yarn install
 yarn dev          # 以开发模式启动应用
 ```
 
-环境要求：Node.js v18+ 和 Yarn。只要 `yarn dev` 能启动并弹出窗口，你就准备好了。
+环境要求：Node.js v22.12+ 和 Yarn Classic（1.22）。CI 使用 Node.js 22。只要 `yarn dev` 能启动并弹出窗口，你就准备好了。
 
 ### 2. 新建分支
 
@@ -39,7 +39,7 @@ git checkout -b fix/short-description
 ### 3. 修改代码
 
 - 保持改动聚焦 —— 一个 PR 只做一件事。
-- 与周围代码风格保持一致，提交前先跑 `yarn lint`。
+- 与周围代码风格保持一致，提交前先跑 `yarn test`。
 - 如果改动对用户可见，记得更新 changelog（见 [docs/release-rules.md](./docs/release-rules.md)）。
 
 ### 4. 提交
@@ -59,6 +59,30 @@ git push origin fix/short-description
 ```
 
 向 `main` 分支发起 PR，按模板填写（改动摘要、检查项、关联 Issue），维护者会进行 Review。如果想尽早获得反馈，也可以先发 Draft PR。
+
+## 测试
+
+发起 PR 前，请运行构建和自动化回归测试：
+
+```bash
+yarn install --frozen-lockfile
+yarn test
+```
+
+`yarn test` 先构建主进程、预加载脚本和渲染进程，再通过 Node 内置测试运行器执行所有
+`scripts/*.test.cjs` 文件。测试覆盖浏览器会话隔离与生命周期、引擎配置迁移、Markdown
+图片 URL 和运行时打包准备。测试使用模拟的 Electron 窗口和数据库存储，不需要启动引擎、
+提供凭据或打开图形界面。CI 在每次推送和 PR 时于 Linux、Windows 和 macOS 上运行此命令。
+
+新增功能和行为变更应添加或更新自动化测试；修复缺陷时，在可行的情况下加入回归测试。
+测试应可重复运行且不依赖外部服务。无法合理实现自动化测试时，请在 PR 中解释原因，
+并说明已执行的手动检查。涉及界面、原生模块或打包的改动，还需要手动验证受影响的应用流程；
+单元测试不能替代这些检查。
+
+仅运行构建和单元测试时，可以使用 `yarn install --frozen-lockfile --ignore-scripts`
+跳过 Electron 下载和原生模块重建。启动桌面应用前，请使用上面的常规安装命令。
+
+安全问题请按照 [SECURITY.md](./SECURITY.md) 私密上报，不要创建公开 Issue。
 
 ## 提交与 Changelog 规则
 

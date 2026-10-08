@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { join } = require('node:path')
+const { join, resolve } = require('node:path')
 const test = require('node:test')
 
 const { createBundledBinaryPlan } = require('./prepare-bundled-binaries.cjs')
@@ -20,14 +20,15 @@ test('uses explicit local engine source from environment', () => {
 })
 
 test('uses explicit local engine source from arguments', () => {
+  const engineSourceDir = resolve(__dirname, 'fixtures', 'harnessclaw-engine')
   const plan = createBundledBinaryPlan({
-    argv: ['--platform', 'darwin', '--arch', 'arm64', '--output-dir', 'resources/bin', '--engine-source-dir', '/tmp/harnessclaw-engine'],
+    argv: ['--platform', 'darwin', '--arch', 'arm64', '--output-dir', 'resources/bin', '--engine-source-dir', engineSourceDir],
     env: { HARNESSCLAW_ENGINE_SOURCE_DIR: '../ignored-engine' },
     scriptDir: __dirname,
   })
 
-  assert.equal(plan.runtime.sourceDir, '/tmp/harnessclaw-engine')
-  assert.equal(plan.runtime.localScript, join('/tmp/harnessclaw-engine', 'scripts', 'prepare-runtime.cjs'))
+  assert.equal(plan.runtime.sourceDir, engineSourceDir)
+  assert.equal(plan.runtime.localScript, join(engineSourceDir, 'scripts', 'prepare-runtime.cjs'))
 })
 
 test('requires explicit local engine source without sibling fallback', () => {
