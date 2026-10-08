@@ -1,0 +1,44 @@
+name: Native dependencies
+
+on:
+  push:
+    paths:
+      - package.json
+      - yarn.lock
+      - scripts/ensure-electron-native.cjs
+      - .github/workflows/native-dependencies.yml
+  pull_request:
+    paths:
+      - package.json
+      - yarn.lock
+      - scripts/ensure-electron-native.cjs
+      - .github/workflows/native-dependencies.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-smoke:
+    name: Electron and SQLite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Install dependencies and rebuild SQLite for Electron
+        run: yarn install --frozen-lockfile --non-interactive
+      - name: Verify SQLite loads and executes a query in Electron
+        run: yarn ensure:electron-native
+      - name: Build all application bundles
+        run: yarn build

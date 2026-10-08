@@ -5,6 +5,9 @@
   "description": "harnessclaw,your agent is ready",
   "license": "Apache-2.0",
   "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "dev:vscode": "yarn ensure:electron-native && yarn dev",
@@ -29,6 +32,7 @@
   },
   "resolutions": {
     "esbuild": "^0.28.1",
+    "fast-uri": "^3.1.7",
     "flatted": "^3.4.2",
     "form-data": "^4.0.6",
     "postcss": "8.5.26",
@@ -44,7 +48,7 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.19",
-    "electron": "^39.8.5",
+    "electron": "^42.11.12",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.2",
@@ -69,7 +73,7 @@
     "@radix-ui/react-toast": "^1.2.1",
     "@radix-ui/react-tooltip": "^1.1.2",
     "@tailwindcss/typography": "^0.5.19",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^12.11.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "electron-updater": "^6.3.9",

@@ -28,7 +28,7 @@ yarn install
 yarn dev          # launches the app in development mode
 ```
 
-Requirements: Node.js v18+ and Yarn. If `yarn dev` starts and the window opens, you are ready.
+Requirements: Node.js v22.12+ and Yarn Classic (1.22). CI uses Node.js 22. If `yarn dev` starts and the window opens, you are ready.
 
 ### 2. Create a branch
 

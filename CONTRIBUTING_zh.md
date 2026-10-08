@@ -28,7 +28,7 @@ yarn install
 yarn dev          # 以开发模式启动应用
 ```
 
-环境要求：Node.js v18+ 和 Yarn。只要 `yarn dev` 能启动并弹出窗口，你就准备好了。
+环境要求：Node.js v22.12+ 和 Yarn Classic（1.22）。CI 使用 Node.js 22。只要 `yarn dev` 能启动并弹出窗口，你就准备好了。
 
 ### 2. 新建分支
 

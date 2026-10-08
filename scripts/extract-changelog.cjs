@@ -88,7 +88,7 @@ function composeBilingualBody(changelogDir, version) {
 
 function extractVersionSection(changelogDir, version, locale) {
   const release = findRelease(changelogDir, version)
-  const title = `## [${release.version}] - ${release.date}`
+  const title = `## [${release.version}]${release.date ? ` - ${release.date}` : ''}`
 
   if (locale === 'bilingual') {
     return {

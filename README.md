@@ -44,8 +44,8 @@ installs them in the background, so you only need to download once.
 
 ### Prerequisites
 
-- Node.js (v18 or higher recommended)
-- Yarn package manager
+- Node.js v22.12 or higher
+- Yarn Classic (1.22)
 
 ### Installation
 

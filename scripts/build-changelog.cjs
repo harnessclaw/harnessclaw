@@ -42,7 +42,8 @@ function buildDocument(locale) {
   const lines = [config.title, '', ...config.intro]
 
   releases.forEach((release) => {
-    lines.push('', `## [${release.version}] - ${release.date}`, '', readSection(release.version, locale))
+    const dateSuffix = release.date ? ` - ${release.date}` : ''
+    lines.push('', `## [${release.version}]${dateSuffix}`, '', readSection(release.version, locale))
   })
 
   return `${lines.join('\n').trim()}\n`

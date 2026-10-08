@@ -43,8 +43,8 @@ Harnessclaw 是一款基于 Electron 构建的强大桌面应用程序，旨在�
 
 ### 环境要求
 
-- Node.js (推荐 v18 或更高版本)
-- Yarn 包管理器
+- Node.js v22.12 或更高版本
+- Yarn Classic（1.22）
 
 ### 安装
 
